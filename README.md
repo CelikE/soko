@@ -55,9 +55,15 @@ soko status
 | Flag | Scope | Description |
 |------|-------|-------------|
 | `--json` | Global | Output in JSON format (works with `status` and `list`) |
+| `--dirty` | `status` | Show only repos with uncommitted changes |
+| `--clean` | `status` | Show only clean repos in sync with remote |
+| `--ahead` | `status` | Show only repos ahead of remote |
+| `--behind` | `status` | Show only repos behind remote |
 
 ```bash
 soko status --json
+soko status --dirty
+soko status --dirty --behind    # filters combine with OR
 soko list --json
 ```
 
