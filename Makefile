@@ -5,7 +5,7 @@ COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: build install test test-v lint fmt tidy check clean
+.PHONY: build install test test-v lint fmt tidy check clean changelog changelog-check changelog-add
 
 ## build: Compile the binary
 build:
@@ -42,6 +42,18 @@ check: fmt lint test
 ## clean: Remove build artifacts
 clean:
 	rm -f $(BINARY)
+
+## changelog: Generate changelog
+changelog:
+	chagg generate
+
+## changelog-check: Validate change entries
+changelog-check:
+	chagg check
+
+## changelog-add: Add a new change entry
+changelog-add:
+	chagg add
 
 ## help: Show this help
 help:
