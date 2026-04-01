@@ -46,7 +46,8 @@ func newStatusCmd() *cobra.Command {
 			// Restore config order and compute summary.
 			rows := make([]output.StatusRow, len(collected))
 			var dirtyCount, behindCount, totalChanges int
-			for _, r := range collected {
+			for i := range collected {
+				r := &collected[i]
 				rows[r.index] = r.row
 				if r.dirty {
 					dirtyCount++
@@ -161,9 +162,9 @@ type statusJSON struct {
 
 func renderStatusJSON(w io.Writer, repos []config.RepoEntry, results []statusResult) error {
 	// Index results by position.
-	indexed := make(map[int]statusResult, len(results))
-	for _, r := range results {
-		indexed[r.index] = r
+	indexed := make(map[int]*statusResult, len(results))
+	for i := range results {
+		indexed[results[i].index] = &results[i]
 	}
 
 	entries := make([]statusJSON, len(repos))

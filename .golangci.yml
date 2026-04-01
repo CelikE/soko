@@ -6,6 +6,10 @@ run:
 formatters:
   enable:
     - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/CelikE/soko
 
 linters:
   enable:
@@ -24,44 +28,40 @@ linters:
     - noctx
     - prealloc
     - whitespace
-
-linters-settings:
-  goimports:
-    local-prefixes: github.com/CelikE/soko
-  revive:
-    rules:
-      - name: exported
-        arguments:
-          - checkPrivateReceivers
-      - name: blank-imports
-      - name: context-as-argument
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: increment-decrement
-      - name: var-naming
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: indent-error-flow
-      - name: empty-block
-      - name: superfluous-else
-      - name: unreachable-code
-      - name: redefines-builtin-id
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  nolintlint:
-    require-explanation: true
-    require-specific: true
-  errorlint:
-    errorf: true
-    asserts: true
-    comparison: true
+  settings:
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: increment-decrement
+        - name: var-naming
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
