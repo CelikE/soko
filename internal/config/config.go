@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -153,4 +154,25 @@ func RemoveRepoByPath(cfg *Config, path string) (*Config, RepoEntry, error) {
 func Clear(cfg *Config) *Config {
 	cfg.Repos = nil
 	return cfg
+}
+
+// FindRepo searches for repos matching the query. It first tries an exact
+// match on Name, then falls back to prefix matching. Returns all matches.
+func FindRepo(cfg *Config, query string) []RepoEntry {
+	// Exact match.
+	for _, r := range cfg.Repos {
+		if r.Name == query {
+			return []RepoEntry{r}
+		}
+	}
+
+	// Prefix match.
+	var matches []RepoEntry
+	for _, r := range cfg.Repos {
+		if strings.HasPrefix(r.Name, query) {
+			matches = append(matches, r)
+		}
+	}
+
+	return matches
 }
