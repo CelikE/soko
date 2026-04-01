@@ -29,20 +29,47 @@ type StatusRow struct {
 	State           RowState
 }
 
-const (
-	colRepo   = 20
-	colBranch = 16
-	colStatus = 14
-	colAB     = 10
-)
+// columnWidths computes the width for each column based on the actual data,
+// with minimum widths so headers are never truncated.
+func columnWidths(rows []StatusRow) (repo, branch, status, ab int) {
+	repo = len("REPO")
+	branch = len("BRANCH")
+	status = len("STATUS")
+	ab = len("↑↓")
+
+	for _, r := range rows {
+		if len(r.Name) > repo {
+			repo = len(r.Name)
+		}
+		if len(r.Branch) > branch {
+			branch = len(r.Branch)
+		}
+		if len(r.StatusText) > status {
+			status = len(r.StatusText)
+		}
+		if len(r.AheadBehindText) > ab {
+			ab = len(r.AheadBehindText)
+		}
+	}
+
+	// Add padding between columns.
+	repo += 2
+	branch += 2
+	status += 2
+	ab += 2
+
+	return repo, branch, status, ab
+}
 
 // RenderStatusTable writes a formatted status table to w.
 func RenderStatusTable(w io.Writer, rows []StatusRow) {
+	cRepo, cBranch, cStatus, cAB := columnWidths(rows)
+
 	header := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
-		colRepo, "REPO",
-		colBranch, "BRANCH",
-		colStatus, "STATUS",
-		colAB, "↑↓",
+		cRepo, "REPO",
+		cBranch, "BRANCH",
+		cStatus, "STATUS",
+		cAB, "↑↓",
 		"LAST COMMIT",
 	)
 	_, _ = fmt.Fprintln(w, header)
@@ -50,10 +77,10 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 
 	for _, r := range rows {
 		line := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
-			colRepo, r.Name,
-			colBranch, r.Branch,
-			colStatus, r.StatusText,
-			colAB, r.AheadBehindText,
+			cRepo, r.Name,
+			cBranch, r.Branch,
+			cStatus, r.StatusText,
+			cAB, r.AheadBehindText,
 			r.LastCommitText,
 		)
 
