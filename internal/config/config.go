@@ -13,7 +13,15 @@ import (
 
 // ErrRepoAlreadyExists is returned when attempting to add a repo whose path
 // is already registered in the config.
-var ErrRepoAlreadyExists = errors.New("repo already exists")
+var (
+	// ErrRepoAlreadyExists is returned when attempting to add a repo whose path
+	// is already registered in the config.
+	ErrRepoAlreadyExists = errors.New("repo already exists")
+
+	// ErrRepoNotFound is returned when attempting to remove a repo that is not
+	// registered in the config.
+	ErrRepoNotFound = errors.New("repo not found")
+)
 
 // RepoEntry represents a single registered git repository.
 type RepoEntry struct {
@@ -113,4 +121,36 @@ func AddRepo(cfg *Config, entry RepoEntry) (*Config, error) {
 
 	cfg.Repos = append(cfg.Repos, entry)
 	return cfg, nil
+}
+
+// RemoveRepo removes a repo from the config by name. It returns
+// ErrRepoNotFound if no repo with the given name exists.
+func RemoveRepo(cfg *Config, name string) (*Config, RepoEntry, error) {
+	for i, r := range cfg.Repos {
+		if r.Name == name {
+			removed := cfg.Repos[i]
+			cfg.Repos = append(cfg.Repos[:i], cfg.Repos[i+1:]...)
+			return cfg, removed, nil
+		}
+	}
+	return cfg, RepoEntry{}, ErrRepoNotFound
+}
+
+// RemoveRepoByPath removes a repo from the config by path. It returns
+// ErrRepoNotFound if no repo with the given path exists.
+func RemoveRepoByPath(cfg *Config, path string) (*Config, RepoEntry, error) {
+	for i, r := range cfg.Repos {
+		if r.Path == path {
+			removed := cfg.Repos[i]
+			cfg.Repos = append(cfg.Repos[:i], cfg.Repos[i+1:]...)
+			return cfg, removed, nil
+		}
+	}
+	return cfg, RepoEntry{}, ErrRepoNotFound
+}
+
+// Clear removes all repos from the config.
+func Clear(cfg *Config) *Config {
+	cfg.Repos = nil
+	return cfg
 }
