@@ -10,6 +10,11 @@
 
 soko (倉庫 — "storehouse") is a fast, zero-dependency CLI for managing multiple git repositories. Register your repos once, then see the status of all of them from anywhere with a single command. No more `cd`-ing between directories and running `git status` one at a time.
 
+## Prerequisites
+
+- **Git** — soko shells out to `git` for all repository operations
+- **Go 1.22+** — only needed if installing from source or via `go install`
+
 ## Quick start
 
 ```bash
