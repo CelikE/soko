@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Build output
+/soko
+
 # Editor/IDE
 # .idea/
 # .vscode/
