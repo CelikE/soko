@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="soko-banner.svg" alt="soko — All your repos, one command." width="600">
+  <img src="docs/soko-banner.svg" alt="soko — All your repos, one command." width="600">
 </p>
 
 <p align="center">
