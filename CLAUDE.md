@@ -342,8 +342,11 @@ After merging a PR to `master`, check what changed:
    chagg check
    chagg generate > CHANGELOG.md
    git add CHANGELOG.md && git commit -m "chore: update changelog"
-   chagg release --push
+   chagg release vX.Y.Z
+   git push origin vX.Y.Z
    ```
+   Pushing the `v`-prefixed tag triggers the GitHub Actions release workflow,
+   which automatically creates a GitHub Release with chagg-generated notes.
 5. Report the new version to the user after the release is done
 
 Do not ask the user for permission to release. Just do it when the criteria above are met.
@@ -417,6 +420,9 @@ chagg log
 
 ### Releasing
 
+Tags use the `v` prefix (e.g., `v0.2.0`). Pushing a tag triggers the GitHub Actions
+release workflow which automatically creates a GitHub Release with chagg-generated notes.
+
 ```bash
 # Generate changelog markdown
 chagg generate > CHANGELOG.md
@@ -425,10 +431,10 @@ chagg generate > CHANGELOG.md
 chagg release --dry-run
 
 # Create the version tag for real
-chagg release
+chagg release vX.Y.Z
 
-# Create tag and push to remote in one step
-chagg release --push
+# Push the tag to trigger the release workflow
+git push origin vX.Y.Z
 ```
 
 ### Machine-readable output
@@ -452,8 +458,13 @@ VERSION=$(chagg release --dry-run --version-only)
 
 ### CI integration
 
-- Run `chagg check` on every PR to validate change entries
-- Run `chagg generate` + `chagg release --push` on merge to master for releases
+GitHub Actions workflows in `.github/workflows/`:
+
+- **`ci.yml`** — runs on push to `master` and PRs: lint, test, and `chagg check` validation
+- **`release.yml`** — triggers on `v*` tag pushes: generates release notes via chagg and
+  creates a GitHub Release automatically
+
+Both require `CHAGG_API_KEY` secret configured in the repo settings.
 
 ---
 
