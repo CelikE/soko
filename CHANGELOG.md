@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- Fix golangci-lint v2 configuration for CI compatibility
+
+### Chores
+
+- Add CI and automated release GitHub Actions workflows
+
+## v0.1.0
+
 ### Features
 
 - Register git repos in a global config with soko init.
