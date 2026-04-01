@@ -45,6 +45,30 @@ func TestParseStatusOutput(t *testing.T) {
 			},
 		},
 		{
+			name: "ahead only",
+			raw: `# branch.oid abc123
+# branch.head feature/auth
+# branch.upstream origin/feature/auth
+# branch.ab +3 -0`,
+			want: RepoStatus{
+				Branch: "feature/auth",
+				Ahead:  3,
+				Behind: 0,
+			},
+		},
+		{
+			name: "behind only",
+			raw: `# branch.oid abc123
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -7`,
+			want: RepoStatus{
+				Branch: "main",
+				Ahead:  0,
+				Behind: 7,
+			},
+		},
+		{
 			name: "ahead and behind remote",
 			raw: `# branch.oid abc123
 # branch.head feature/auth
