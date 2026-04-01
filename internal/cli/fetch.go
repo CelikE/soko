@@ -111,7 +111,7 @@ func newFetchCmd() *cobra.Command {
 			output.RenderFetchSummary(w, len(rows), fetched, failed)
 
 			if failed > 0 {
-				os.Exit(1)
+				return fmt.Errorf("%d repos failed to fetch", failed)
 			}
 
 			return nil
