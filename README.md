@@ -49,6 +49,7 @@ soko status
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
+| `soko cd` | Print the path of a repo (for `cd $(soko cd name)`) |
 | `soko version` | Print the soko version |
 
 ## Flags
@@ -67,7 +68,18 @@ soko status --json
 soko status --dirty
 soko status --dirty --behind    # filters combine with OR
 soko list --json
+cd $(soko cd auth)              # jump to a repo by name
 ```
+
+### Shell wrapper for `soko cd`
+
+Add to your `.bashrc` or `.zshrc` for quick navigation:
+
+```bash
+s() { local dir; dir=$(soko cd "$@") && cd "$dir"; }
+```
+
+Then use `s auth` to jump to the auth-service repo.
 
 ## Configuration
 
