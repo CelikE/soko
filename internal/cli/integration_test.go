@@ -1,0 +1,397 @@
+package cli_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/CelikE/soko/internal/cli"
+)
+
+// testEnv sets up a temp config dir and returns the XDG path and a cleanup
+// function. Tests should call t.Setenv to point XDG_CONFIG_HOME at the
+// returned directory.
+func testEnv(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	return dir
+}
+
+// initRepo creates a git repo at the given path with an initial commit.
+func initRepo(t *testing.T, path string) {
+	t.Helper()
+
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("creating repo dir: %v", err)
+	}
+
+	ctx := context.Background()
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+		cmd.Dir = path
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("running %v: %v\n%s", args, err, out)
+		}
+	}
+
+	readme := filepath.Join(path, "README.md")
+	if err := os.WriteFile(readme, []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("writing README: %v", err)
+	}
+
+	add := exec.CommandContext(ctx, "git", "add", ".")
+	add.Dir = path
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+
+	commit := exec.CommandContext(ctx, "git", "commit", "-m", "initial commit")
+	commit.Dir = path
+	commit.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if out, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+}
+
+// runSoko executes a soko command and returns stdout.
+func runSoko(t *testing.T, args ...string) string {
+	t.Helper()
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs(args)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("soko %s: %v", strings.Join(args, " "), err)
+	}
+
+	return stdout.String()
+}
+
+// runSokoInDir executes soko init in a specific directory by changing the
+// working directory temporarily.
+func runSokoInit(t *testing.T, dir string) string {
+	t.Helper()
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getting cwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir to %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	return runSoko(t, "init")
+}
+
+func TestIntegration_InitAndList(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "my-repo")
+	initRepo(t, dir)
+
+	out := runSokoInit(t, dir)
+	if !strings.Contains(out, "registered:") {
+		t.Errorf("init output = %q, want 'registered:'", out)
+	}
+
+	out = runSoko(t, "list")
+	if !strings.Contains(out, "my-repo") {
+		t.Errorf("list output = %q, want to contain 'my-repo'", out)
+	}
+}
+
+func TestIntegration_InitDuplicate(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "my-repo")
+	initRepo(t, dir)
+
+	runSokoInit(t, dir)
+	out := runSokoInit(t, dir)
+	if !strings.Contains(out, "already registered:") {
+		t.Errorf("init duplicate output = %q, want 'already registered:'", out)
+	}
+}
+
+func TestIntegration_RemoveByName(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "my-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "remove", "my-repo")
+	if !strings.Contains(out, "removed:") {
+		t.Errorf("remove output = %q, want 'removed:'", out)
+	}
+
+	out = runSoko(t, "list")
+	if !strings.Contains(out, "no repos registered") {
+		t.Errorf("list after remove = %q, want 'no repos registered'", out)
+	}
+}
+
+func TestIntegration_StatusCleanRepo(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "clean-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "status")
+	if !strings.Contains(out, "clean") {
+		t.Errorf("status output = %q, want to contain 'clean'", out)
+	}
+	if !strings.Contains(out, "0 dirty") {
+		t.Errorf("status output = %q, want to contain '0 dirty'", out)
+	}
+}
+
+func TestIntegration_StatusDirtyRepo(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "dirty-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	// Make it dirty.
+	if err := os.WriteFile(filepath.Join(dir, "new-file.txt"), []byte("change"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "status")
+	if !strings.Contains(out, "1U") {
+		t.Errorf("status output = %q, want to contain '1U'", out)
+	}
+	if !strings.Contains(out, "1 dirty") {
+		t.Errorf("status output = %q, want to contain '1 dirty'", out)
+	}
+}
+
+func TestIntegration_StatusFilterDirty(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	// Create clean and dirty repos.
+	cleanDir := filepath.Join(base, "clean-repo")
+	dirtyDir := filepath.Join(base, "dirty-repo")
+	initRepo(t, cleanDir)
+	initRepo(t, dirtyDir)
+
+	runSokoInit(t, cleanDir)
+	runSokoInit(t, dirtyDir)
+
+	// Dirty one repo.
+	if err := os.WriteFile(filepath.Join(dirtyDir, "change.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "status", "--dirty")
+	if !strings.Contains(out, "dirty-repo") {
+		t.Errorf("--dirty output = %q, want to contain 'dirty-repo'", out)
+	}
+	if strings.Contains(out, "clean-repo") {
+		t.Errorf("--dirty output = %q, should not contain 'clean-repo'", out)
+	}
+}
+
+func TestIntegration_StatusFilterClean(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	cleanDir := filepath.Join(base, "clean-repo")
+	dirtyDir := filepath.Join(base, "dirty-repo")
+	initRepo(t, cleanDir)
+	initRepo(t, dirtyDir)
+
+	runSokoInit(t, cleanDir)
+	runSokoInit(t, dirtyDir)
+
+	if err := os.WriteFile(filepath.Join(dirtyDir, "change.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "status", "--clean")
+	if !strings.Contains(out, "clean-repo") {
+		t.Errorf("--clean output = %q, want to contain 'clean-repo'", out)
+	}
+	if strings.Contains(out, "dirty-repo") {
+		t.Errorf("--clean output = %q, should not contain 'dirty-repo'", out)
+	}
+}
+
+func TestIntegration_StatusFilterNoMatch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "clean-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	// All repos are clean, --dirty should match nothing.
+	out := runSoko(t, "status", "--dirty")
+	if !strings.Contains(out, "no repos match the filter") {
+		t.Errorf("--dirty on clean repos = %q, want 'no repos match the filter'", out)
+	}
+}
+
+func TestIntegration_StatusJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "json-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "status", "--json")
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("JSON entries = %d, want 1", len(entries))
+	}
+	if entries[0]["name"] != "json-repo" {
+		t.Errorf("JSON name = %v, want 'json-repo'", entries[0]["name"])
+	}
+}
+
+func TestIntegration_StatusFilterDirtyJSON(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	cleanDir := filepath.Join(base, "clean-repo")
+	dirtyDir := filepath.Join(base, "dirty-repo")
+	initRepo(t, cleanDir)
+	initRepo(t, dirtyDir)
+
+	runSokoInit(t, cleanDir)
+	runSokoInit(t, dirtyDir)
+
+	if err := os.WriteFile(filepath.Join(dirtyDir, "change.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "status", "--dirty", "--json")
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("JSON entries = %d, want 1", len(entries))
+	}
+	if entries[0]["name"] != "dirty-repo" {
+		t.Errorf("JSON name = %v, want 'dirty-repo'", entries[0]["name"])
+	}
+}
+
+func TestIntegration_Fetch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "fetch-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "fetch")
+	if !strings.Contains(out, "fetched") {
+		t.Errorf("fetch output = %q, want to contain 'fetched'", out)
+	}
+}
+
+func TestIntegration_FetchMissingPath(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "temp-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	// Remove the repo directory.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("removing dir: %v", err)
+	}
+
+	// Fetch should not panic — it should show failure and return an error.
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"fetch"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("fetch with missing path should return an error")
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "path not found") {
+		t.Errorf("fetch missing path output = %q, want 'path not found'", out)
+	}
+}
+
+func TestIntegration_StatusMissingPath(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "gone-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("removing dir: %v", err)
+	}
+
+	out := runSoko(t, "status")
+	if !strings.Contains(out, "not found") {
+		t.Errorf("status missing path = %q, want to contain 'not found'", out)
+	}
+}
+
+func TestIntegration_ListJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "list-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "list", "--json")
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("JSON entries = %d, want 1", len(entries))
+	}
+	if entries[0]["name"] != "list-repo" {
+		t.Errorf("JSON name = %v, want 'list-repo'", entries[0]["name"])
+	}
+}
+
+func TestIntegration_Version(t *testing.T) {
+	out := runSoko(t, "version")
+	if !strings.Contains(out, "soko test") {
+		t.Errorf("version output = %q, want 'soko test'", out)
+	}
+}
+
+func TestIntegration_RemoveAll(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	for _, name := range []string{"repo-a", "repo-b"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+
+	out := runSoko(t, "remove", "--all", "--force")
+	if !strings.Contains(out, "removed all 2 repos") {
+		t.Errorf("remove --all output = %q, want 'removed all 2 repos'", out)
+	}
+}
