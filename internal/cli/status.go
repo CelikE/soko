@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -54,15 +55,16 @@ func newStatusCmd() *cobra.Command {
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
-				return renderStatusJSON(w, cfg.Repos, collected)
+				return renderStatusJSON(w, collected)
 			}
 
-			// Restore config order and compute summary.
+			// Sort by original config order and compute summary.
+			sortByIndex(collected)
 			rows := make([]output.StatusRow, len(collected))
 			var dirtyCount, behindCount, totalChanges int
 			for i := range collected {
 				r := &collected[i]
-				rows[r.index] = r.row
+				rows[i] = r.row
 				if r.dirty {
 					dirtyCount++
 				}
@@ -167,6 +169,13 @@ func collectAll(cmd *cobra.Command, cfg *config.Config) []statusResult {
 	return results
 }
 
+// sortByIndex sorts results by their original config index.
+func sortByIndex(results []statusResult) {
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].index < results[j].index
+	})
+}
+
 // filterResults returns only the results matching at least one of the enabled
 // filters. Multiple filters combine with OR.
 func filterResults(results []statusResult, dirty, clean, ahead, behind bool) []statusResult {
@@ -209,19 +218,15 @@ type statusJSON struct {
 	Error             string `json:"error,omitempty"`
 }
 
-func renderStatusJSON(w io.Writer, repos []config.RepoEntry, results []statusResult) error {
-	// Index results by position.
-	indexed := make(map[int]*statusResult, len(results))
-	for i := range results {
-		indexed[results[i].index] = &results[i]
-	}
+func renderStatusJSON(w io.Writer, results []statusResult) error {
+	sortByIndex(results)
 
-	entries := make([]statusJSON, len(repos))
-	for i, repo := range repos {
-		r := indexed[i]
+	entries := make([]statusJSON, len(results))
+	for i := range results {
+		r := &results[i]
 		entry := statusJSON{
-			Name:  repo.Name,
-			Path:  repo.Path,
+			Name:  r.row.Name,
+			Path:  r.path,
 			Error: r.err,
 		}
 
