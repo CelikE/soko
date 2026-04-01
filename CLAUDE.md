@@ -79,6 +79,15 @@ go test ./internal/git/... -run TestParseStatusPorcelainV2
 - **Test file placement** — tests live next to the code they test (`foo_test.go` beside `foo.go`)
 - **No test helpers in production packages** — shared test utilities go in `internal/testutil/` if needed
 - **Assertions** — use stdlib `testing` only; no assertion libraries
+- **Integration tests** — `internal/cli/integration_test.go` exercises the full CLI with
+  real git repos in temp directories. Every new command or flag must have an integration
+  test. These tests build the actual command tree and execute it, verifying stdout output.
+
+### Integration test workflow
+
+After implementing a feature, always verify it works end-to-end by running the
+integration tests. These catch bugs that unit tests miss (e.g., index-out-of-range
+panics when filters reduce result sets).
 
 ---
 
