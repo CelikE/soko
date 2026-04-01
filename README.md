@@ -47,6 +47,7 @@ soko status
 | `soko init` | Register the current git repo |
 | `soko status` | Show status of all registered repos |
 | `soko list` | List all registered repos |
+| `soko remove` | Remove a repo from the registry |
 | `soko version` | Print the soko version |
 
 ## Flags
