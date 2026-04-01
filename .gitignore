@@ -30,6 +30,9 @@ go.work.sum
 # Build output
 /soko
 
+# Feature specs (local planning docs, not tracked)
+docs/features/
+
 # Editor/IDE
 # .idea/
 # .vscode/
