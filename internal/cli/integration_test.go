@@ -395,3 +395,93 @@ func TestIntegration_RemoveAll(t *testing.T) {
 		t.Errorf("remove --all output = %q, want 'removed all 2 repos'", out)
 	}
 }
+
+func TestIntegration_CdExactMatch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "my-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "cd", "my-repo")
+	got := strings.TrimSpace(out)
+	// Resolve symlinks for macOS /var -> /private/var.
+	wantReal, _ := filepath.EvalSymlinks(dir)
+	if got != dir && got != wantReal {
+		t.Errorf("cd output = %q, want %q", got, dir)
+	}
+}
+
+func TestIntegration_CdPrefixMatch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "auth-service")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "cd", "auth")
+	got := strings.TrimSpace(out)
+	wantReal, _ := filepath.EvalSymlinks(dir)
+	if got != dir && got != wantReal {
+		t.Errorf("cd prefix output = %q, want %q", got, dir)
+	}
+}
+
+func TestIntegration_CdNoMatch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "my-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"cd", "nonexistent"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("cd with no match should return an error")
+	}
+}
+
+func TestIntegration_CdMultipleMatches(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	for _, name := range []string{"auth-service", "auth-worker"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"cd", "auth"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("cd with multiple matches should return an error")
+	}
+}
+
+func TestIntegration_CdJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "my-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "cd", "--json", "my-repo")
+
+	var entry map[string]string
+	if err := json.Unmarshal([]byte(out), &entry); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if entry["name"] != "my-repo" {
+		t.Errorf("JSON name = %q, want 'my-repo'", entry["name"])
+	}
+	wantReal, _ := filepath.EvalSymlinks(dir)
+	if entry["path"] != dir && entry["path"] != wantReal {
+		t.Errorf("JSON path = %q, want %q", entry["path"], dir)
+	}
+}

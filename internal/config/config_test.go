@@ -368,3 +368,67 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestFindRepo(t *testing.T) {
+	cfg := &Config{
+		Repos: []RepoEntry{
+			{Name: "auth-service", Path: "/repos/auth-service"},
+			{Name: "auth-worker", Path: "/repos/auth-worker"},
+			{Name: "backend-api", Path: "/repos/backend-api"},
+			{Name: "frontend", Path: "/repos/frontend"},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		query     string
+		wantNames []string
+	}{
+		{
+			name:      "exact match",
+			query:     "frontend",
+			wantNames: []string{"frontend"},
+		},
+		{
+			name:      "exact match takes priority over prefix",
+			query:     "auth-service",
+			wantNames: []string{"auth-service"},
+		},
+		{
+			name:      "single prefix match",
+			query:     "back",
+			wantNames: []string{"backend-api"},
+		},
+		{
+			name:      "multiple prefix matches",
+			query:     "auth",
+			wantNames: []string{"auth-service", "auth-worker"},
+		},
+		{
+			name:      "no match",
+			query:     "infra",
+			wantNames: nil,
+		},
+		{
+			name:      "empty query matches all as prefix",
+			query:     "",
+			wantNames: []string{"auth-service", "auth-worker", "backend-api", "frontend"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindRepo(cfg, tt.query)
+
+			if len(got) != len(tt.wantNames) {
+				t.Fatalf("FindRepo(%q) returned %d results, want %d", tt.query, len(got), len(tt.wantNames))
+			}
+
+			for i, want := range tt.wantNames {
+				if got[i].Name != want {
+					t.Errorf("FindRepo(%q)[%d].Name = %q, want %q", tt.query, i, got[i].Name, want)
+				}
+			}
+		})
+	}
+}
