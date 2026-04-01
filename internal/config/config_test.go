@@ -218,6 +218,124 @@ func TestAddRepo(t *testing.T) {
 	}
 }
 
+func TestRemoveRepo(t *testing.T) {
+	tests := []struct {
+		name       string
+		initial    []RepoEntry
+		removeName string
+		wantLen    int
+		wantErr    error
+	}{
+		{
+			name: "removes existing repo",
+			initial: []RepoEntry{
+				{Name: "alpha", Path: "/repos/alpha"},
+				{Name: "beta", Path: "/repos/beta"},
+			},
+			removeName: "alpha",
+			wantLen:    1,
+			wantErr:    nil,
+		},
+		{
+			name: "returns error for non-existent name",
+			initial: []RepoEntry{
+				{Name: "alpha", Path: "/repos/alpha"},
+			},
+			removeName: "missing",
+			wantLen:    1,
+			wantErr:    ErrRepoNotFound,
+		},
+		{
+			name:       "returns error on empty config",
+			initial:    nil,
+			removeName: "anything",
+			wantLen:    0,
+			wantErr:    ErrRepoNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Repos: tt.initial}
+
+			result, removed, err := RemoveRepo(cfg, tt.removeName)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("RemoveRepo() error = %v, want %v", err, tt.wantErr)
+			}
+			if len(result.Repos) != tt.wantLen {
+				t.Errorf("RemoveRepo() repos = %d, want %d", len(result.Repos), tt.wantLen)
+			}
+			if err == nil && removed.Name != tt.removeName {
+				t.Errorf("RemoveRepo() removed.Name = %q, want %q", removed.Name, tt.removeName)
+			}
+		})
+	}
+}
+
+func TestRemoveRepoByPath(t *testing.T) {
+	tests := []struct {
+		name       string
+		initial    []RepoEntry
+		removePath string
+		wantLen    int
+		wantErr    error
+	}{
+		{
+			name: "removes existing repo by path",
+			initial: []RepoEntry{
+				{Name: "alpha", Path: "/repos/alpha"},
+				{Name: "beta", Path: "/repos/beta"},
+			},
+			removePath: "/repos/beta",
+			wantLen:    1,
+			wantErr:    nil,
+		},
+		{
+			name: "returns error for non-existent path",
+			initial: []RepoEntry{
+				{Name: "alpha", Path: "/repos/alpha"},
+			},
+			removePath: "/repos/missing",
+			wantLen:    1,
+			wantErr:    ErrRepoNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Repos: tt.initial}
+
+			result, removed, err := RemoveRepoByPath(cfg, tt.removePath)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("RemoveRepoByPath() error = %v, want %v", err, tt.wantErr)
+			}
+			if len(result.Repos) != tt.wantLen {
+				t.Errorf("RemoveRepoByPath() repos = %d, want %d", len(result.Repos), tt.wantLen)
+			}
+			if err == nil && removed.Path != tt.removePath {
+				t.Errorf("RemoveRepoByPath() removed.Path = %q, want %q", removed.Path, tt.removePath)
+			}
+		})
+	}
+}
+
+func TestClear(t *testing.T) {
+	cfg := &Config{
+		Repos: []RepoEntry{
+			{Name: "alpha", Path: "/repos/alpha"},
+			{Name: "beta", Path: "/repos/beta"},
+		},
+	}
+
+	result := Clear(cfg)
+
+	if len(result.Repos) != 0 {
+		t.Errorf("Clear() repos = %d, want 0", len(result.Repos))
+	}
+}
+
 func TestSaveAndLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
