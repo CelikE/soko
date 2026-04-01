@@ -46,6 +46,17 @@ func RepoName(ctx context.Context, dir string) string {
 	return nameFromURL(url)
 }
 
+// Fetch runs git fetch in the given directory. If prune is true, it passes
+// --prune to clean up stale remote tracking refs.
+func Fetch(ctx context.Context, dir string, prune bool) error {
+	args := []string{"fetch"}
+	if prune {
+		args = append(args, "--prune")
+	}
+	_, err := Run(ctx, dir, args...)
+	return err
+}
+
 // nameFromURL extracts a repository name from a git remote URL. It handles
 // both SSH (git@host:user/repo.git) and HTTPS (https://host/user/repo.git)
 // formats.

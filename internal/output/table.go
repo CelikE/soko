@@ -104,6 +104,40 @@ func RenderSummary(w io.Writer, totalRepos, dirtyCount, behindCount, totalChange
 	)
 }
 
+// FetchRow holds the result of a fetch operation for one repo.
+type FetchRow struct {
+	Name    string
+	Success bool
+	Message string
+}
+
+// RenderFetchTable writes a formatted fetch result table to w.
+func RenderFetchTable(w io.Writer, rows []FetchRow) {
+	nameWidth := len("REPO")
+	for _, r := range rows {
+		if len(r.Name) > nameWidth {
+			nameWidth = len(r.Name)
+		}
+	}
+	nameWidth += 2
+
+	_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, "REPO", "STATUS")
+	_, _ = fmt.Fprintln(w, "  "+strings.Repeat("─", nameWidth+20))
+
+	for _, r := range rows {
+		if r.Success {
+			_, _ = fmt.Fprintln(w, Green(fmt.Sprintf("  %-*s %s %s", nameWidth, r.Name, SymClean, r.Message)))
+		} else {
+			_, _ = fmt.Fprintln(w, Red(fmt.Sprintf("  %-*s %s %s", nameWidth, r.Name, SymConflict, r.Message)))
+		}
+	}
+}
+
+// RenderFetchSummary writes the fetch summary line to w.
+func RenderFetchSummary(w io.Writer, total, fetched, failed int) {
+	_, _ = fmt.Fprintf(w, "\n  %d repos │ %d fetched │ %d failed\n", total, fetched, failed)
+}
+
 // FormatStatus returns a compact status string from file counts.
 func FormatStatus(modified, untracked, deleted, conflicts int) string {
 	if conflicts > 0 {

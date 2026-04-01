@@ -48,6 +48,7 @@ soko status
 | `soko status` | Show status of all registered repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
+| `soko fetch` | Fetch all registered repos in parallel |
 | `soko version` | Print the soko version |
 
 ## Flags
@@ -59,6 +60,7 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
+| `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 
 ```bash
 soko status --json
