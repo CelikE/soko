@@ -20,7 +20,7 @@ const maxConcurrency = 8
 
 // newStatusCmd creates the cobra command for soko status.
 func newStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show status of all registered repos",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -37,6 +37,20 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			collected := collectAll(cmd, cfg)
+
+			dirtyFlag, _ := cmd.Flags().GetBool("dirty")
+			cleanFlag, _ := cmd.Flags().GetBool("clean")
+			aheadFlag, _ := cmd.Flags().GetBool("ahead")
+			behindFlag, _ := cmd.Flags().GetBool("behind")
+
+			if dirtyFlag || cleanFlag || aheadFlag || behindFlag {
+				collected = filterResults(collected, dirtyFlag, cleanFlag, aheadFlag, behindFlag)
+			}
+
+			if len(collected) == 0 {
+				_, _ = fmt.Fprintln(w, "no repos match the filter")
+				return nil
+			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
@@ -59,11 +73,18 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			output.RenderStatusTable(w, rows)
-			output.RenderSummary(w, len(cfg.Repos), dirtyCount, behindCount, totalChanges)
+			output.RenderSummary(w, len(collected), dirtyCount, behindCount, totalChanges)
 
 			return nil
 		},
 	}
+
+	cmd.Flags().Bool("dirty", false, "show only repos with uncommitted changes")
+	cmd.Flags().Bool("clean", false, "show only clean repos in sync with remote")
+	cmd.Flags().Bool("ahead", false, "show only repos ahead of remote")
+	cmd.Flags().Bool("behind", false, "show only repos behind remote")
+
+	return cmd
 }
 
 type statusResult struct {
@@ -72,6 +93,7 @@ type statusResult struct {
 	status  *git.RepoStatus
 	path    string
 	dirty   bool
+	ahead   bool
 	behind  bool
 	changes int
 	err     string
@@ -130,6 +152,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config) []statusResult {
 			r.row.LastCommitText = output.FormatTimeAgo(status.LastCommitTime)
 			r.row.State = rowState(status)
 			r.dirty = changes > 0
+			r.ahead = status.Ahead > 0
 			r.behind = status.Behind > 0
 			r.changes = changes
 
@@ -142,6 +165,32 @@ func collectAll(cmd *cobra.Command, cfg *config.Config) []statusResult {
 
 	_ = g.Wait()
 	return results
+}
+
+// filterResults returns only the results matching at least one of the enabled
+// filters. Multiple filters combine with OR.
+func filterResults(results []statusResult, dirty, clean, ahead, behind bool) []statusResult {
+	filtered := make([]statusResult, 0, len(results))
+	for i := range results {
+		r := &results[i]
+		if dirty && r.dirty {
+			filtered = append(filtered, *r)
+			continue
+		}
+		if clean && !r.dirty && !r.ahead && !r.behind && r.err == "" {
+			filtered = append(filtered, *r)
+			continue
+		}
+		if ahead && r.ahead {
+			filtered = append(filtered, *r)
+			continue
+		}
+		if behind && r.behind {
+			filtered = append(filtered, *r)
+			continue
+		}
+	}
+	return filtered
 }
 
 type statusJSON struct {
