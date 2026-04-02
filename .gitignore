@@ -30,6 +30,9 @@ go.work.sum
 # Build output
 /soko
 
+# Agent instructions (local only)
+CLAUDE.md
+
 # Feature specs (local planning docs, not tracked)
 docs/features/
 
