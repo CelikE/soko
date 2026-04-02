@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/output"
 )
@@ -32,25 +31,29 @@ func newFetchCmd() *cobra.Command {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
 
-			cfg, err := config.Load()
+			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
-				return fmt.Errorf("loading config: %w", err)
+				return err
 			}
 
-			if len(cfg.Repos) == 0 {
-				_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+			if len(repos) == 0 {
+				if len(cfg.Repos) == 0 {
+					_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+				} else {
+					_, _ = fmt.Fprintln(w, "no repos match the tag filter")
+				}
 				return nil
 			}
 
 			pruneFlag, _ := cmd.Flags().GetBool("prune")
 
-			results := make([]fetchResult, 0, len(cfg.Repos))
+			results := make([]fetchResult, 0, len(repos))
 			var mu sync.Mutex
 
 			g, ctx := errgroup.WithContext(ctx)
 			g.SetLimit(maxConcurrency)
 
-			for i, repo := range cfg.Repos {
+			for i, repo := range repos {
 				g.Go(func() error {
 					r := fetchResult{index: i, name: repo.Name, path: repo.Path}
 
@@ -119,6 +122,8 @@ func newFetchCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("prune", false, "pass --prune to git fetch to clean up stale remote refs")
+	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 
 	return cmd
 }

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
@@ -22,4 +24,36 @@ func repoNameCompletionFunc() cobra.CompletionFunc {
 
 		return names, cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+// tagCompletionFunc returns a completion function that completes known tags.
+func tagCompletionFunc() cobra.CompletionFunc {
+	return func(_ *cobra.Command, _ []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		tags := config.ListTags(cfg)
+		completions := make([]cobra.Completion, len(tags))
+		copy(completions, tags)
+
+		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// loadReposWithTagFilter loads the config and applies --tag filtering if set.
+func loadReposWithTagFilter(cmd *cobra.Command) (*config.Config, []config.RepoEntry, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, fmt.Errorf("loading config: %w", err)
+	}
+
+	repos := cfg.Repos
+	tags, _ := cmd.Flags().GetStringSlice("tag")
+	if len(tags) > 0 {
+		repos = config.FilterByTags(repos, tags)
+	}
+
+	return cfg, repos, nil
 }
