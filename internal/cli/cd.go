@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
+	"github.com/CelikE/soko/internal/output"
 )
 
 // newCdCmd creates the cobra command for soko cd.
@@ -34,7 +35,7 @@ they are listed so you can refine your query.`,
 			}
 
 			if len(cfg.Repos) == 0 {
-				_, _ = fmt.Fprintln(stderr, "no repos registered yet — cd into a repo and run: soko init")
+				output.Info(stderr, "no repos registered yet — cd into a repo and run: soko init")
 				return fmt.Errorf("no repos registered")
 			}
 

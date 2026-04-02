@@ -107,8 +107,8 @@ func TestIntegration_InitAndList(t *testing.T) {
 	initRepo(t, dir)
 
 	out := runSokoInit(t, dir)
-	if !strings.Contains(out, "registered:") {
-		t.Errorf("init output = %q, want 'registered:'", out)
+	if !strings.Contains(out, "registered") {
+		t.Errorf("init output = %q, want 'registered'", out)
 	}
 
 	out = runSoko(t, "list")
@@ -124,8 +124,8 @@ func TestIntegration_InitDuplicate(t *testing.T) {
 
 	runSokoInit(t, dir)
 	out := runSokoInit(t, dir)
-	if !strings.Contains(out, "already registered:") {
-		t.Errorf("init duplicate output = %q, want 'already registered:'", out)
+	if !strings.Contains(out, "already registered") {
+		t.Errorf("init duplicate output = %q, want 'already registered'", out)
 	}
 }
 
@@ -136,8 +136,8 @@ func TestIntegration_RemoveByName(t *testing.T) {
 	runSokoInit(t, dir)
 
 	out := runSoko(t, "remove", "my-repo")
-	if !strings.Contains(out, "removed:") {
-		t.Errorf("remove output = %q, want 'removed:'", out)
+	if !strings.Contains(out, "removed") {
+		t.Errorf("remove output = %q, want 'removed'", out)
 	}
 
 	out = runSoko(t, "list")
@@ -496,8 +496,8 @@ func TestIntegration_ExecEcho(t *testing.T) {
 	if !strings.Contains(out, "hello") {
 		t.Errorf("exec echo output = %q, want to contain 'hello'", out)
 	}
-	if !strings.Contains(out, "1 succeeded") {
-		t.Errorf("exec summary = %q, want '1 succeeded'", out)
+	if !strings.Contains(out, "1 ok") {
+		t.Errorf("exec summary = %q, want '1 ok'", out)
 	}
 }
 
@@ -585,8 +585,8 @@ func TestIntegration_ExecSequential(t *testing.T) {
 	if !strings.Contains(out, "seq-a") && !strings.Contains(out, "seq-b") {
 		t.Errorf("sequential exec = %q, want both repo names", out)
 	}
-	if !strings.Contains(out, "2 succeeded") {
-		t.Errorf("sequential summary = %q, want '2 succeeded'", out)
+	if !strings.Contains(out, "2 ok") {
+		t.Errorf("sequential summary = %q, want '2 ok'", out)
 	}
 }
 
@@ -816,7 +816,7 @@ func TestIntegration_ExecFilterByTag(t *testing.T) {
 	if strings.Contains(out, "exec-b") {
 		t.Errorf("exec --tag = %q, should not contain 'exec-b'", out)
 	}
-	if !strings.Contains(out, "1 succeeded") {
-		t.Errorf("exec --tag summary = %q, want '1 succeeded'", out)
+	if !strings.Contains(out, "1 ok") {
+		t.Errorf("exec --tag summary = %q, want '1 ok'", out)
 	}
 }

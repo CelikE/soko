@@ -52,7 +52,6 @@ func columnWidths(rows []StatusRow) (repo, branch, status, ab int) {
 		}
 	}
 
-	// Add padding between columns.
 	repo += 2
 	branch += 2
 	status += 2
@@ -72,8 +71,8 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 		cAB, "↑↓",
 		"LAST COMMIT",
 	)
-	_, _ = fmt.Fprintln(w, header)
-	_, _ = fmt.Fprintln(w, "  "+strings.Repeat("─", len(header)-2))
+	_, _ = fmt.Fprintln(w, Dim(header))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
 
 	for _, r := range rows {
 		line := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
@@ -97,23 +96,24 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 	}
 }
 
-// RenderSummary writes the summary line to w.
+// RenderSummary writes the status summary line to w.
 func RenderSummary(w io.Writer, totalRepos, dirtyCount, behindCount, totalChanges int) {
-	_, _ = fmt.Fprintf(w, "\n  %d repos │ %d dirty │ %d behind remote │ %d uncommitted changes\n",
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d repos · %d dirty · %d behind · %d changes",
 		totalRepos, dirtyCount, behindCount, totalChanges,
-	)
+	)))
 }
 
-// FetchRow holds the result of a fetch operation for one repo.
-type FetchRow struct {
+// ActionRow holds the result of an action (fetch, exec, etc.) for one repo.
+type ActionRow struct {
 	Name    string
 	Success bool
 	Message string
 }
 
-// RenderFetchTable writes a formatted fetch result table to w.
-func RenderFetchTable(w io.Writer, rows []FetchRow) {
-	nameWidth := len("REPO")
+// RenderActionResults writes a list of action results to w.
+func RenderActionResults(w io.Writer, rows []ActionRow) {
+	nameWidth := 0
 	for _, r := range rows {
 		if len(r.Name) > nameWidth {
 			nameWidth = len(r.Name)
@@ -121,21 +121,54 @@ func RenderFetchTable(w io.Writer, rows []FetchRow) {
 	}
 	nameWidth += 2
 
-	_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, "REPO", "STATUS")
-	_, _ = fmt.Fprintln(w, "  "+strings.Repeat("─", nameWidth+20))
-
 	for _, r := range rows {
 		if r.Success {
-			_, _ = fmt.Fprintln(w, Green(fmt.Sprintf("  %-*s %s %s", nameWidth, r.Name, SymClean, r.Message)))
+			_, _ = fmt.Fprintln(w, Green(fmt.Sprintf(
+				"  %s %-*s %s", SymClean, nameWidth, r.Name, r.Message)))
 		} else {
-			_, _ = fmt.Fprintln(w, Red(fmt.Sprintf("  %-*s %s %s", nameWidth, r.Name, SymConflict, r.Message)))
+			_, _ = fmt.Fprintln(w, Red(fmt.Sprintf(
+				"  %s %-*s %s", SymConflict, nameWidth, r.Name, r.Message)))
 		}
 	}
 }
 
-// RenderFetchSummary writes the fetch summary line to w.
+// RenderActionSummary writes a summary line for action commands to w.
+func RenderActionSummary(w io.Writer, total, ok, failed int) {
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d repos · %d ok · %d failed", total, ok, failed)))
+}
+
+// Confirm prints a success confirmation message.
+func Confirm(w io.Writer, message string) {
+	_, _ = fmt.Fprintf(w, "  %s %s\n", Green(SymClean), message)
+}
+
+// Warn prints a warning message.
+func Warn(w io.Writer, message string) {
+	_, _ = fmt.Fprintf(w, "  %s %s\n", Yellow(SymWarning), message)
+}
+
+// Fail prints an error message.
+func Fail(w io.Writer, message string) {
+	_, _ = fmt.Fprintf(w, "  %s %s\n", Red(SymConflict), message)
+}
+
+// Info prints an informational message (dimmed).
+func Info(w io.Writer, message string) {
+	_, _ = fmt.Fprintf(w, "  %s\n", Dim(message))
+}
+
+// FetchRow is an alias for ActionRow for backward compatibility.
+type FetchRow = ActionRow
+
+// RenderFetchTable renders fetch results using the unified action format.
+func RenderFetchTable(w io.Writer, rows []FetchRow) {
+	RenderActionResults(w, rows)
+}
+
+// RenderFetchSummary renders the fetch summary using the unified format.
 func RenderFetchSummary(w io.Writer, total, fetched, failed int) {
-	_, _ = fmt.Fprintf(w, "\n  %d repos │ %d fetched │ %d failed\n", total, fetched, failed)
+	RenderActionSummary(w, total, fetched, failed)
 }
 
 // FormatStatus returns a compact status string from file counts.
