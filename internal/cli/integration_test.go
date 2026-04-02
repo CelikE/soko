@@ -1093,3 +1093,119 @@ func TestIntegration_ConfigSetUnknownKey(t *testing.T) {
 		t.Error("config set unknown key should return an error")
 	}
 }
+
+func TestIntegration_ScanDiscoversRepos(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	for _, name := range []string{"repo-a", "repo-b", "repo-c"} {
+		initRepo(t, filepath.Join(base, name))
+	}
+
+	out := runSoko(t, "scan", base)
+	if !strings.Contains(out, "repo-a") {
+		t.Errorf("scan = %q, want 'repo-a'", out)
+	}
+	if !strings.Contains(out, "repo-b") {
+		t.Errorf("scan = %q, want 'repo-b'", out)
+	}
+	if !strings.Contains(out, "3 registered") {
+		t.Errorf("scan summary = %q, want '3 registered'", out)
+	}
+
+	// Verify they're actually in the config.
+	listOut := runSoko(t, "list")
+	if !strings.Contains(listOut, "repo-a") || !strings.Contains(listOut, "repo-b") || !strings.Contains(listOut, "repo-c") {
+		t.Errorf("list after scan = %q, want all 3 repos", listOut)
+	}
+}
+
+func TestIntegration_ScanSkipsDuplicates(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	dir := filepath.Join(base, "existing-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "scan", base)
+	if !strings.Contains(out, "already registered") {
+		t.Errorf("scan duplicate = %q, want 'already registered'", out)
+	}
+	if !strings.Contains(out, "0 registered") {
+		t.Errorf("scan summary = %q, want '0 registered'", out)
+	}
+}
+
+func TestIntegration_ScanWithTags(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	initRepo(t, filepath.Join(base, "tagged-repo"))
+
+	runSoko(t, "scan", base, "--tag", "work")
+
+	out := runSoko(t, "tag", "list")
+	if !strings.Contains(out, "work") {
+		t.Errorf("tag list after scan = %q, want 'work'", out)
+	}
+}
+
+func TestIntegration_ScanDryRun(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	initRepo(t, filepath.Join(base, "dry-repo"))
+
+	out := runSoko(t, "scan", base, "--dry-run")
+	if !strings.Contains(out, "would register") {
+		t.Errorf("scan dry-run = %q, want 'would register'", out)
+	}
+
+	// Should NOT be in config.
+	listOut := runSoko(t, "list")
+	if !strings.Contains(listOut, "no repos registered") {
+		t.Errorf("list after dry-run = %q, want 'no repos registered'", listOut)
+	}
+}
+
+func TestIntegration_ScanEmptyDirectory(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	out := runSoko(t, "scan", base)
+	if !strings.Contains(out, "no git repos found") {
+		t.Errorf("scan empty = %q, want 'no git repos found'", out)
+	}
+}
+
+func TestIntegration_ScanNonExistent(t *testing.T) {
+	testEnv(t)
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"scan", "/nonexistent/path"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("scan nonexistent should return an error")
+	}
+}
+
+func TestIntegration_ScanJSON(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	initRepo(t, filepath.Join(base, "json-scan-repo"))
+
+	out := runSoko(t, "scan", base, "--json")
+
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("JSON entries = %d, want 1", len(entries))
+	}
+	if entries[0]["name"] != "json-scan-repo" {
+		t.Errorf("JSON name = %v, want 'json-scan-repo'", entries[0]["name"])
+	}
+}
