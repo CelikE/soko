@@ -34,7 +34,41 @@ type RepoEntry struct {
 
 // Config is the top-level structure of the soko config file.
 type Config struct {
-	Repos []RepoEntry `yaml:"repos"`
+	GitPath string      `yaml:"git_path,omitempty"`
+	Repos   []RepoEntry `yaml:"repos"`
+}
+
+// GitBinary returns the git binary path. If GitPath is set in the config,
+// it uses that. Otherwise falls back to "git" (resolved via PATH).
+func (c *Config) GitBinary() string {
+	if c.GitPath != "" {
+		return c.GitPath
+	}
+	return "git"
+}
+
+// Set sets a config key to a value. Returns an error for unknown keys.
+func Set(cfg *Config, key, value string) error {
+	switch key {
+	case "git_path":
+		cfg.GitPath = value
+		return nil
+	default:
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+}
+
+// Get returns the value of a config key. Returns an error for unknown keys.
+func Get(cfg *Config, key string) (string, error) {
+	switch key {
+	case "git_path":
+		if cfg.GitPath == "" {
+			return "git (default)", nil
+		}
+		return cfg.GitPath, nil
+	default:
+		return "", fmt.Errorf("unknown config key: %s", key)
+	}
 }
 
 // Path returns the absolute path to the soko config file. It respects

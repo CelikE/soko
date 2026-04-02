@@ -152,6 +152,8 @@ soko doc                            # check paths, git, remotes, shell-init
 soko doc --fix                      # auto-remove stale entries
 soko config path                    # print config file location
 soko config edit                    # open config in $EDITOR
+soko config set git_path /usr/local/bin/git  # use a custom git binary
+soko config get git_path            # check current git binary
 ```
 
 ## Configuration

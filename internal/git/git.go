@@ -11,10 +11,26 @@ import (
 	"strings"
 )
 
+// binary is the git executable path. Defaults to "git" (resolved via PATH).
+// Set via SetBinary to use a custom git installation.
+var binary = "git"
+
+// SetBinary overrides the git binary path used by all functions in this package.
+func SetBinary(path string) {
+	if path != "" {
+		binary = path
+	}
+}
+
+// Binary returns the current git binary path.
+func Binary() string {
+	return binary
+}
+
 // Run executes git with the given arguments in the specified directory. It
 // returns the trimmed stdout on success, or an error that includes stderr.
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
 
 	var stdout, stderr bytes.Buffer

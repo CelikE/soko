@@ -45,13 +45,14 @@ func newDocCmd() *cobra.Command {
 
 			var results []checkResult
 
-			// Check git is on PATH.
-			gitPath, err := exec.LookPath("git")
+			// Check git is available.
+			gitBin := git.Binary()
+			gitPath, err := exec.LookPath(gitBin)
 			if err != nil {
 				results = append(results, checkResult{
 					Name:    "git",
 					Status:  statusError,
-					Message: "git not found on PATH",
+					Message: fmt.Sprintf("%s not found", gitBin),
 				})
 			} else {
 				version, _ := git.Run(ctx, ".", "--version")
