@@ -17,11 +17,12 @@ import (
 func newGoCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "go",
-		Short: "Interactively select a repo and print its path",
-		Long: `Open an interactive picker to select a registered repo. The selected
-repo's path is printed to stdout for use with command substitution:
+		Short: "Interactively select a repo and navigate to it",
+		Long: `Open an interactive picker to select a registered repo. Once selected,
+soko navigates your shell to that directory.
 
-  cd $(soko go)
+Requires shell integration:
+  eval "$(soko shell-init)"
 
 Use --tag to filter the picker to repos with specific tags.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -44,9 +45,9 @@ Use --tag to filter the picker to repos with specific tags.`,
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 
-			// If not a terminal (piped), fall back to numbered list on stderr.
+			// If stdin is not a terminal (piped), fall back.
 			if !picker.HasTerminal(os.Stdin) {
-				return goNonInteractive(cmd, repos, jsonFlag, w, stderr)
+				return goNonInteractive(repos, jsonFlag, w, stderr)
 			}
 
 			names := make([]string, len(repos))
@@ -69,23 +70,19 @@ Use --tag to filter the picker to repos with specific tags.`,
 			}
 
 			selected := repos[idx]
-			picker.RenderSelected(stderr, selected.Name, picker.FormatItems(
-				[]string{selected.Name}, []string{selected.Path},
-			)[0].Desc)
 
 			if jsonFlag {
 				return writeGoJSON(w, selected)
 			}
 
-			_, _ = fmt.Fprintln(w, selected.Path)
-
-			// If stdout is a terminal, the user ran `soko go` directly
-			// instead of `cd $(soko go)` — show a hint.
-			if picker.HasTerminal(os.Stdout) {
-				_, _ = fmt.Fprintln(stderr)
-				output.Info(stderr, shellNavHint())
+			// Write the nav file so the shell hook can cd.
+			if err := writeNavFile(selected.Path); err != nil {
+				// Fall back to printing the path if nav file fails.
+				_, _ = fmt.Fprintln(w, selected.Path)
+				return nil
 			}
 
+			output.Confirm(stderr, fmt.Sprintf("→ %s", selected.Name))
 			return nil
 		},
 	}
@@ -96,13 +93,15 @@ Use --tag to filter the picker to repos with specific tags.`,
 	return cmd
 }
 
-// goNonInteractive handles the case when stdin is not a terminal (piped).
-func goNonInteractive(cmd *cobra.Command, repos []config.RepoEntry, jsonOut bool, w, stderr io.Writer) error {
+// goNonInteractive handles the case when stdin is not a terminal.
+func goNonInteractive(repos []config.RepoEntry, jsonOut bool, w, stderr io.Writer) error {
 	if len(repos) == 1 {
 		if jsonOut {
 			return writeGoJSON(w, repos[0])
 		}
-		_, _ = fmt.Fprintln(w, repos[0].Path)
+		if err := writeNavFile(repos[0].Path); err != nil {
+			_, _ = fmt.Fprintln(w, repos[0].Path)
+		}
 		return nil
 	}
 

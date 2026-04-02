@@ -1,32 +1,26 @@
 package cli
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/output"
-	"github.com/CelikE/soko/internal/picker"
 )
 
 // newCdCmd creates the cobra command for soko cd.
 func newCdCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:               "cd [name]",
-		Short:             "Print the path of a registered repo",
+		Use:               "cd <name>",
+		Short:             "Navigate to a registered repo by name",
 		ValidArgsFunction: repoNameCompletionFunc(),
-		Long: `Print the absolute path of a registered repo so you can use it with
-command substitution: cd $(soko cd auth)
+		Long: `Navigate to a registered repo by name. Supports exact and prefix matching.
 
-Supports exact and prefix matching. If multiple repos match a prefix,
-they are listed so you can refine your query.`,
+Requires shell integration:
+  eval "$(soko shell-init)"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			stderr := cmd.ErrOrStderr()
@@ -41,13 +35,14 @@ they are listed so you can refine your query.`,
 				return fmt.Errorf("no repos registered")
 			}
 
-			jsonFlag, _ := cmd.Flags().GetBool("json")
-
-			if len(args) > 0 {
-				return cdByQuery(cfg, args[0], jsonFlag, w, stderr)
+			if len(args) == 0 {
+				output.Info(stderr, "usage: soko cd <name>")
+				output.Info(stderr, "for interactive selection use: soko go")
+				return fmt.Errorf("no repo name provided")
 			}
 
-			return cdInteractive(cmd, cfg, jsonFlag, w, stderr)
+			jsonFlag, _ := cmd.Flags().GetBool("json")
+			return cdByQuery(cfg, args[0], jsonFlag, w, stderr)
 		},
 	}
 }
@@ -57,50 +52,29 @@ func cdByQuery(cfg *config.Config, query string, jsonOut bool, w, stderr io.Writ
 
 	switch len(matches) {
 	case 0:
-		_, _ = fmt.Fprintf(stderr, "no repo matching: %s\n", query)
+		output.Fail(stderr, fmt.Sprintf("no repo matching: %s", query))
 		return fmt.Errorf("no repo matching: %s", query)
 	case 1:
 		if jsonOut {
 			return writeCdJSON(w, matches[0])
 		}
-		_, _ = fmt.Fprintln(w, matches[0].Path)
-		if picker.HasTerminal(os.Stdout) {
-			_, _ = fmt.Fprintln(stderr)
-			output.Info(stderr, shellNavHint())
+
+		// Write nav file so the shell hook can cd.
+		if err := writeNavFile(matches[0].Path); err != nil {
+			// Fall back to printing the path.
+			_, _ = fmt.Fprintln(w, matches[0].Path)
+			return nil
 		}
+
+		output.Confirm(stderr, fmt.Sprintf("→ %s", matches[0].Name))
 		return nil
 	default:
-		_, _ = fmt.Fprintf(stderr, "multiple repos match %q:\n", query)
+		output.Warn(stderr, fmt.Sprintf("multiple repos match %q:", query))
 		for _, m := range matches {
-			_, _ = fmt.Fprintf(stderr, "  %s  %s\n", m.Name, m.Path)
+			_, _ = fmt.Fprintf(stderr, "    %s  %s\n", m.Name, output.Dim(m.Path))
 		}
 		return fmt.Errorf("multiple repos match %q", query)
 	}
-}
-
-func cdInteractive(cmd *cobra.Command, cfg *config.Config, jsonOut bool, w, stderr io.Writer) error {
-	for i, r := range cfg.Repos {
-		_, _ = fmt.Fprintf(stderr, "  [%d] %s  %s\n", i+1, r.Name, r.Path)
-	}
-	_, _ = fmt.Fprint(stderr, "select repo: ")
-
-	scanner := bufio.NewScanner(cmd.InOrStdin())
-	if !scanner.Scan() {
-		return fmt.Errorf("no selection")
-	}
-
-	input := strings.TrimSpace(scanner.Text())
-	idx, err := strconv.Atoi(input)
-	if err != nil || idx < 1 || idx > len(cfg.Repos) {
-		return fmt.Errorf("invalid selection: %s", input)
-	}
-
-	selected := cfg.Repos[idx-1]
-	if jsonOut {
-		return writeCdJSON(w, selected)
-	}
-	_, _ = fmt.Fprintln(w, selected.Path)
-	return nil
 }
 
 type cdJSON struct {
