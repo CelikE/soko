@@ -995,9 +995,9 @@ func TestIntegration_ErrorMessageShown(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	errOut := stderr.String()
-	if !strings.Contains(errOut, "no repo matching") {
-		t.Errorf("stderr = %q, want 'no repo matching'", errOut)
+	// Error message comes from the returned error (displayed by main.go).
+	if !strings.Contains(err.Error(), "no repo matching") {
+		t.Errorf("error = %q, want 'no repo matching'", err.Error())
 	}
 }
 
