@@ -701,3 +701,122 @@ func TestIntegration_StatusFetchWithFilter(t *testing.T) {
 		t.Errorf("status --fetch --dirty = %q, should not contain 'clean-repo'", out)
 	}
 }
+
+func TestIntegration_TagAddAndList(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "tagged-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "tag", "add", "tagged-repo", "backend")
+	if !strings.Contains(out, "tagged") {
+		t.Errorf("tag add output = %q, want 'tagged'", out)
+	}
+
+	out = runSoko(t, "tag", "list")
+	if !strings.Contains(out, "backend") {
+		t.Errorf("tag list output = %q, want 'backend'", out)
+	}
+}
+
+func TestIntegration_TagRemove(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "tag-rm-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	runSoko(t, "tag", "add", "tag-rm-repo", "frontend")
+	runSoko(t, "tag", "remove", "tag-rm-repo", "frontend")
+
+	out := runSoko(t, "tag", "list")
+	if !strings.Contains(out, "no tags in use") {
+		t.Errorf("tag list after remove = %q, want 'no tags in use'", out)
+	}
+}
+
+func TestIntegration_StatusFilterByTag(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	backDir := filepath.Join(base, "backend-svc")
+	frontDir := filepath.Join(base, "frontend-app")
+	initRepo(t, backDir)
+	initRepo(t, frontDir)
+	runSokoInit(t, backDir)
+	runSokoInit(t, frontDir)
+
+	runSoko(t, "tag", "add", "backend-svc", "backend")
+	runSoko(t, "tag", "add", "frontend-app", "frontend")
+
+	out := runSoko(t, "status", "--tag", "backend")
+	if !strings.Contains(out, "backend-svc") {
+		t.Errorf("status --tag backend = %q, want 'backend-svc'", out)
+	}
+	if strings.Contains(out, "frontend-app") {
+		t.Errorf("status --tag backend = %q, should not contain 'frontend-app'", out)
+	}
+}
+
+func TestIntegration_ListFilterByTag(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	aDir := filepath.Join(base, "svc-a")
+	bDir := filepath.Join(base, "svc-b")
+	initRepo(t, aDir)
+	initRepo(t, bDir)
+	runSokoInit(t, aDir)
+	runSokoInit(t, bDir)
+
+	runSoko(t, "tag", "add", "svc-a", "infra")
+
+	out := runSoko(t, "list", "--tag", "infra")
+	if !strings.Contains(out, "svc-a") {
+		t.Errorf("list --tag infra = %q, want 'svc-a'", out)
+	}
+	if strings.Contains(out, "svc-b") {
+		t.Errorf("list --tag infra = %q, should not contain 'svc-b'", out)
+	}
+}
+
+func TestIntegration_InitWithTag(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "init-tag-repo")
+	initRepo(t, dir)
+
+	orig, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	runSoko(t, "init", "--tag", "backend", "--tag", "go")
+
+	out := runSoko(t, "tag", "list")
+	if !strings.Contains(out, "backend") || !strings.Contains(out, "go") {
+		t.Errorf("tag list after init --tag = %q, want 'backend' and 'go'", out)
+	}
+}
+
+func TestIntegration_ExecFilterByTag(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	aDir := filepath.Join(base, "exec-a")
+	bDir := filepath.Join(base, "exec-b")
+	initRepo(t, aDir)
+	initRepo(t, bDir)
+	runSokoInit(t, aDir)
+	runSokoInit(t, bDir)
+
+	runSoko(t, "tag", "add", "exec-a", "target")
+
+	out := runSoko(t, "exec", "--tag", "target", "--", "echo", "hit")
+	if !strings.Contains(out, "exec-a") {
+		t.Errorf("exec --tag = %q, want 'exec-a'", out)
+	}
+	if strings.Contains(out, "exec-b") {
+		t.Errorf("exec --tag = %q, should not contain 'exec-b'", out)
+	}
+	if !strings.Contains(out, "1 succeeded") {
+		t.Errorf("exec --tag summary = %q, want '1 succeeded'", out)
+	}
+}

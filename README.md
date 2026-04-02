@@ -51,6 +51,7 @@ soko status
 | `soko fetch` | Fetch all registered repos in parallel |
 | `soko cd` | Print the path of a repo (for `cd $(soko cd name)`) |
 | `soko exec` | Run a command in all registered repos |
+| `soko tag` | Manage repo tags (add, remove, list) |
 | `soko doc` | Check the health of your soko setup |
 | `soko version` | Print the soko version |
 
@@ -66,6 +67,7 @@ soko status
 | `--behind` | `status` | Show only repos behind remote |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
+| `--tag` | `status`, `list`, `fetch`, `exec` | Filter by tag (repeatable, combines with OR) |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
 
 ```bash

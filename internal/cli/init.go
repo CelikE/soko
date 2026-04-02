@@ -13,7 +13,7 @@ import (
 
 // newInitCmd creates the cobra command for soko init.
 func newInitCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Register the current repo with soko",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -30,6 +30,7 @@ func newInitCmd() *cobra.Command {
 			}
 
 			name := git.RepoName(ctx, dir)
+			tags, _ := cmd.Flags().GetStringSlice("tag")
 
 			cfg, err := config.Load()
 			if err != nil {
@@ -39,6 +40,7 @@ func newInitCmd() *cobra.Command {
 			entry := config.RepoEntry{
 				Name: name,
 				Path: dir,
+				Tags: tags,
 			}
 
 			cfg, err = config.AddRepo(cfg, entry)
@@ -58,4 +60,8 @@ func newInitCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringSlice("tag", nil, "tags to apply to the repo (can be repeated)")
+
+	return cmd
 }
