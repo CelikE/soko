@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/output"
+	"github.com/CelikE/soko/internal/picker"
 )
 
 // newCdCmd creates the cobra command for soko cd.
@@ -62,6 +64,10 @@ func cdByQuery(cfg *config.Config, query string, jsonOut bool, w, stderr io.Writ
 			return writeCdJSON(w, matches[0])
 		}
 		_, _ = fmt.Fprintln(w, matches[0].Path)
+		if picker.HasTerminal(os.Stdout) {
+			_, _ = fmt.Fprintln(stderr)
+			output.Info(stderr, shellNavHint())
+		}
 		return nil
 	default:
 		_, _ = fmt.Fprintf(stderr, "multiple repos match %q:\n", query)
