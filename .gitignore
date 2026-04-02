@@ -33,8 +33,9 @@ go.work.sum
 # Agent instructions (local only)
 CLAUDE.md
 
-# Feature specs (local planning docs, not tracked)
+# Feature specs and reports (local planning docs, not tracked)
 docs/features/
+docs/reports/
 
 # Editor/IDE
 # .idea/
