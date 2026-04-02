@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/fatih/color"
 	"golang.org/x/term"
 
 	"github.com/CelikE/soko/internal/output"
@@ -32,6 +33,12 @@ type Options struct {
 // The picker renders to stderr so stdout remains clean for piping. It reads
 // keystrokes from the provided input (typically os.Stdin).
 func Run(in *os.File, w io.Writer, opts Options) int {
+	// Force colors on — the picker renders to stderr which is a terminal,
+	// but fatih/color checks stdout which may be a pipe (cd $(soko go)).
+	wasNoColor := color.NoColor
+	color.NoColor = false
+	defer func() { color.NoColor = wasNoColor }()
+
 	oldState, err := term.MakeRaw(int(in.Fd()))
 	if err != nil {
 		return -1
