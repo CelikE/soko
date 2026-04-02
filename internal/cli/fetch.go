@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -37,11 +36,7 @@ func newFetchCmd() *cobra.Command {
 			}
 
 			if len(repos) == 0 {
-				if len(cfg.Repos) == 0 {
-					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
-				} else {
-					output.Info(w, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
-				}
+				output.Info(w, noReposMessage(len(cfg.Repos)))
 				return nil
 			}
 
@@ -57,7 +52,7 @@ func newFetchCmd() *cobra.Command {
 				g.Go(func() error {
 					r := fetchResult{index: i, name: repo.Name, path: repo.Path}
 
-					if _, statErr := os.Stat(repo.Path); os.IsNotExist(statErr) {
+					if !pathExists(repo.Path) {
 						r.message = "path not found"
 						mu.Lock()
 						results = append(results, r)

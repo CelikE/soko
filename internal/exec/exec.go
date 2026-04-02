@@ -45,7 +45,7 @@ func RunCommand(ctx context.Context, dir string, args []string) (*Result, error)
 			r.ExitCode = exitErr.ExitCode()
 			return r, nil
 		}
-		return r, fmt.Errorf("executing command: %w", err)
+		return r, fmt.Errorf("executing %s: %w", args[0], err)
 	}
 
 	return r, nil

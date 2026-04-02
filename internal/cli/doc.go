@@ -89,7 +89,7 @@ func newDocCmd() *cobra.Command {
 			// Check each repo.
 			var toRemove []string
 			for _, repo := range cfg.Repos {
-				if _, statErr := os.Stat(repo.Path); os.IsNotExist(statErr) {
+				if !pathExists(repo.Path) {
 					r := checkResult{
 						Name:    repo.Name,
 						Status:  statusError,
@@ -205,7 +205,11 @@ func newDocCmd() *cobra.Command {
 			// Apply fixes.
 			if fixFlag && len(toRemove) > 0 {
 				for _, name := range toRemove {
-					cfg, _, _ = config.RemoveRepo(cfg, name)
+					var removeErr error
+					cfg, _, removeErr = config.RemoveRepo(cfg, name)
+					if removeErr != nil {
+						return fmt.Errorf("fixing %s: %w", name, removeErr)
+					}
 				}
 				if saveErr := config.Save(cfg); saveErr != nil {
 					return fmt.Errorf("saving config after fix: %w", saveErr)
