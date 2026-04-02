@@ -1109,8 +1109,11 @@ func TestIntegration_ScanDiscoversRepos(t *testing.T) {
 	if !strings.Contains(out, "repo-b") {
 		t.Errorf("scan = %q, want 'repo-b'", out)
 	}
-	if !strings.Contains(out, "3 registered") {
-		t.Errorf("scan summary = %q, want '3 registered'", out)
+	if !strings.Contains(out, "3 initialized") {
+		t.Errorf("scan summary = %q, want '3 initialized'", out)
+	}
+	if !strings.Contains(out, "NAME") || !strings.Contains(out, "SOKO") {
+		t.Errorf("scan = %q, want table headers NAME and SOKO", out)
 	}
 
 	// Verify they're actually in the config.
@@ -1128,11 +1131,11 @@ func TestIntegration_ScanSkipsDuplicates(t *testing.T) {
 	runSokoInit(t, dir)
 
 	out := runSoko(t, "scan", base)
-	if !strings.Contains(out, "already registered") {
-		t.Errorf("scan duplicate = %q, want 'already registered'", out)
+	if !strings.Contains(out, "already in soko") {
+		t.Errorf("scan duplicate = %q, want 'already in soko'", out)
 	}
-	if !strings.Contains(out, "0 registered") {
-		t.Errorf("scan summary = %q, want '0 registered'", out)
+	if !strings.Contains(out, "0 initialized") {
+		t.Errorf("scan summary = %q, want '0 initialized'", out)
 	}
 }
 
@@ -1155,8 +1158,11 @@ func TestIntegration_ScanDryRun(t *testing.T) {
 	initRepo(t, filepath.Join(base, "dry-repo"))
 
 	out := runSoko(t, "scan", base, "--dry-run")
-	if !strings.Contains(out, "would register") {
-		t.Errorf("scan dry-run = %q, want 'would register'", out)
+	if !strings.Contains(out, "not initialized") {
+		t.Errorf("scan dry-run = %q, want 'not initialized'", out)
+	}
+	if !strings.Contains(out, "dry-run") {
+		t.Errorf("scan dry-run header = %q, want 'dry-run'", out)
 	}
 
 	// Should NOT be in config.
