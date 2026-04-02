@@ -37,7 +37,8 @@ func newStatusCmd() *cobra.Command {
 				return nil
 			}
 
-			collected := collectAll(cmd, cfg)
+			fetchFlag, _ := cmd.Flags().GetBool("fetch")
+			collected := collectAll(cmd, cfg, fetchFlag)
 
 			dirtyFlag, _ := cmd.Flags().GetBool("dirty")
 			cleanFlag, _ := cmd.Flags().GetBool("clean")
@@ -81,6 +82,7 @@ func newStatusCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().Bool("fetch", false, "fetch from remotes before collecting status")
 	cmd.Flags().Bool("dirty", false, "show only repos with uncommitted changes")
 	cmd.Flags().Bool("clean", false, "show only clean repos in sync with remote")
 	cmd.Flags().Bool("ahead", false, "show only repos ahead of remote")
@@ -101,7 +103,7 @@ type statusResult struct {
 	err     string
 }
 
-func collectAll(cmd *cobra.Command, cfg *config.Config) []statusResult {
+func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResult {
 	ctx := cmd.Context()
 	results := make([]statusResult, 0, len(cfg.Repos))
 	var mu sync.Mutex
@@ -129,6 +131,11 @@ func collectAll(cmd *cobra.Command, cfg *config.Config) []statusResult {
 				results = append(results, r)
 				mu.Unlock()
 				return nil
+			}
+
+			if fetch {
+				// Best-effort fetch — don't fail status if fetch fails.
+				_ = git.Fetch(ctx, repo.Path, false)
 			}
 
 			status, parseErr := git.ParseStatus(ctx, repo.Path)
