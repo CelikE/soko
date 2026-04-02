@@ -59,6 +59,7 @@ soko status
 | Flag | Scope | Description |
 |------|-------|-------------|
 | `--json` | Global | Output in JSON format (works with `status` and `list`) |
+| `--fetch` | `status` | Fetch from remotes before showing status |
 | `--dirty` | `status` | Show only repos with uncommitted changes |
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
