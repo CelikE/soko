@@ -15,11 +15,13 @@ import (
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "View config file path or open in editor",
+		Short: "View and manage soko configuration",
 	}
 
 	cmd.AddCommand(newConfigPathCmd())
 	cmd.AddCommand(newConfigEditCmd())
+	cmd.AddCommand(newConfigSetCmd())
+	cmd.AddCommand(newConfigGetCmd())
 
 	return cmd
 }
@@ -66,6 +68,57 @@ func newConfigEditCmd() *cobra.Command {
 			}
 
 			output.Confirm(cmd.ErrOrStderr(), "config saved")
+			return nil
+		},
+	}
+}
+
+func newConfigSetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set a config value",
+		Long: `Set a configuration value. Available keys:
+  git_path    Path to the git binary (default: git from PATH)`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+
+			if err := config.Set(cfg, args[0], args[1]); err != nil {
+				return err
+			}
+
+			if err := config.Save(cfg); err != nil {
+				return fmt.Errorf("saving config: %w", err)
+			}
+
+			output.Confirm(cmd.OutOrStdout(), fmt.Sprintf("%s = %s", args[0], args[1]))
+			return nil
+		},
+	}
+}
+
+func newConfigGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <key>",
+		Short: "Get a config value",
+		Long: `Get a configuration value. Available keys:
+  git_path    Path to the git binary (default: git from PATH)`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+
+			val, err := config.Get(cfg, args[0])
+			if err != nil {
+				return err
+			}
+
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), val)
 			return nil
 		},
 	}

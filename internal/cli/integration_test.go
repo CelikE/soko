@@ -1059,3 +1059,37 @@ func TestIntegration_ShellInitFish(t *testing.T) {
 		t.Errorf("shell-init --fish = %q, want 'fish_postexec'", out)
 	}
 }
+
+func TestIntegration_ConfigSetAndGet(t *testing.T) {
+	testEnv(t)
+
+	out := runSoko(t, "config", "get", "git_path")
+	if !strings.Contains(out, "git (default)") {
+		t.Errorf("config get default = %q, want 'git (default)'", out)
+	}
+
+	out = runSoko(t, "config", "set", "git_path", "/custom/git")
+	if !strings.Contains(out, "git_path = /custom/git") {
+		t.Errorf("config set = %q, want 'git_path = /custom/git'", out)
+	}
+
+	out = runSoko(t, "config", "get", "git_path")
+	if !strings.Contains(out, "/custom/git") {
+		t.Errorf("config get after set = %q, want '/custom/git'", out)
+	}
+}
+
+func TestIntegration_ConfigSetUnknownKey(t *testing.T) {
+	testEnv(t)
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"config", "set", "unknown", "value"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("config set unknown key should return an error")
+	}
+}
