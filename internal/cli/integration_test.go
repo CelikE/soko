@@ -589,3 +589,78 @@ func TestIntegration_ExecSequential(t *testing.T) {
 		t.Errorf("sequential summary = %q, want '2 succeeded'", out)
 	}
 }
+
+func TestIntegration_DocHealthy(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "healthy-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "doc")
+	if !strings.Contains(out, "0 errors") {
+		t.Errorf("doc healthy = %q, want '0 errors'", out)
+	}
+	// Repo has no remote, so it gets a warning — but no errors.
+	if !strings.Contains(out, "healthy-repo") {
+		t.Errorf("doc healthy = %q, want to contain 'healthy-repo'", out)
+	}
+}
+
+func TestIntegration_DocMissingPath(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "gone-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("removing dir: %v", err)
+	}
+
+	out := runSoko(t, "doc")
+	if !strings.Contains(out, "path does not exist") {
+		t.Errorf("doc missing = %q, want 'path does not exist'", out)
+	}
+	if !strings.Contains(out, "soko remove") {
+		t.Errorf("doc missing = %q, want suggestion 'soko remove'", out)
+	}
+}
+
+func TestIntegration_DocFixMissingPath(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "fix-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("removing dir: %v", err)
+	}
+
+	out := runSoko(t, "doc", "--fix")
+	if !strings.Contains(out, "removed from config") {
+		t.Errorf("doc --fix = %q, want 'removed from config'", out)
+	}
+
+	// Verify it was actually removed.
+	listOut := runSoko(t, "list")
+	if !strings.Contains(listOut, "no repos registered") {
+		t.Errorf("list after fix = %q, want 'no repos registered'", listOut)
+	}
+}
+
+func TestIntegration_DocJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "json-doc-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "doc", "--json")
+
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	// Should have at least git check, config check, and repo check.
+	if len(entries) < 3 {
+		t.Fatalf("JSON entries = %d, want at least 3", len(entries))
+	}
+}
