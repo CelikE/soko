@@ -4,6 +4,13 @@
 
 ### Features
 
+- Add soko config set and soko config get commands
+- Configurable git binary path via soko config set git_path
+
+## v0.5.0
+
+### Features
+
 - View config path or open in editor with soko config
 - Doc checks if shell-init is configured
 - Show which command is being run in soko exec output
@@ -20,10 +27,3 @@
 - Unified output style with dimmed headers and consistent summaries
 - Fix picker colors when stdout is piped
 - Show error messages on stderr instead of silent exit
-
-## v0.4.0
-
-### Features
-
-- Tag repos with labels and filter any command with --tag
-- Add --fetch flag to status for accurate ahead/behind counts
