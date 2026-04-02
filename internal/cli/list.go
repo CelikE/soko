@@ -12,31 +12,40 @@ import (
 
 // newListCmd creates the cobra command for soko list.
 func newListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all registered repos",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 
-			cfg, err := config.Load()
+			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
-				return fmt.Errorf("loading config: %w", err)
+				return err
 			}
 
-			if len(cfg.Repos) == 0 {
-				_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+			if len(repos) == 0 {
+				if len(cfg.Repos) == 0 {
+					_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+				} else {
+					_, _ = fmt.Fprintln(w, "no repos match the tag filter")
+				}
 				return nil
 			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
-				return renderListJSON(w, cfg.Repos)
+				return renderListJSON(w, repos)
 			}
 
-			renderListTable(w, cfg.Repos)
+			renderListTable(w, repos)
 			return nil
 		},
 	}
+
+	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
+
+	return cmd
 }
 
 type listEntry struct {
@@ -59,7 +68,6 @@ func renderListJSON(w io.Writer, repos []config.RepoEntry) error {
 }
 
 func renderListTable(w io.Writer, repos []config.RepoEntry) {
-	// Compute name column width.
 	nameWidth := len("NAME")
 	for _, r := range repos {
 		if len(r.Name) > nameWidth {
