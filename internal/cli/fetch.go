@@ -77,6 +77,8 @@ func newFetchCmd() *cobra.Command {
 				})
 			}
 
+			// Goroutines never return errors (captured in results), so Wait only
+			// returns nil or a context cancellation which is safe to ignore.
 			_ = g.Wait()
 
 			// Restore config order.
