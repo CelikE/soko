@@ -50,6 +50,7 @@ func newRemoveCmd() *cobra.Command {
 	cmd.Flags().String("path", "", "remove by absolute path instead of name")
 	cmd.Flags().Bool("all", false, "remove all registered repos")
 	cmd.Flags().Bool("force", false, "skip confirmation prompt")
+	cmd.ValidArgsFunction = repoNameCompletionFunc()
 
 	return cmd
 }
