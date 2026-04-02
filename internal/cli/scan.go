@@ -87,24 +87,35 @@ Skips hidden directories and repos already registered.`,
 				name := git.RepoName(ctx, path)
 				r := scanResult{Name: name, Path: path}
 
-				_, addErr := config.AddRepo(cfg, config.RepoEntry{
-					Name: name,
-					Path: path,
-					Tags: tags,
-				})
-				if addErr != nil {
-					if errors.Is(addErr, config.ErrRepoAlreadyExists) {
-						r.AlreadyRegistered = true
-					} else {
-						r.Error = addErr.Error()
+				if dryRun {
+					// In dry-run, check if it would be a duplicate without modifying config.
+					for _, existing := range cfg.Repos {
+						if existing.Path == path {
+							r.AlreadyRegistered = true
+							break
+						}
+					}
+					if !r.AlreadyRegistered {
+						r.Registered = true
 					}
 				} else {
-					r.Registered = true
+					_, addErr := config.AddRepo(cfg, config.RepoEntry{
+						Name: name,
+						Path: path,
+						Tags: tags,
+					})
+					if addErr != nil {
+						if errors.Is(addErr, config.ErrRepoAlreadyExists) {
+							r.AlreadyRegistered = true
+						} else {
+							r.Error = addErr.Error()
+						}
+					} else {
+						r.Registered = true
+					}
 				}
 
 				found = append(found, r)
-
-				// Don't descend into git repos (they're self-contained).
 				return fs.SkipDir
 			})
 
@@ -121,20 +132,50 @@ Skips hidden directories and repos already registered.`,
 				return renderScanJSON(w, found)
 			}
 
-			// Print results.
-			var registered, skipped int
+			// Print header.
+			scanHeader := fmt.Sprintf("scanning %s (depth: %d", shortenHome(root), maxDepth)
+			if len(tags) > 0 {
+				scanHeader += ", tags: " + strings.Join(tags, ", ")
+			}
+			if dryRun {
+				scanHeader += ", dry-run"
+			}
+			scanHeader += ")"
+			output.Info(w, scanHeader)
+			_, _ = fmt.Fprintln(w)
+
+			// Compute column widths.
+			nameWidth := len("NAME")
 			for _, r := range found {
+				if len(r.Name) > nameWidth {
+					nameWidth = len(r.Name)
+				}
+			}
+			nameWidth += 2
+
+			// Table header.
+			header := fmt.Sprintf("  %-*s %-8s %s", nameWidth, "NAME", "SOKO", "PATH")
+			_, _ = fmt.Fprintln(w, output.Dim(header))
+			_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
+
+			// Rows.
+			var registered, existing int
+			for _, r := range found {
+				shortPath := shortenHome(r.Path)
+
 				switch {
 				case r.Error != "":
-					output.Fail(w, fmt.Sprintf("%s (%s)", r.Name, r.Error))
+					_, _ = fmt.Fprintln(w, output.Red(fmt.Sprintf(
+						"  %-*s %-8s %s", nameWidth, r.Name, output.SymConflict, r.Error)))
 				case r.AlreadyRegistered:
-					output.Warn(w, fmt.Sprintf("already registered %s (%s)", r.Name, r.Path))
-					skipped++
-				case dryRun:
-					output.Info(w, fmt.Sprintf("would register %s (%s)", r.Name, r.Path))
-					registered++
-				default:
-					output.Confirm(w, fmt.Sprintf("registered %s (%s)", r.Name, r.Path))
+					_, _ = fmt.Fprintf(w, "  %-*s %s       %s\n",
+						nameWidth, r.Name,
+						output.Green(output.SymClean),
+						output.Dim(shortPath))
+					existing++
+				case r.Registered:
+					_, _ = fmt.Fprintln(w, output.Green(fmt.Sprintf(
+						"  %-*s %s       %s", nameWidth, r.Name, output.SymClean, shortPath)))
 					registered++
 				}
 			}
@@ -147,9 +188,15 @@ Skips hidden directories and repos already registered.`,
 			}
 
 			_, _ = fmt.Fprintln(w)
-			output.Info(w, fmt.Sprintf(
-				"found %d repos · %d registered · %d already tracked",
-				len(found), registered, skipped))
+			if dryRun {
+				output.Info(w, fmt.Sprintf(
+					"found %d repos · %d not initialized · %d already in soko",
+					len(found), registered, existing))
+			} else {
+				output.Info(w, fmt.Sprintf(
+					"found %d repos · %d initialized · %d already in soko",
+					len(found), registered, existing))
+			}
 
 			return nil
 		},
@@ -177,4 +224,15 @@ func renderScanJSON(w io.Writer, results []scanResult) error {
 		return fmt.Errorf("encoding json: %w", err)
 	}
 	return nil
+}
+
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
