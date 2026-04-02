@@ -39,8 +39,6 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("loading config: %w", err)
 			}
 
-			firstInit := len(cfg.Repos) == 0
-
 			entry := config.RepoEntry{
 				Name: name,
 				Path: dir,
@@ -61,11 +59,8 @@ func newInitCmd() *cobra.Command {
 			}
 
 			output.Confirm(w, fmt.Sprintf("registered %s (%s)", name, dir))
-
-			if firstInit {
-				_, _ = fmt.Fprintln(w)
-				output.Info(w, shellInitHint())
-			}
+			_, _ = fmt.Fprintln(w)
+			output.Info(w, shellInitHint())
 
 			return nil
 		},
