@@ -40,7 +40,7 @@ func newFetchCmd() *cobra.Command {
 				if len(cfg.Repos) == 0 {
 					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
 				} else {
-					output.Info(w, "no repos match the tag filter")
+					output.Info(w, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
 				}
 				return nil
 			}

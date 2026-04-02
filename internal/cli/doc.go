@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -166,6 +168,35 @@ func newDocCmd() *cobra.Command {
 						Status:  statusWarn,
 						Message: fmt.Sprintf("path %q appears %d times", path, count),
 						Fixable: true,
+					})
+				}
+			}
+
+			// Check shell-init.
+			navPath := navFilePath()
+			if navPath != "" {
+				// Check if shell hook is likely configured by looking for
+				// the function name in common shell profile files.
+				home, _ := os.UserHomeDir()
+				shellInitConfigured := false
+				for _, profile := range []string{".zshrc", ".bashrc", ".bash_profile"} {
+					data, readErr := os.ReadFile(filepath.Join(home, profile))
+					if readErr == nil && strings.Contains(string(data), "soko shell-init") {
+						shellInitConfigured = true
+						break
+					}
+				}
+				if shellInitConfigured {
+					results = append(results, checkResult{
+						Name:    "shell-init",
+						Status:  statusPass,
+						Message: "shell integration configured",
+					})
+				} else {
+					results = append(results, checkResult{
+						Name:    "shell-init",
+						Status:  statusWarn,
+						Message: "not configured — run: eval \"$(soko shell-init)\"",
 					})
 				}
 			}
