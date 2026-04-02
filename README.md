@@ -54,7 +54,8 @@ soko status
 | `soko exec` | Run a command in all registered repos |
 | `soko tag` | Manage repo tags (add, remove, list) |
 | `soko doc` | Check the health of your soko setup |
-| `soko shell-init` | Print shell wrapper functions for navigation |
+| `soko config` | View config path or open in editor |
+| `soko shell-init` | Print shell integration hook for navigation |
 | `soko version` | Print the soko version |
 
 ## Flags
@@ -72,6 +73,7 @@ soko status
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
+| `--fish` | `shell-init` | Output fish shell syntax |
 
 ## Usage examples
 

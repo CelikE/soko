@@ -9,8 +9,9 @@ import (
 )
 
 const shellInitScript = `# soko shell integration
-# Add this to your shell profile (.bashrc, .zshrc, etc.):
-#   eval "$(soko shell-init)"
+# Add this to your shell profile (.bashrc, .zshrc, config.fish):
+#   eval "$(soko shell-init)"       # bash/zsh
+#   soko shell-init | source        # fish
 
 __soko_nav_hook() {
   local nav_file="${XDG_CONFIG_HOME:-$HOME/.config}/soko/.nav"
@@ -33,24 +34,50 @@ elif [[ -n "${BASH_VERSION-}" ]]; then
 fi
 `
 
+const fishInitScript = `# soko shell integration for fish
+# Add to ~/.config/fish/config.fish:
+#   soko shell-init | source
+
+function __soko_nav_hook --on-event fish_postexec
+  set -l nav_file (set -q XDG_CONFIG_HOME; and echo $XDG_CONFIG_HOME; or echo $HOME/.config)/soko/.nav
+  if test -f $nav_file
+    set -l target (cat $nav_file)
+    rm -f $nav_file
+    if test -d $target
+      cd $target
+    end
+  end
+end
+`
+
 // newShellInitCmd creates the cobra command for soko shell-init.
 func newShellInitCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "shell-init",
 		Short: "Print shell integration hook for navigation",
 		Long: `Print a shell hook that enables soko go and soko cd to change
 your working directory. The hook runs after each command and checks
 for a navigation request.
 
-Add to your shell profile:
+Bash/Zsh:
   eval "$(soko shell-init)"
 
-Then soko go and soko cd will navigate into repos directly.`,
+Fish:
+  soko shell-init --fish | source`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, _ = fmt.Fprint(cmd.OutOrStdout(), shellInitScript)
+			fishFlag, _ := cmd.Flags().GetBool("fish")
+			if fishFlag {
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), fishInitScript)
+			} else {
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), shellInitScript)
+			}
 			return nil
 		},
 	}
+
+	cmd.Flags().Bool("fish", false, "output fish shell syntax")
+
+	return cmd
 }
 
 // navFilePath returns the path to the navigation file.

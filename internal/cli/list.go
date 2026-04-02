@@ -30,7 +30,7 @@ func newListCmd() *cobra.Command {
 				if len(cfg.Repos) == 0 {
 					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
 				} else {
-					output.Info(w, "no repos match the tag filter")
+					output.Info(w, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
 				}
 				return nil
 			}
@@ -60,14 +60,15 @@ func newListCmd() *cobra.Command {
 }
 
 type listEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name string   `json:"name"`
+	Path string   `json:"path"`
+	Tags []string `json:"tags,omitempty"`
 }
 
 func renderListJSON(w io.Writer, repos []config.RepoEntry) error {
 	entries := make([]listEntry, len(repos))
 	for i, r := range repos {
-		entries[i] = listEntry{Name: r.Name, Path: r.Path}
+		entries[i] = listEntry{Name: r.Name, Path: r.Path, Tags: r.Tags}
 	}
 
 	enc := json.NewEncoder(w)
@@ -80,24 +81,48 @@ func renderListJSON(w io.Writer, repos []config.RepoEntry) error {
 
 func renderListTable(w io.Writer, repos []config.RepoEntry) {
 	nameWidth := len("NAME")
+	tagWidth := len("TAGS")
+	hasTags := false
+
 	for _, r := range repos {
 		if len(r.Name) > nameWidth {
 			nameWidth = len(r.Name)
 		}
+		tagStr := strings.Join(r.Tags, ", ")
+		if len(tagStr) > tagWidth {
+			tagWidth = len(tagStr)
+		}
+		if len(r.Tags) > 0 {
+			hasTags = true
+		}
 	}
 	nameWidth += 2
+	tagWidth += 2
 
-	header := fmt.Sprintf("  %-*s %s", nameWidth, "NAME", "PATH")
-	_, _ = fmt.Fprintln(w, output.Dim(header))
-	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
+	if hasTags {
+		header := fmt.Sprintf("  %-*s %-*s %s", nameWidth, "NAME", tagWidth, "TAGS", "PATH")
+		_, _ = fmt.Fprintln(w, output.Dim(header))
+		_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
 
-	for _, r := range repos {
-		_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, r.Path)
+		for _, r := range repos {
+			tagStr := strings.Join(r.Tags, ", ")
+			_, _ = fmt.Fprintf(w, "  %-*s %s%-*s %s\n",
+				nameWidth, r.Name,
+				"", tagWidth, output.Dim(tagStr),
+				output.Dim(r.Path))
+		}
+	} else {
+		header := fmt.Sprintf("  %-*s %s", nameWidth, "NAME", "PATH")
+		_, _ = fmt.Fprintln(w, output.Dim(header))
+		_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
+
+		for _, r := range repos {
+			_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, output.Dim(r.Path))
+		}
 	}
 }
 
 func renderListTree(w io.Writer, repos []config.RepoEntry) {
-	// Build tag → repos mapping.
 	groups := make(map[string][]config.RepoEntry)
 	var untagged []config.RepoEntry
 
@@ -111,14 +136,12 @@ func renderListTree(w io.Writer, repos []config.RepoEntry) {
 		}
 	}
 
-	// Sort tag names.
 	tags := make([]string, 0, len(groups))
 	for tag := range groups {
 		tags = append(tags, tag)
 	}
 	sort.Strings(tags)
 
-	// Compute name width across all repos for alignment.
 	nameWidth := 0
 	for _, r := range repos {
 		if len(r.Name) > nameWidth {
