@@ -27,11 +27,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			if len(repos) == 0 {
-				if len(cfg.Repos) == 0 {
-					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
-				} else {
-					output.Info(w, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
-				}
+				output.Info(w, noReposMessage(len(cfg.Repos)))
 				return nil
 			}
 

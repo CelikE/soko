@@ -35,11 +35,7 @@ Use --tag to filter the picker to repos with specific tags.`,
 			}
 
 			if len(repos) == 0 {
-				if len(cfg.Repos) == 0 {
-					output.Info(stderr, "no repos registered yet — cd into a repo and run: soko init")
-				} else {
-					output.Info(stderr, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
-				}
+				output.Info(stderr, noReposMessage(len(cfg.Repos)))
 				return fmt.Errorf("no repos available")
 			}
 
