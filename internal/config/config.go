@@ -247,6 +247,16 @@ func normalizeTag(tag string) string {
 	return strings.ToLower(strings.TrimSpace(tag))
 }
 
+// FindRepoByPath returns the repo entry whose path matches, or ErrRepoNotFound.
+func FindRepoByPath(cfg *Config, path string) (*RepoEntry, error) {
+	for i, r := range cfg.Repos {
+		if r.Path == path {
+			return &cfg.Repos[i], nil
+		}
+	}
+	return nil, ErrRepoNotFound
+}
+
 // FindRepo searches for repos matching the query. It first tries an exact
 // match on Name, then falls back to prefix matching. Returns all matches.
 func FindRepo(cfg *Config, query string) []RepoEntry {

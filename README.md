@@ -87,8 +87,10 @@ soko status --json                  # machine-readable output
 
 ```bash
 soko init --tag backend --tag go    # tag during registration
-soko tag add auth-service critical  # tag an existing repo
-soko tag remove auth-service critical
+soko tag backend go                 # tag current repo (shorthand)
+soko tag add critical               # add tag to current repo
+soko tag add -r my-repo critical    # add tag to a specific repo
+soko tag remove backend             # remove tag from current repo
 soko tag list                       # show all tags with repo counts
 soko status --tag backend           # filter any command by tag
 soko fetch --tag frontend           # fetch only frontend repos
