@@ -102,19 +102,17 @@ func render(w io.Writer, opts Options, cursor, labelWidth int) {
 	// Title.
 	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(opts.Title))
 
-	// Header.
-	_, _ = fmt.Fprintf(w, "    %s %s\r\n",
-		output.Dim(padRight("NAME", labelWidth)),
-		output.Dim("PATH"))
+	// Header + separator (matches soko status/list style).
+	header := fmt.Sprintf("    %s %s", padRight("NAME", labelWidth), "PATH")
+	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(header))
+	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(strings.Repeat("─", len(header))))
 
 	// Items.
 	for i, item := range opts.Items {
 		paddedLabel := padRight(item.Label, labelWidth)
 		if i == cursor {
-			_, _ = fmt.Fprintf(w, "  %s %s %s\r\n",
-				output.Green("›"),
-				output.Green(paddedLabel),
-				output.Dim(item.Desc))
+			line := fmt.Sprintf("  › %s %s", paddedLabel, item.Desc)
+			_, _ = fmt.Fprintf(w, "%s\r\n", output.Green(line))
 		} else {
 			_, _ = fmt.Fprintf(w, "    %s %s\r\n",
 				paddedLabel,
@@ -128,8 +126,8 @@ func render(w io.Writer, opts Options, cursor, labelWidth int) {
 }
 
 func lineCount(opts Options) int {
-	// title + header + items + blank + help
-	return 1 + 1 + len(opts.Items) + 1 + 1
+	// title + header + separator + items + blank + help
+	return 1 + 1 + 1 + len(opts.Items) + 1 + 1
 }
 
 func clearLines(w io.Writer, n int) {
