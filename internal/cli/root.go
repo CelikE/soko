@@ -23,6 +23,7 @@ then run soko status from anywhere to see the state of every tracked repo.`,
 	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
 
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newScanCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newRemoveCmd())

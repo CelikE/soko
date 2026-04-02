@@ -24,10 +24,11 @@ go install github.com/CelikE/soko/cmd/soko@latest
 # Enable shell integration (add to .bashrc or .zshrc)
 eval "$(soko shell-init)"
 
-# Register your repos (optionally with tags)
+# Register all repos at once
+soko scan ~/projects --tag work
+
+# Or register individually
 cd ~/projects/auth-service && soko init --tag backend
-cd ~/projects/backend-api  && soko init --tag backend
-cd ~/projects/frontend     && soko init --tag frontend
 
 # See everything at a glance
 soko status
@@ -48,6 +49,7 @@ soko status
 | Command | Description |
 |---------|-------------|
 | `soko init` | Register the current git repo |
+| `soko scan` | Discover and register all git repos in a directory |
 | `soko status` | Show status of all registered repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
@@ -71,7 +73,9 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `status`, `list`, `fetch`, `exec`, `go` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go` | Filter by tag (repeatable, combines with OR) |
+| `--dry-run` | `scan` | Show repos that would be registered without registering |
+| `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
 | `--group` | `list` | Group repos by tag in a tree view |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
