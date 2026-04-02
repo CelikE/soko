@@ -4,18 +4,26 @@
 
 ### Features
 
-- Tag repos with labels and filter any command with --tag
-- Add --fetch flag to status for accurate ahead/behind counts
+- View config path or open in editor with soko config
+- Doc checks if shell-init is configured
+- Show which command is being run in soko exec output
+- Fish shell support via soko shell-init --fish
+- Interactive repo picker with arrow-key navigation
+- Tree view for soko list --group grouped by tags
+- Show tags column in soko list when repos have tags
+- Shell hook for direct navigation with soko go and soko cd
+- Tag commands detect current repo from working directory
 
-## v0.3.0
+### Bug Fixes
+
+- Include tags in soko list --json output
+- Unified output style with dimmed headers and consistent summaries
+- Fix picker colors when stdout is piped
+- Show error messages on stderr instead of silent exit
+
+## v0.4.0
 
 ### Features
 
-- Health check for soko setup with auto-fix for stale entries
-- Run arbitrary commands across all registered repos with soko exec
-- Tab-complete repo names in soko remove and soko cd
-
-### Chores
-
-- Remove unused internal/repo/ package
-- Remove CLAUDE.md from git tracking
+- Tag repos with labels and filter any command with --tag
+- Add --fetch flag to status for accurate ahead/behind counts
