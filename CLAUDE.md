@@ -115,9 +115,6 @@ soko/
 │   │   └── status.go          # soko status
 │   ├── config/                # Config loading, saving, path resolution
 │   │   └── config.go          # Config struct, Load(), Save(), RepoExists()
-│   ├── repo/                  # Repo type and status collection
-│   │   ├── repo.go            # Repo struct
-│   │   └── status.go          # Status struct, CollectStatus()
 │   ├── git/                   # Low-level git CLI wrapper
 │   │   ├── git.go             # Run() — exec git with args, capture output
 │   │   └── status.go          # Parse porcelain v2 status output
