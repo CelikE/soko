@@ -56,13 +56,18 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				if len(cfg.Repos) == 0 {
 					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
 				} else {
-					output.Info(w, "no repos match the tag filter")
+					output.Info(w, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
 				}
 				return nil
 			}
 
 			seqFlag, _ := cmd.Flags().GetBool("seq")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
+
+			if !jsonFlag {
+				output.Info(w, fmt.Sprintf("running: %s", strings.Join(args, " ")))
+				_, _ = fmt.Fprintln(w)
+			}
 
 			var results []execResult
 			if seqFlag {

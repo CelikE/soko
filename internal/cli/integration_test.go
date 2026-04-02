@@ -977,3 +977,85 @@ func TestIntegration_GoNoRepos(t *testing.T) {
 		t.Error("go with no repos should return an error")
 	}
 }
+
+func TestIntegration_ErrorMessageShown(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "err-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"cd", "nonexistent"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	errOut := stderr.String()
+	if !strings.Contains(errOut, "no repo matching") {
+		t.Errorf("stderr = %q, want 'no repo matching'", errOut)
+	}
+}
+
+func TestIntegration_ListShowsTags(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "tagged-list-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+	runSoko(t, "tag", "add", "-r", "tagged-list-repo", "backend")
+
+	out := runSoko(t, "list")
+	if !strings.Contains(out, "TAGS") {
+		t.Errorf("list = %q, want TAGS header", out)
+	}
+	if !strings.Contains(out, "backend") {
+		t.Errorf("list = %q, want 'backend' tag", out)
+	}
+}
+
+func TestIntegration_ListJSONIncludesTags(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "json-tag-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+	runSoko(t, "tag", "add", "-r", "json-tag-repo", "infra")
+
+	out := runSoko(t, "list", "--json")
+	if !strings.Contains(out, `"tags"`) {
+		t.Errorf("list --json = %q, want 'tags' field", out)
+	}
+	if !strings.Contains(out, `"infra"`) {
+		t.Errorf("list --json = %q, want 'infra' in tags", out)
+	}
+}
+
+func TestIntegration_ExecShowsCommand(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "cmd-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "exec", "--", "echo", "hi")
+	if !strings.Contains(out, "running: echo hi") {
+		t.Errorf("exec = %q, want 'running: echo hi'", out)
+	}
+}
+
+func TestIntegration_ConfigPath(t *testing.T) {
+	testEnv(t)
+	out := runSoko(t, "config", "path")
+	if !strings.Contains(out, "soko/config.yaml") {
+		t.Errorf("config path = %q, want 'soko/config.yaml'", out)
+	}
+}
+
+func TestIntegration_ShellInitFish(t *testing.T) {
+	out := runSoko(t, "shell-init", "--fish")
+	if !strings.Contains(out, "fish_postexec") {
+		t.Errorf("shell-init --fish = %q, want 'fish_postexec'", out)
+	}
+}

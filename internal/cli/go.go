@@ -38,7 +38,7 @@ Use --tag to filter the picker to repos with specific tags.`,
 				if len(cfg.Repos) == 0 {
 					output.Info(stderr, "no repos registered yet — cd into a repo and run: soko init")
 				} else {
-					output.Info(stderr, "no repos match the tag filter")
+					output.Info(stderr, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
 				}
 				return fmt.Errorf("no repos available")
 			}
@@ -105,12 +105,9 @@ func goNonInteractive(repos []config.RepoEntry, jsonOut bool, w, stderr io.Write
 		return nil
 	}
 
-	output.Info(stderr, "multiple repos — use soko cd <name> or run interactively")
-	for i, r := range repos {
-		_, _ = fmt.Fprintf(stderr, "  %s %s %s\n",
-			output.Dim(fmt.Sprintf("[%d]", i+1)),
-			r.Name,
-			output.Dim(r.Path))
+	output.Info(stderr, "multiple repos match — pick one with soko cd:")
+	for _, r := range repos {
+		_, _ = fmt.Fprintf(stderr, "    soko cd %s\n", r.Name)
 	}
 	return fmt.Errorf("interactive selection requires a terminal")
 }
