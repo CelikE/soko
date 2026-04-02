@@ -8,7 +8,7 @@
 
 ---
 
-soko (倉庫 — "storehouse") is a fast, zero-dependency CLI for managing multiple git repositories. Register your repos once, then see the status of all of them from anywhere with a single command. No more `cd`-ing between directories and running `git status` one at a time.
+soko (倉庫 — "storehouse") is a fast, lightweight CLI for managing multiple git repositories. Register your repos once, then see the status of all of them from anywhere with a single command. No more `cd`-ing between directories and running `git status` one at a time.
 
 ## Prerequisites
 
@@ -189,6 +189,18 @@ cd soko
 make build
 make test
 ```
+
+## Dependencies
+
+soko is a single binary with minimal dependencies. No CGo, no git libraries — it shells out to the `git` CLI directly.
+
+| Dependency | Purpose |
+|-----------|---------|
+| [spf13/cobra](https://github.com/spf13/cobra) | CLI framework |
+| [gopkg.in/yaml.v3](https://github.com/go-yaml/yaml) | Config file parsing |
+| [fatih/color](https://github.com/fatih/color) | Terminal colors (respects `NO_COLOR`) |
+| [golang.org/x/sync](https://pkg.go.dev/golang.org/x/sync) | Parallel execution |
+| [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | Interactive picker (raw terminal) |
 
 ## License
 
