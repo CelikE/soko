@@ -2,28 +2,13 @@
 
 ## Unreleased
 
+### Chores
+
+- Extract shared helpers, fix swallowed errors, tighten config permissions, document concurrency patterns
+
+## v0.6.0
+
 ### Features
 
 - Add soko config set and soko config get commands
 - Configurable git binary path via soko config set git_path
-
-## v0.5.0
-
-### Features
-
-- View config path or open in editor with soko config
-- Doc checks if shell-init is configured
-- Show which command is being run in soko exec output
-- Fish shell support via soko shell-init --fish
-- Interactive repo picker with arrow-key navigation
-- Tree view for soko list --group grouped by tags
-- Show tags column in soko list when repos have tags
-- Shell hook for direct navigation with soko go and soko cd
-- Tag commands detect current repo from working directory
-
-### Bug Fixes
-
-- Include tags in soko list --json output
-- Unified output style with dimmed headers and consistent summaries
-- Fix picker colors when stdout is piped
-- Show error messages on stderr instead of silent exit
