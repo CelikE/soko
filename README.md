@@ -21,6 +21,9 @@ soko (倉庫 — "storehouse") is a fast, zero-dependency CLI for managing multi
 # Install
 go install github.com/CelikE/soko/cmd/soko@latest
 
+# Enable shell integration (add to .bashrc or .zshrc)
+eval "$(soko shell-init)"
+
 # Register your repos (optionally with tags)
 cd ~/projects/auth-service && soko init --tag backend
 cd ~/projects/backend-api  && soko init --tag backend
@@ -37,7 +40,7 @@ soko status
   backend-api        main         ✓ clean      ↓3         1d ago
   frontend           dev          ✎ 1M 2U      ↑1         4h ago
 
-  3 repos │ 2 dirty │ 1 behind remote │ 6 uncommitted changes
+  3 repos · 2 dirty · 1 behind · 6 changes
 ```
 
 ## Commands
@@ -49,13 +52,13 @@ soko status
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
-| `soko cd` | Print the path of a repo for quick navigation |
-| `soko go` | Interactive repo picker, prints selected path |
+| `soko cd` | Navigate to a repo by name |
+| `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
-| `soko tag` | Manage repo tags (add, remove, list) |
+| `soko tag` | Manage repo tags |
 | `soko doc` | Check the health of your soko setup |
 | `soko config` | View config path or open in editor |
-| `soko shell-init` | Print shell integration hook for navigation |
+| `soko shell-init` | Print shell integration hook |
 | `soko version` | Print the soko version |
 
 ## Flags
@@ -68,7 +71,7 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `status`, `list`, `fetch`, `exec` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `status`, `list`, `fetch`, `exec`, `go` | Filter by tag (repeatable, combines with OR) |
 | `--group` | `list` | Group repos by tag in a tree view |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
@@ -111,13 +114,16 @@ soko exec --seq -- git log -1       # sequential, one at a time
 soko exec --tag backend -- go vet   # only in backend repos
 ```
 
-### Quick navigation
+### Navigation
 
-First, enable shell integration (one-time setup):
+Requires shell integration (one-time setup):
 
 ```bash
-# Add to your .bashrc or .zshrc
+# Bash / Zsh
 eval "$(soko shell-init)"
+
+# Fish
+soko shell-init --fish | source
 ```
 
 Then navigate directly:
@@ -139,11 +145,13 @@ soko remove --path /old/path        # unregister by path
 soko remove --all --force           # clear everything
 ```
 
-### Health check
+### Health check and config
 
 ```bash
-soko doc                            # check for stale paths, missing git, etc.
+soko doc                            # check paths, git, remotes, shell-init
 soko doc --fix                      # auto-remove stale entries
+soko config path                    # print config file location
+soko config edit                    # open config in $EDITOR
 ```
 
 ## Configuration
