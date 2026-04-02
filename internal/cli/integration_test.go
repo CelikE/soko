@@ -708,7 +708,7 @@ func TestIntegration_TagAddAndList(t *testing.T) {
 	initRepo(t, dir)
 	runSokoInit(t, dir)
 
-	out := runSoko(t, "tag", "add", "tagged-repo", "backend")
+	out := runSoko(t, "tag", "add", "-r", "tagged-repo", "backend")
 	if !strings.Contains(out, "tagged") {
 		t.Errorf("tag add output = %q, want 'tagged'", out)
 	}
@@ -725,8 +725,8 @@ func TestIntegration_TagRemove(t *testing.T) {
 	initRepo(t, dir)
 	runSokoInit(t, dir)
 
-	runSoko(t, "tag", "add", "tag-rm-repo", "frontend")
-	runSoko(t, "tag", "remove", "tag-rm-repo", "frontend")
+	runSoko(t, "tag", "add", "-r", "tag-rm-repo", "frontend")
+	runSoko(t, "tag", "remove", "-r", "tag-rm-repo", "frontend")
 
 	out := runSoko(t, "tag", "list")
 	if !strings.Contains(out, "no tags in use") {
@@ -745,8 +745,8 @@ func TestIntegration_StatusFilterByTag(t *testing.T) {
 	runSokoInit(t, backDir)
 	runSokoInit(t, frontDir)
 
-	runSoko(t, "tag", "add", "backend-svc", "backend")
-	runSoko(t, "tag", "add", "frontend-app", "frontend")
+	runSoko(t, "tag", "add", "-r", "backend-svc", "backend")
+	runSoko(t, "tag", "add", "-r", "frontend-app", "frontend")
 
 	out := runSoko(t, "status", "--tag", "backend")
 	if !strings.Contains(out, "backend-svc") {
@@ -768,7 +768,7 @@ func TestIntegration_ListFilterByTag(t *testing.T) {
 	runSokoInit(t, aDir)
 	runSokoInit(t, bDir)
 
-	runSoko(t, "tag", "add", "svc-a", "infra")
+	runSoko(t, "tag", "add", "-r", "svc-a", "infra")
 
 	out := runSoko(t, "list", "--tag", "infra")
 	if !strings.Contains(out, "svc-a") {
@@ -807,7 +807,7 @@ func TestIntegration_ExecFilterByTag(t *testing.T) {
 	runSokoInit(t, aDir)
 	runSokoInit(t, bDir)
 
-	runSoko(t, "tag", "add", "exec-a", "target")
+	runSoko(t, "tag", "add", "-r", "exec-a", "target")
 
 	out := runSoko(t, "exec", "--tag", "target", "--", "echo", "hit")
 	if !strings.Contains(out, "exec-a") {
@@ -831,9 +831,9 @@ func TestIntegration_ListGroupTree(t *testing.T) {
 		runSokoInit(t, dir)
 	}
 
-	runSoko(t, "tag", "add", "auth-svc", "backend")
-	runSoko(t, "tag", "add", "api-svc", "backend")
-	runSoko(t, "tag", "add", "web-app", "frontend")
+	runSoko(t, "tag", "add", "-r", "auth-svc", "backend")
+	runSoko(t, "tag", "add", "-r", "api-svc", "backend")
+	runSoko(t, "tag", "add", "-r", "web-app", "frontend")
 
 	out := runSoko(t, "list", "--group")
 
@@ -865,5 +865,73 @@ func TestIntegration_ListGroupNoTags(t *testing.T) {
 	}
 	if !strings.Contains(out, "plain-repo") {
 		t.Errorf("list --group no tags = %q, want 'plain-repo'", out)
+	}
+}
+
+func TestIntegration_TagShorthand(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "shorthand-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	orig, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	out := runSoko(t, "tag", "backend")
+	if !strings.Contains(out, "tagged") {
+		t.Errorf("tag shorthand = %q, want 'tagged'", out)
+	}
+
+	out = runSoko(t, "tag", "list")
+	if !strings.Contains(out, "backend") {
+		t.Errorf("tag list after shorthand = %q, want 'backend'", out)
+	}
+}
+
+func TestIntegration_TagAddCurrentDir(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "cwd-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	orig, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	out := runSoko(t, "tag", "add", "frontend", "go")
+	if !strings.Contains(out, "tagged") {
+		t.Errorf("tag add cwd = %q, want 'tagged'", out)
+	}
+
+	out = runSoko(t, "tag", "list")
+	if !strings.Contains(out, "frontend") || !strings.Contains(out, "go") {
+		t.Errorf("tag list = %q, want 'frontend' and 'go'", out)
+	}
+}
+
+func TestIntegration_TagRemoveCurrentDir(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "rm-cwd-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	orig, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
+	runSoko(t, "tag", "backend", "go")
+
+	out := runSoko(t, "tag", "remove", "go")
+	if !strings.Contains(out, "removed tag") {
+		t.Errorf("tag remove cwd = %q, want 'removed tag'", out)
+	}
+
+	out = runSoko(t, "tag", "list")
+	if !strings.Contains(out, "backend") {
+		t.Errorf("tag list = %q, want 'backend'", out)
+	}
+	if strings.Contains(out, "go (") {
+		t.Errorf("tag list = %q, should not contain 'go'", out)
 	}
 }
