@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -17,7 +16,9 @@ import (
 	"github.com/CelikE/soko/internal/output"
 )
 
-const maxConcurrency = 8
+// significantBehindThreshold is the number of commits behind remote that
+// triggers a red (conflict) state in the status output.
+const significantBehindThreshold = 5
 
 // newStatusCmd creates the cobra command for soko status.
 func newStatusCmd() *cobra.Command {
@@ -33,11 +34,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			if len(repos) == 0 {
-				if len(cfg.Repos) == 0 {
-					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
-				} else {
-					output.Info(w, fmt.Sprintf("no repos match the tag filter (%d repos registered)", len(cfg.Repos)))
-				}
+				output.Info(w, noReposMessage(len(cfg.Repos)))
 				return nil
 			}
 
@@ -126,7 +123,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 				row:   output.StatusRow{Name: repo.Name},
 			}
 
-			if _, statErr := os.Stat(repo.Path); os.IsNotExist(statErr) {
+			if !pathExists(repo.Path) {
 				r.row.Branch = "-"
 				r.row.StatusText = output.SymConflict + " not found"
 				r.row.AheadBehindText = "-"
@@ -272,7 +269,7 @@ func renderStatusJSON(w io.Writer, results []statusResult) error {
 
 // rowState determines the RowState from a RepoStatus.
 func rowState(s *git.RepoStatus) output.RowState {
-	if s.Conflicts > 0 || s.Behind > 5 {
+	if s.Conflicts > 0 || s.Behind > significantBehindThreshold {
 		return output.StateConflict
 	}
 	if s.Modified+s.Untracked+s.Deleted > 0 || s.Ahead > 0 || s.Behind > 0 {

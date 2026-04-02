@@ -31,7 +31,7 @@ Requires shell integration:
 			}
 
 			if len(cfg.Repos) == 0 {
-				output.Info(stderr, "no repos registered yet — cd into a repo and run: soko init")
+				output.Info(stderr, noReposMessage(0))
 				return fmt.Errorf("no repos registered")
 			}
 
@@ -52,7 +52,6 @@ func cdByQuery(cfg *config.Config, query string, jsonOut bool, w, stderr io.Writ
 
 	switch len(matches) {
 	case 0:
-		output.Fail(stderr, fmt.Sprintf("no repo matching: %s", query))
 		return fmt.Errorf("no repo matching: %s", query)
 	case 1:
 		if jsonOut {
