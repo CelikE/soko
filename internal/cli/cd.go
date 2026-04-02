@@ -16,8 +16,9 @@ import (
 // newCdCmd creates the cobra command for soko cd.
 func newCdCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "cd [name]",
-		Short: "Print the path of a registered repo",
+		Use:               "cd [name]",
+		Short:             "Print the path of a registered repo",
+		ValidArgsFunction: repoNameCompletionFunc(),
 		Long: `Print the absolute path of a registered repo so you can use it with
 command substitution: cd $(soko cd auth)
 
