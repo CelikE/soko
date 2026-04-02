@@ -485,3 +485,107 @@ func TestIntegration_CdJSON(t *testing.T) {
 		t.Errorf("JSON path = %q, want %q", entry["path"], dir)
 	}
 }
+
+func TestIntegration_ExecEcho(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "exec-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "exec", "--", "echo", "hello")
+	if !strings.Contains(out, "hello") {
+		t.Errorf("exec echo output = %q, want to contain 'hello'", out)
+	}
+	if !strings.Contains(out, "1 succeeded") {
+		t.Errorf("exec summary = %q, want '1 succeeded'", out)
+	}
+}
+
+func TestIntegration_ExecFailingCommand(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "fail-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"exec", "--", "false"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("exec with failing command should return an error")
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "1 failed") {
+		t.Errorf("exec fail summary = %q, want '1 failed'", out)
+	}
+}
+
+func TestIntegration_ExecJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "json-exec-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "exec", "--json", "--", "echo", "world")
+
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("JSON entries = %d, want 1", len(entries))
+	}
+	if !strings.Contains(entries[0]["stdout"].(string), "world") {
+		t.Errorf("JSON stdout = %v, want to contain 'world'", entries[0]["stdout"])
+	}
+}
+
+func TestIntegration_ExecMissingPath(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "gone-exec-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("removing dir: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"exec", "--", "echo", "hi"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("exec with missing path should return an error")
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "path not found") {
+		t.Errorf("exec missing path output = %q, want 'path not found'", out)
+	}
+}
+
+func TestIntegration_ExecSequential(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	for _, name := range []string{"seq-a", "seq-b"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+
+	out := runSoko(t, "exec", "--seq", "--", "echo", "ok")
+	if !strings.Contains(out, "seq-a") && !strings.Contains(out, "seq-b") {
+		t.Errorf("sequential exec = %q, want both repo names", out)
+	}
+	if !strings.Contains(out, "2 succeeded") {
+		t.Errorf("sequential summary = %q, want '2 succeeded'", out)
+	}
+}
