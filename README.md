@@ -50,6 +50,7 @@ soko status
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
 | `soko cd` | Print the path of a repo for quick navigation |
+| `soko go` | Interactive repo picker, prints selected path |
 | `soko exec` | Run a command in all registered repos |
 | `soko tag` | Manage repo tags (add, remove, list) |
 | `soko doc` | Check the health of your soko setup |
@@ -110,17 +111,19 @@ soko exec --tag backend -- go vet   # only in backend repos
 ### Quick navigation
 
 ```bash
-cd $(soko cd auth)                  # jump to auth-service
-soko cd auth --json                 # get path as JSON
+cd $(soko cd auth)                  # jump by name (prefix match)
+cd $(soko go)                       # interactive picker
+cd $(soko go --tag backend)         # picker filtered by tag
 ```
 
-Add to your `.bashrc` or `.zshrc` for even faster navigation:
+Add to your `.bashrc` or `.zshrc` for quick navigation:
 
 ```bash
 s() { local dir; dir=$(soko cd "$@") && cd "$dir"; }
+sgo() { local dir; dir=$(soko go "$@") && cd "$dir"; }
 ```
 
-Then use `s auth` to jump to the auth-service repo.
+Then use `s auth` for direct jumps or `sgo` for the interactive picker.
 
 ### Manage repos
 
