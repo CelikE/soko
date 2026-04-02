@@ -78,6 +78,14 @@ Use --tag to filter the picker to repos with specific tags.`,
 			}
 
 			_, _ = fmt.Fprintln(w, selected.Path)
+
+			// If stdout is a terminal, the user ran `soko go` directly
+			// instead of `cd $(soko go)` — show a hint.
+			if picker.HasTerminal(os.Stdout) {
+				_, _ = fmt.Fprintln(stderr)
+				output.Info(stderr, shellNavHint())
+			}
+
 			return nil
 		},
 	}

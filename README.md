@@ -54,6 +54,7 @@ soko status
 | `soko exec` | Run a command in all registered repos |
 | `soko tag` | Manage repo tags (add, remove, list) |
 | `soko doc` | Check the health of your soko setup |
+| `soko shell-init` | Print shell wrapper functions for navigation |
 | `soko version` | Print the soko version |
 
 ## Flags
@@ -116,14 +117,13 @@ cd $(soko go)                       # interactive picker
 cd $(soko go --tag backend)         # picker filtered by tag
 ```
 
-Add to your `.bashrc` or `.zshrc` for quick navigation:
+To navigate into repos, add to your `.bashrc` or `.zshrc`:
 
 ```bash
-s() { local dir; dir=$(soko cd "$@") && cd "$dir"; }
-sgo() { local dir; dir=$(soko go "$@") && cd "$dir"; }
+eval "$(soko shell-init)"
 ```
 
-Then use `s auth` for direct jumps or `sgo` for the interactive picker.
+This gives you `s auth` for direct jumps and `sgo` for the interactive picker.
 
 ### Manage repos
 
