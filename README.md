@@ -50,6 +50,7 @@ soko status
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
 | `soko cd` | Print the path of a repo (for `cd $(soko cd name)`) |
+| `soko exec` | Run a command in all registered repos |
 | `soko version` | Print the soko version |
 
 ## Flags
@@ -62,6 +63,7 @@ soko status
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
+| `--seq` | `exec` | Run sequentially instead of in parallel |
 
 ```bash
 soko status --json
