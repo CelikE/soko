@@ -111,19 +111,20 @@ soko exec --tag backend -- go vet   # only in backend repos
 
 ### Quick navigation
 
-```bash
-cd $(soko cd auth)                  # jump by name (prefix match)
-cd $(soko go)                       # interactive picker
-cd $(soko go --tag backend)         # picker filtered by tag
-```
-
-To navigate into repos, add to your `.bashrc` or `.zshrc`:
+First, enable shell integration (one-time setup):
 
 ```bash
+# Add to your .bashrc or .zshrc
 eval "$(soko shell-init)"
 ```
 
-This gives you `s auth` for direct jumps and `sgo` for the interactive picker.
+Then navigate directly:
+
+```bash
+soko cd auth                        # jump by name (prefix match)
+soko go                             # interactive picker
+soko go --tag backend               # picker filtered by tag
+```
 
 ### Manage repos
 

@@ -396,18 +396,30 @@ func TestIntegration_RemoveAll(t *testing.T) {
 	}
 }
 
+func readNavFile(t *testing.T) string {
+	t.Helper()
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	navPath := filepath.Join(xdg, "soko", ".nav")
+	data, err := os.ReadFile(navPath)
+	if err != nil {
+		t.Fatalf("reading nav file: %v", err)
+	}
+	// Clean up after reading.
+	_ = os.Remove(navPath)
+	return string(data)
+}
+
 func TestIntegration_CdExactMatch(t *testing.T) {
 	testEnv(t)
 	dir := filepath.Join(t.TempDir(), "my-repo")
 	initRepo(t, dir)
 	runSokoInit(t, dir)
 
-	out := runSoko(t, "cd", "my-repo")
-	got := strings.TrimSpace(out)
-	// Resolve symlinks for macOS /var -> /private/var.
+	runSoko(t, "cd", "my-repo")
+	got := readNavFile(t)
 	wantReal, _ := filepath.EvalSymlinks(dir)
 	if got != dir && got != wantReal {
-		t.Errorf("cd output = %q, want %q", got, dir)
+		t.Errorf("cd nav file = %q, want %q", got, dir)
 	}
 }
 
@@ -417,11 +429,11 @@ func TestIntegration_CdPrefixMatch(t *testing.T) {
 	initRepo(t, dir)
 	runSokoInit(t, dir)
 
-	out := runSoko(t, "cd", "auth")
-	got := strings.TrimSpace(out)
+	runSoko(t, "cd", "auth")
+	got := readNavFile(t)
 	wantReal, _ := filepath.EvalSymlinks(dir)
 	if got != dir && got != wantReal {
-		t.Errorf("cd prefix output = %q, want %q", got, dir)
+		t.Errorf("cd prefix nav file = %q, want %q", got, dir)
 	}
 }
 
@@ -942,12 +954,12 @@ func TestIntegration_GoSingleRepo(t *testing.T) {
 	initRepo(t, dir)
 	runSokoInit(t, dir)
 
-	// With only one repo and non-interactive stdin, it should print the path directly.
-	out := runSoko(t, "go")
-	got := strings.TrimSpace(out)
+	// With only one repo and non-interactive stdin, it writes to nav file.
+	runSoko(t, "go")
+	got := readNavFile(t)
 	wantReal, _ := filepath.EvalSymlinks(dir)
 	if got != dir && got != wantReal {
-		t.Errorf("go single repo = %q, want %q", got, dir)
+		t.Errorf("go single repo nav = %q, want %q", got, dir)
 	}
 }
 
