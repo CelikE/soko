@@ -79,6 +79,7 @@ func newDocCmd() *cobra.Command {
 				return nil
 			}
 
+			// Path error is non-fatal in doc — config already loaded successfully.
 			cfgPath, _ := config.Path()
 			results = append(results, checkResult{
 				Name:    "config",

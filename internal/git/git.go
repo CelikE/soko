@@ -38,6 +38,7 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		// Format: "git <args>: <exit error>: <stderr output>"
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 
