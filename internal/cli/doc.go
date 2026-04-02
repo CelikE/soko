@@ -214,8 +214,9 @@ func renderDocResults(w io.Writer, results []checkResult) {
 		_, _ = fmt.Fprintf(w, "  %s %s: %s\n", icon, r.Name, r.Message)
 	}
 
-	_, _ = fmt.Fprintf(w, "\n  %d checks │ %d passed │ %d warnings │ %d errors\n",
-		len(results), passed, warned, errored)
+	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
+		"%d checks · %d passed · %d warnings · %d errors",
+		len(results), passed, warned, errored)))
 }
 
 type docJSON struct {
