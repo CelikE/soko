@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -77,7 +78,10 @@ func renderListTable(w io.Writer, repos []config.RepoEntry) {
 	}
 	nameWidth += 2
 
-	_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, "NAME", "PATH")
+	header := fmt.Sprintf("  %-*s %s", nameWidth, "NAME", "PATH")
+	_, _ = fmt.Fprintln(w, output.Dim(header))
+	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
+
 	for _, r := range repos {
 		_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, r.Path)
 	}
