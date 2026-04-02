@@ -14,6 +14,7 @@ import (
 
 	"github.com/CelikE/soko/internal/config"
 	iexec "github.com/CelikE/soko/internal/exec"
+
 	"github.com/CelikE/soko/internal/output"
 )
 
@@ -46,13 +47,17 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				return cmd.Usage()
 			}
 
-			cfg, err := config.Load()
+			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
-				return fmt.Errorf("loading config: %w", err)
+				return err
 			}
 
-			if len(cfg.Repos) == 0 {
-				_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+			if len(repos) == 0 {
+				if len(cfg.Repos) == 0 {
+					_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+				} else {
+					_, _ = fmt.Fprintln(w, "no repos match the tag filter")
+				}
 				return nil
 			}
 
@@ -61,9 +66,9 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 
 			var results []execResult
 			if seqFlag {
-				results = execSequential(cmd, cfg.Repos, args, w, jsonFlag)
+				results = execSequential(cmd, repos, args, w, jsonFlag)
 			} else {
-				results = execParallel(cmd, cfg.Repos, args)
+				results = execParallel(cmd, repos, args)
 			}
 
 			if jsonFlag {
@@ -96,6 +101,8 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 	}
 
 	cmd.Flags().Bool("seq", false, "run sequentially instead of in parallel")
+	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 
 	return cmd
 }

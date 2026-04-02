@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -26,8 +27,9 @@ var (
 
 // RepoEntry represents a single registered git repository.
 type RepoEntry struct {
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
+	Name string   `yaml:"name"`
+	Path string   `yaml:"path"`
+	Tags []string `yaml:"tags,omitempty"`
 }
 
 // Config is the top-level structure of the soko config file.
@@ -154,6 +156,95 @@ func RemoveRepoByPath(cfg *Config, path string) (*Config, RepoEntry, error) {
 func Clear(cfg *Config) *Config {
 	cfg.Repos = nil
 	return cfg
+}
+
+// AddTag adds a tag to a repo. Returns ErrRepoNotFound if the repo doesn't
+// exist. No-op if the tag already exists on the repo.
+func AddTag(cfg *Config, repoName, tag string) (*Config, error) {
+	tag = normalizeTag(tag)
+	for i, r := range cfg.Repos {
+		if r.Name == repoName {
+			for _, t := range r.Tags {
+				if t == tag {
+					return cfg, nil
+				}
+			}
+			cfg.Repos[i].Tags = append(cfg.Repos[i].Tags, tag)
+			return cfg, nil
+		}
+	}
+	return cfg, ErrRepoNotFound
+}
+
+// RemoveTag removes a tag from a repo. Returns ErrRepoNotFound if the repo
+// doesn't exist. No-op if the tag doesn't exist on the repo.
+func RemoveTag(cfg *Config, repoName, tag string) (*Config, error) {
+	tag = normalizeTag(tag)
+	for i, r := range cfg.Repos {
+		if r.Name == repoName {
+			tags := make([]string, 0, len(r.Tags))
+			for _, t := range r.Tags {
+				if t != tag {
+					tags = append(tags, t)
+				}
+			}
+			cfg.Repos[i].Tags = tags
+			return cfg, nil
+		}
+	}
+	return cfg, ErrRepoNotFound
+}
+
+// ListTags returns all unique tags across all repos, sorted alphabetically.
+func ListTags(cfg *Config) []string {
+	seen := make(map[string]bool)
+	for _, r := range cfg.Repos {
+		for _, t := range r.Tags {
+			seen[t] = true
+		}
+	}
+
+	tags := make([]string, 0, len(seen))
+	for t := range seen {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	return tags
+}
+
+// FilterByTags returns repos that have at least one of the given tags.
+// Multiple tags combine with OR.
+func FilterByTags(repos []RepoEntry, tags []string) []RepoEntry {
+	tagSet := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		tagSet[normalizeTag(t)] = true
+	}
+
+	var filtered []RepoEntry
+	for _, r := range repos {
+		for _, t := range r.Tags {
+			if tagSet[t] {
+				filtered = append(filtered, r)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+// TagCount returns a map of tag name to the number of repos that have it.
+func TagCount(cfg *Config) map[string]int {
+	counts := make(map[string]int)
+	for _, r := range cfg.Repos {
+		for _, t := range r.Tags {
+			counts[t]++
+		}
+	}
+	return counts
+}
+
+func normalizeTag(tag string) string {
+	return strings.ToLower(strings.TrimSpace(tag))
 }
 
 // FindRepo searches for repos matching the query. It first tries an exact

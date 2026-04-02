@@ -27,18 +27,23 @@ func newStatusCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 
-			cfg, err := config.Load()
+			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
-				return fmt.Errorf("loading config: %w", err)
+				return err
 			}
 
-			if len(cfg.Repos) == 0 {
-				_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+			if len(repos) == 0 {
+				if len(cfg.Repos) == 0 {
+					_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+				} else {
+					_, _ = fmt.Fprintln(w, "no repos match the tag filter")
+				}
 				return nil
 			}
 
 			fetchFlag, _ := cmd.Flags().GetBool("fetch")
-			collected := collectAll(cmd, cfg, fetchFlag)
+			filteredCfg := &config.Config{Repos: repos}
+			collected := collectAll(cmd, filteredCfg, fetchFlag)
 
 			dirtyFlag, _ := cmd.Flags().GetBool("dirty")
 			cleanFlag, _ := cmd.Flags().GetBool("clean")
@@ -83,6 +88,8 @@ func newStatusCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("fetch", false, "fetch from remotes before collecting status")
+	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("dirty", false, "show only repos with uncommitted changes")
 	cmd.Flags().Bool("clean", false, "show only clean repos in sync with remote")
 	cmd.Flags().Bool("ahead", false, "show only repos ahead of remote")

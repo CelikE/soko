@@ -432,3 +432,191 @@ func TestFindRepo(t *testing.T) {
 		})
 	}
 }
+
+func TestAddTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		repoName string
+		tag      string
+		wantTags []string
+		wantErr  error
+	}{
+		{
+			name:     "adds tag to repo with no tags",
+			repoName: "alpha",
+			tag:      "backend",
+			wantTags: []string{"backend"},
+		},
+		{
+			name:     "adds second tag",
+			repoName: "alpha",
+			tag:      "go",
+			wantTags: []string{"backend", "go"},
+		},
+		{
+			name:     "duplicate tag is no-op",
+			repoName: "alpha",
+			tag:      "backend",
+			wantTags: []string{"backend", "go"},
+		},
+		{
+			name:     "normalizes to lowercase",
+			repoName: "alpha",
+			tag:      "GO",
+			wantTags: []string{"backend", "go"},
+		},
+		{
+			name:     "repo not found",
+			repoName: "missing",
+			tag:      "x",
+			wantErr:  ErrRepoNotFound,
+		},
+	}
+
+	cfg := &Config{Repos: []RepoEntry{
+		{Name: "alpha", Path: "/repos/alpha"},
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := AddTag(cfg, tt.repoName, tt.tag)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("AddTag() error = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr == nil {
+				got := cfg.Repos[0].Tags
+				if len(got) != len(tt.wantTags) {
+					t.Fatalf("tags = %v, want %v", got, tt.wantTags)
+				}
+				for i, want := range tt.wantTags {
+					if got[i] != want {
+						t.Errorf("tags[%d] = %q, want %q", i, got[i], want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveTag(t *testing.T) {
+	cfg := &Config{Repos: []RepoEntry{
+		{Name: "alpha", Path: "/repos/alpha", Tags: []string{"backend", "go", "auth"}},
+	}}
+
+	// Remove existing tag.
+	if _, err := RemoveTag(cfg, "alpha", "go"); err != nil {
+		t.Fatalf("RemoveTag() error = %v", err)
+	}
+	if len(cfg.Repos[0].Tags) != 2 {
+		t.Fatalf("tags = %v, want 2 tags", cfg.Repos[0].Tags)
+	}
+
+	// Remove non-existent tag is no-op.
+	if _, err := RemoveTag(cfg, "alpha", "nonexistent"); err != nil {
+		t.Fatalf("RemoveTag() non-existent error = %v", err)
+	}
+	if len(cfg.Repos[0].Tags) != 2 {
+		t.Fatalf("tags after no-op = %v, want 2 tags", cfg.Repos[0].Tags)
+	}
+
+	// Repo not found.
+	if _, err := RemoveTag(cfg, "missing", "x"); !errors.Is(err, ErrRepoNotFound) {
+		t.Errorf("RemoveTag() missing repo error = %v, want ErrRepoNotFound", err)
+	}
+}
+
+func TestListTags(t *testing.T) {
+	cfg := &Config{Repos: []RepoEntry{
+		{Name: "a", Path: "/a", Tags: []string{"go", "backend"}},
+		{Name: "b", Path: "/b", Tags: []string{"react", "frontend"}},
+		{Name: "c", Path: "/c", Tags: []string{"go", "frontend"}},
+	}}
+
+	got := ListTags(cfg)
+	want := []string{"backend", "frontend", "go", "react"}
+
+	if len(got) != len(want) {
+		t.Fatalf("ListTags() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ListTags()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFilterByTags(t *testing.T) {
+	repos := []RepoEntry{
+		{Name: "a", Path: "/a", Tags: []string{"backend", "go"}},
+		{Name: "b", Path: "/b", Tags: []string{"frontend", "react"}},
+		{Name: "c", Path: "/c", Tags: []string{"backend", "infra"}},
+		{Name: "d", Path: "/d"},
+	}
+
+	tests := []struct {
+		name      string
+		tags      []string
+		wantNames []string
+	}{
+		{
+			name:      "single tag",
+			tags:      []string{"backend"},
+			wantNames: []string{"a", "c"},
+		},
+		{
+			name:      "multiple tags OR",
+			tags:      []string{"frontend", "infra"},
+			wantNames: []string{"b", "c"},
+		},
+		{
+			name:      "no matches",
+			tags:      []string{"python"},
+			wantNames: nil,
+		},
+		{
+			name:      "repos without tags never match",
+			tags:      []string{"backend"},
+			wantNames: []string{"a", "c"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FilterByTags(repos, tt.tags)
+			if len(got) != len(tt.wantNames) {
+				t.Fatalf("FilterByTags(%v) = %d results, want %d", tt.tags, len(got), len(tt.wantNames))
+			}
+			for i, want := range tt.wantNames {
+				if got[i].Name != want {
+					t.Errorf("FilterByTags(%v)[%d].Name = %q, want %q", tt.tags, i, got[i].Name, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSaveAndLoadRoundTripWithTags(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	original := &Config{Repos: []RepoEntry{
+		{Name: "a", Path: "/repos/a", Tags: []string{"backend", "go"}},
+		{Name: "b", Path: "/repos/b"},
+	}}
+
+	if err := SaveTo(original, path); err != nil {
+		t.Fatalf("SaveTo() error = %v", err)
+	}
+
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+
+	if len(loaded.Repos[0].Tags) != 2 {
+		t.Errorf("round-trip tags = %v, want [backend go]", loaded.Repos[0].Tags)
+	}
+	if len(loaded.Repos[1].Tags) != 0 {
+		t.Errorf("round-trip empty tags = %v, want []", loaded.Repos[1].Tags)
+	}
+}
