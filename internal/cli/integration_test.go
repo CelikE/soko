@@ -935,3 +935,33 @@ func TestIntegration_TagRemoveCurrentDir(t *testing.T) {
 		t.Errorf("tag list = %q, should not contain 'go'", out)
 	}
 }
+
+func TestIntegration_GoSingleRepo(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "go-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	// With only one repo and non-interactive stdin, it should print the path directly.
+	out := runSoko(t, "go")
+	got := strings.TrimSpace(out)
+	wantReal, _ := filepath.EvalSymlinks(dir)
+	if got != dir && got != wantReal {
+		t.Errorf("go single repo = %q, want %q", got, dir)
+	}
+}
+
+func TestIntegration_GoNoRepos(t *testing.T) {
+	testEnv(t)
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"go"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("go with no repos should return an error")
+	}
+}
