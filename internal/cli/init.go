@@ -9,6 +9,7 @@ import (
 
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
+	"github.com/CelikE/soko/internal/output"
 )
 
 // newInitCmd creates the cobra command for soko init.
@@ -18,6 +19,7 @@ func newInitCmd() *cobra.Command {
 		Short: "Register the current repo with soko",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			w := cmd.OutOrStdout()
 
 			dir, err := os.Getwd()
 			if err != nil {
@@ -25,7 +27,7 @@ func newInitCmd() *cobra.Command {
 			}
 
 			if !git.IsGitRepo(ctx, dir) {
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "error: not a git repository")
+				output.Fail(cmd.ErrOrStderr(), "not a git repository")
 				os.Exit(1)
 			}
 
@@ -46,7 +48,7 @@ func newInitCmd() *cobra.Command {
 			cfg, err = config.AddRepo(cfg, entry)
 			if err != nil {
 				if errors.Is(err, config.ErrRepoAlreadyExists) {
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "already registered: %s (%s)\n", name, dir)
+					output.Warn(w, fmt.Sprintf("already registered %s (%s)", name, dir))
 					return nil
 				}
 				return fmt.Errorf("adding repo: %w", err)
@@ -56,7 +58,7 @@ func newInitCmd() *cobra.Command {
 				return fmt.Errorf("saving config: %w", err)
 			}
 
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "registered: %s (%s)\n", name, dir)
+			output.Confirm(w, fmt.Sprintf("registered %s (%s)", name, dir))
 			return nil
 		},
 	}
