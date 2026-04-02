@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
+	"github.com/CelikE/soko/internal/output"
 )
 
 // newRemoveCmd creates the cobra command for soko remove.
@@ -72,7 +73,7 @@ func removeByName(cfg *config.Config, name string, jsonOut bool, w io.Writer) er
 		return writeRemovedJSON(w, []config.RepoEntry{removed})
 	}
 
-	_, _ = fmt.Fprintf(w, "removed: %s (%s)\n", removed.Name, removed.Path)
+	output.Confirm(w, fmt.Sprintf("removed %s (%s)", removed.Name, removed.Path))
 	return nil
 }
 
@@ -93,14 +94,14 @@ func removeByPath(cfg *config.Config, path string, jsonOut bool, w io.Writer) er
 		return writeRemovedJSON(w, []config.RepoEntry{removed})
 	}
 
-	_, _ = fmt.Fprintf(w, "removed: %s (%s)\n", removed.Name, removed.Path)
+	output.Confirm(w, fmt.Sprintf("removed %s (%s)", removed.Name, removed.Path))
 	return nil
 }
 
 func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut bool, w io.Writer) error {
 	count := len(cfg.Repos)
 	if count == 0 {
-		_, _ = fmt.Fprintln(w, "no repos registered")
+		output.Info(w, "no repos registered")
 		return nil
 	}
 
@@ -132,7 +133,7 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut bool, w io
 		return writeRemovedJSON(w, removed)
 	}
 
-	_, _ = fmt.Fprintf(w, "removed all %d repos\n", count)
+	output.Confirm(w, fmt.Sprintf("removed all %d repos", count))
 	return nil
 }
 

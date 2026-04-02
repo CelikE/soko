@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
+	"github.com/CelikE/soko/internal/output"
 )
 
 // newTagCmd creates the cobra command for soko tag with subcommands.
@@ -46,7 +47,7 @@ func newTagAddCmd() *cobra.Command {
 				return fmt.Errorf("saving config: %w", err)
 			}
 
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "tagged %s with %q\n", args[0], args[1])
+			output.Confirm(cmd.OutOrStdout(), fmt.Sprintf("tagged %s with %q", args[0], args[1]))
 			return nil
 		},
 	}
@@ -73,7 +74,7 @@ func newTagRemoveCmd() *cobra.Command {
 				return fmt.Errorf("saving config: %w", err)
 			}
 
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "removed tag %q from %s\n", args[1], args[0])
+			output.Confirm(cmd.OutOrStdout(), fmt.Sprintf("removed tag %q from %s", args[1], args[0]))
 			return nil
 		},
 	}
@@ -93,7 +94,7 @@ func newTagListCmd() *cobra.Command {
 
 			tags := config.ListTags(cfg)
 			if len(tags) == 0 {
-				_, _ = fmt.Fprintln(w, "no tags in use")
+				output.Info(w, "no tags in use")
 				return nil
 			}
 

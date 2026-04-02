@@ -54,9 +54,9 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 
 			if len(repos) == 0 {
 				if len(cfg.Repos) == 0 {
-					_, _ = fmt.Fprintln(w, "no repos registered yet — cd into a repo and run: soko init")
+					output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
 				} else {
-					_, _ = fmt.Fprintln(w, "no repos match the tag filter")
+					output.Info(w, "no repos match the tag filter")
 				}
 				return nil
 			}
@@ -91,7 +91,8 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				}
 			}
 
-			_, _ = fmt.Fprintf(w, "\n  %d repos │ %d succeeded │ %d failed\n", len(results), succeeded, failed)
+			_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
+				"%d repos · %d ok · %d failed", len(results), succeeded, failed)))
 
 			if failed > 0 {
 				return fmt.Errorf("%d repos failed", failed)
@@ -169,11 +170,11 @@ func execOne(ctx context.Context, index int, repo config.RepoEntry, args []strin
 }
 
 func printExecResult(w io.Writer, r *execResult) {
-	_, _ = fmt.Fprintf(w, "%s %s (%s) %s\n",
-		output.Dim("═══"), r.name, r.path, output.Dim("═══"))
+	_, _ = fmt.Fprintf(w, "  %s %s %s\n",
+		output.Dim("───"), r.name, output.Dim(r.path))
 
 	if r.err != "" {
-		_, _ = fmt.Fprintln(w, output.Red(r.err))
+		_, _ = fmt.Fprintln(w, "  "+output.Red(r.err))
 		return
 	}
 
