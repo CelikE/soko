@@ -66,6 +66,7 @@ soko status
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--tag` | `init`, `status`, `list`, `fetch`, `exec` | Filter by tag (repeatable, combines with OR) |
+| `--group` | `list` | Group repos by tag in a tree view |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
@@ -123,6 +124,7 @@ Then use `s auth` to jump to the auth-service repo.
 
 ```bash
 soko list                           # show all registered repos
+soko list --group                   # tree view grouped by tag
 soko list --tag infra               # filter by tag
 soko remove old-project             # unregister by name
 soko remove --path /old/path        # unregister by path

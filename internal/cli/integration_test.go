@@ -820,3 +820,50 @@ func TestIntegration_ExecFilterByTag(t *testing.T) {
 		t.Errorf("exec --tag summary = %q, want '1 ok'", out)
 	}
 }
+
+func TestIntegration_ListGroupTree(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	for _, name := range []string{"auth-svc", "api-svc", "web-app", "scripts"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+
+	runSoko(t, "tag", "add", "auth-svc", "backend")
+	runSoko(t, "tag", "add", "api-svc", "backend")
+	runSoko(t, "tag", "add", "web-app", "frontend")
+
+	out := runSoko(t, "list", "--group")
+
+	if !strings.Contains(out, "backend") {
+		t.Errorf("list --group = %q, want 'backend' group", out)
+	}
+	if !strings.Contains(out, "frontend") {
+		t.Errorf("list --group = %q, want 'frontend' group", out)
+	}
+	if !strings.Contains(out, "untagged") {
+		t.Errorf("list --group = %q, want 'untagged' group", out)
+	}
+	for _, name := range []string{"auth-svc", "api-svc", "web-app", "scripts"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("list --group = %q, want to contain %q", out, name)
+		}
+	}
+}
+
+func TestIntegration_ListGroupNoTags(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "plain-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "list", "--group")
+	if !strings.Contains(out, "untagged") {
+		t.Errorf("list --group no tags = %q, want 'untagged'", out)
+	}
+	if !strings.Contains(out, "plain-repo") {
+		t.Errorf("list --group no tags = %q, want 'plain-repo'", out)
+	}
+}
