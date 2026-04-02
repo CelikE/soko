@@ -664,3 +664,40 @@ func TestIntegration_DocJSON(t *testing.T) {
 		t.Fatalf("JSON entries = %d, want at least 3", len(entries))
 	}
 }
+
+func TestIntegration_StatusFetch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "fetch-status-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	// --fetch should not crash and should still show status.
+	out := runSoko(t, "status", "--fetch")
+	if !strings.Contains(out, "fetch-status-repo") {
+		t.Errorf("status --fetch output = %q, want to contain 'fetch-status-repo'", out)
+	}
+}
+
+func TestIntegration_StatusFetchWithFilter(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	cleanDir := filepath.Join(base, "clean-repo")
+	dirtyDir := filepath.Join(base, "dirty-repo")
+	initRepo(t, cleanDir)
+	initRepo(t, dirtyDir)
+	runSokoInit(t, cleanDir)
+	runSokoInit(t, dirtyDir)
+
+	if err := os.WriteFile(filepath.Join(dirtyDir, "change.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "status", "--fetch", "--dirty")
+	if !strings.Contains(out, "dirty-repo") {
+		t.Errorf("status --fetch --dirty = %q, want to contain 'dirty-repo'", out)
+	}
+	if strings.Contains(out, "clean-repo") {
+		t.Errorf("status --fetch --dirty = %q, should not contain 'clean-repo'", out)
+	}
+}
