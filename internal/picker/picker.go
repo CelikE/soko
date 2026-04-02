@@ -38,12 +38,13 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 	}
 	defer func() {
 		_ = term.Restore(int(in.Fd()), oldState)
-		// Clear the picker output after selection.
 		clearLines(w, lineCount(opts))
 	}()
 
+	labelWidth := computeLabelWidth(opts.Items)
+
 	cursor := 0
-	render(w, opts, cursor)
+	render(w, opts, cursor, labelWidth)
 
 	buf := make([]byte, 3)
 	for {
@@ -66,7 +67,7 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			if cursor > 0 {
 				cursor--
 				clearLines(w, lineCount(opts))
-				render(w, opts, cursor)
+				render(w, opts, cursor, labelWidth)
 			}
 
 		// Down arrow (ESC [ B) or j.
@@ -74,36 +75,49 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			if cursor < len(opts.Items)-1 {
 				cursor++
 				clearLines(w, lineCount(opts))
-				render(w, opts, cursor)
+				render(w, opts, cursor, labelWidth)
 			}
 		}
 	}
 }
 
-func render(w io.Writer, opts Options, cursor int) {
-	// Title.
-	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(opts.Title))
-	_, _ = fmt.Fprint(w, "\r\n")
-
-	// Compute label width for alignment.
-	labelWidth := 0
-	for _, item := range opts.Items {
-		if len(item.Label) > labelWidth {
-			labelWidth = len(item.Label)
+func computeLabelWidth(items []Item) int {
+	w := len("NAME")
+	for _, item := range items {
+		if len(item.Label) > w {
+			w = len(item.Label)
 		}
 	}
-	labelWidth += 2
+	return w + 2
+}
+
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
+}
+
+func render(w io.Writer, opts Options, cursor, labelWidth int) {
+	// Title.
+	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(opts.Title))
+
+	// Header.
+	_, _ = fmt.Fprintf(w, "    %s %s\r\n",
+		output.Dim(padRight("NAME", labelWidth)),
+		output.Dim("PATH"))
 
 	// Items.
 	for i, item := range opts.Items {
+		paddedLabel := padRight(item.Label, labelWidth)
 		if i == cursor {
-			_, _ = fmt.Fprintf(w, "  %s %-*s %s\r\n",
+			_, _ = fmt.Fprintf(w, "  %s %s %s\r\n",
 				output.Green("›"),
-				labelWidth, output.Green(item.Label),
+				output.Green(paddedLabel),
 				output.Dim(item.Desc))
 		} else {
-			_, _ = fmt.Fprintf(w, "    %-*s %s\r\n",
-				labelWidth, item.Label,
+			_, _ = fmt.Fprintf(w, "    %s %s\r\n",
+				paddedLabel,
 				output.Dim(item.Desc))
 		}
 	}
@@ -114,16 +128,17 @@ func render(w io.Writer, opts Options, cursor int) {
 }
 
 func lineCount(opts Options) int {
-	// title + blank + items + blank + help
+	// title + header + items + blank + help
 	return 1 + 1 + len(opts.Items) + 1 + 1
 }
 
 func clearLines(w io.Writer, n int) {
 	for range n {
-		_, _ = fmt.Fprint(w, "\x1b[A")  // move up
 		_, _ = fmt.Fprint(w, "\x1b[2K") // clear line
+		_, _ = fmt.Fprint(w, "\x1b[A")  // move up
 	}
-	_, _ = fmt.Fprint(w, "\r") // return to start of line
+	_, _ = fmt.Fprint(w, "\x1b[2K") // clear the top line too
+	_, _ = fmt.Fprint(w, "\r")
 }
 
 // HasTerminal returns true if the given file is a terminal.
@@ -137,11 +152,6 @@ func RenderSelected(w io.Writer, label, desc string) {
 		output.Green("›"),
 		label,
 		output.Dim(desc))
-}
-
-// ClearLine clears the current line. Useful for replacing prompts.
-func ClearLine(w io.Writer) {
-	_, _ = fmt.Fprint(w, "\x1b[2K\r")
 }
 
 // ShowCursor makes the cursor visible again.
@@ -160,7 +170,6 @@ func FormatItems(names, paths []string) []Item {
 	for i := range names {
 		desc := ""
 		if i < len(paths) {
-			// Shorten home directory for display.
 			desc = shortenPath(paths[i])
 		}
 		items[i] = Item{Label: names[i], Desc: desc}
