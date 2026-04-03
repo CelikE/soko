@@ -195,10 +195,14 @@ func newDocCmd() *cobra.Command {
 						Message: "shell integration configured",
 					})
 				} else {
+					hint := `eval "$(soko shell-init)"`
+					if runtime.GOOS == "windows" {
+						hint = "soko shell-init --pwsh | Invoke-Expression"
+					}
 					results = append(results, checkResult{
 						Name:    "shell-init",
 						Status:  statusWarn,
-						Message: "not configured — run: eval \"$(soko shell-init)\"",
+						Message: fmt.Sprintf("not configured — run: %s", hint),
 					})
 				}
 			}

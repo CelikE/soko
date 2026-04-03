@@ -39,9 +39,15 @@ const fishInitScript = `# soko shell integration for fish
 #   soko shell-init --fish | source
 
 function __soko_nav_hook --on-event fish_postexec
-  set -l nav_file (set -q XDG_CONFIG_HOME; and echo $XDG_CONFIG_HOME; or echo $HOME/.config)/soko/.nav
+  if set -q XDG_CONFIG_HOME
+    set -l base $XDG_CONFIG_HOME
+  else
+    set -l base $HOME/.config
+  end
+  set -l nav_file $base/soko/.nav
+
   if test -f $nav_file
-    set -l target (cat $nav_file)
+    set -l target (string trim -- (cat $nav_file))
     rm -f $nav_file
     if test -d $target
       cd $target
