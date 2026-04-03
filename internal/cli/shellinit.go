@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
 
 const shellInitScript = `# soko shell integration
-# Add this to your shell profile (.bashrc, .zshrc, config.fish):
-#   eval "$(soko shell-init)"       # bash/zsh
-#   soko shell-init | source        # fish
+# Add this to your shell profile (.bashrc, .zshrc):
+#   eval "$(soko shell-init)"
 
 __soko_nav_hook() {
   local nav_file="${XDG_CONFIG_HOME:-$HOME/.config}/soko/.nav"
@@ -36,7 +36,7 @@ fi
 
 const fishInitScript = `# soko shell integration for fish
 # Add to ~/.config/fish/config.fish:
-#   soko shell-init | source
+#   soko shell-init --fish | source
 
 function __soko_nav_hook --on-event fish_postexec
   set -l nav_file (set -q XDG_CONFIG_HOME; and echo $XDG_CONFIG_HOME; or echo $HOME/.config)/soko/.nav
@@ -48,6 +48,31 @@ function __soko_nav_hook --on-event fish_postexec
     end
   end
 end
+`
+
+const pwshInitScript = `# soko shell integration for PowerShell
+# Add to your $PROFILE:
+#   soko shell-init --pwsh | Invoke-Expression
+
+function __soko_nav_hook {
+    $navFile = Join-Path ($env:LOCALAPPDATA, "$env:USERPROFILE\.config" -ne $null)[0] "soko\.nav"
+    if (Test-Path $navFile) {
+        $target = Get-Content $navFile -Raw
+        Remove-Item $navFile -Force
+        if (Test-Path $target -PathType Container) {
+            Set-Location $target
+        }
+    }
+}
+
+# Install as prompt hook.
+if (Get-Variable __soko_original_prompt -ErrorAction SilentlyContinue) {} else {
+    $global:__soko_original_prompt = $function:prompt
+    function global:prompt {
+        __soko_nav_hook
+        & $global:__soko_original_prompt
+    }
+}
 `
 
 // newShellInitCmd creates the cobra command for soko shell-init.
@@ -63,12 +88,20 @@ Bash/Zsh:
   eval "$(soko shell-init)"
 
 Fish:
-  soko shell-init --fish | source`,
+  soko shell-init --fish | source
+
+PowerShell:
+  soko shell-init --pwsh | Invoke-Expression`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			fishFlag, _ := cmd.Flags().GetBool("fish")
-			if fishFlag {
+			pwshFlag, _ := cmd.Flags().GetBool("pwsh")
+
+			switch {
+			case fishFlag:
 				_, _ = fmt.Fprint(cmd.OutOrStdout(), fishInitScript)
-			} else {
+			case pwshFlag:
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), pwshInitScript)
+			default:
 				_, _ = fmt.Fprint(cmd.OutOrStdout(), shellInitScript)
 			}
 			return nil
@@ -76,12 +109,25 @@ Fish:
 	}
 
 	cmd.Flags().Bool("fish", false, "output fish shell syntax")
+	cmd.Flags().Bool("pwsh", false, "output PowerShell syntax")
 
 	return cmd
 }
 
 // navFilePath returns the path to the navigation file.
 func navFilePath() string {
+	if runtime.GOOS == "windows" {
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData != "" {
+			return filepath.Join(localAppData, "soko", ".nav")
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		return filepath.Join(home, ".config", "soko", ".nav")
+	}
+
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -104,11 +150,15 @@ func writeNavFile(path string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating nav directory: %w", err)
 	}
-	return os.WriteFile(navPath, []byte(path), 0o644)
+	return os.WriteFile(navPath, []byte(path), 0o600)
 }
 
 // shellInitHint returns the hint message shown after init.
 func shellInitHint() string {
+	if runtime.GOOS == "windows" {
+		return `To enable directory navigation (soko go, soko cd), add to your PowerShell $PROFILE:
+  soko shell-init --pwsh | Invoke-Expression`
+	}
 	return `To enable directory navigation (soko go, soko cd), add to your shell profile:
   eval "$(soko shell-init)"`
 }
