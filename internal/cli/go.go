@@ -21,8 +21,7 @@ func newGoCmd() *cobra.Command {
 		Long: `Open an interactive picker to select a registered repo. Once selected,
 soko navigates your shell to that directory.
 
-Requires shell integration:
-  eval "$(soko shell-init)"
+Requires shell integration. See: soko shell-init --help
 
 Use --tag to filter the picker to repos with specific tags.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {

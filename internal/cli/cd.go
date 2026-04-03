@@ -19,8 +19,7 @@ func newCdCmd() *cobra.Command {
 		ValidArgsFunction: repoNameCompletionFunc(),
 		Long: `Navigate to a registered repo by name. Supports exact and prefix matching.
 
-Requires shell integration:
-  eval "$(soko shell-init)"`,
+Requires shell integration. See: soko shell-init --help`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			stderr := cmd.ErrOrStderr()
