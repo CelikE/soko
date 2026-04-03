@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -72,15 +73,21 @@ func Get(cfg *Config, key string) (string, error) {
 }
 
 // Path returns the absolute path to the soko config file. It respects
-// $XDG_CONFIG_HOME if set, otherwise falls back to ~/.config/soko/config.yaml.
+// $XDG_CONFIG_HOME if set. On Unix, falls back to ~/.config/soko/config.yaml.
+// On Windows, falls back to %LOCALAPPDATA%\soko\config.yaml.
 func Path() (string, error) {
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolving home directory: %w", err)
+		if runtime.GOOS == "windows" {
+			dir = os.Getenv("LOCALAPPDATA")
 		}
-		dir = filepath.Join(home, ".config")
+		if dir == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("resolving home directory: %w", err)
+			}
+			dir = filepath.Join(home, ".config")
+		}
 	}
 	return filepath.Join(dir, "soko", "config.yaml"), nil
 }
