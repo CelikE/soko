@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 
 	"github.com/spf13/cobra"
 
@@ -55,7 +56,11 @@ func newConfigEditCmd() *cobra.Command {
 
 			editor := os.Getenv("EDITOR")
 			if editor == "" {
-				editor = "vi"
+				if runtime.GOOS == "windows" {
+					editor = "notepad"
+				} else {
+					editor = "vi"
+				}
 			}
 
 			c := exec.CommandContext(ctx, editor, path)
