@@ -55,9 +55,15 @@ const pwshInitScript = `# soko shell integration for PowerShell
 #   soko shell-init --pwsh | Invoke-Expression
 
 function __soko_nav_hook {
-    $navFile = Join-Path ($env:LOCALAPPDATA, "$env:USERPROFILE\.config" -ne $null)[0] "soko\.nav"
+    if ($env:LOCALAPPDATA) {
+        $base = $env:LOCALAPPDATA
+    } else {
+        $base = Join-Path $env:USERPROFILE ".config"
+    }
+    $navFile = Join-Path (Join-Path $base "soko") ".nav"
+
     if (Test-Path $navFile) {
-        $target = Get-Content $navFile -Raw
+        $target = (Get-Content $navFile -Raw).Trim()
         Remove-Item $navFile -Force
         if (Test-Path $target -PathType Container) {
             Set-Location $target
@@ -66,7 +72,7 @@ function __soko_nav_hook {
 }
 
 # Install as prompt hook.
-if (Get-Variable __soko_original_prompt -ErrorAction SilentlyContinue) {} else {
+if (-not (Get-Variable __soko_original_prompt -Scope Global -ErrorAction SilentlyContinue)) {
     $global:__soko_original_prompt = $function:prompt
     function global:prompt {
         __soko_nav_hook
