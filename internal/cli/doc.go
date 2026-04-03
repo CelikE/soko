@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -179,10 +180,9 @@ func newDocCmd() *cobra.Command {
 			if navPath != "" {
 				// Check if shell hook is likely configured by looking for
 				// the function name in common shell profile files.
-				home, _ := os.UserHomeDir()
 				shellInitConfigured := false
-				for _, profile := range []string{".zshrc", ".bashrc", ".bash_profile"} {
-					data, readErr := os.ReadFile(filepath.Join(home, profile))
+				for _, profile := range shellProfiles() {
+					data, readErr := os.ReadFile(profile)
 					if readErr == nil && strings.Contains(string(data), "soko shell-init") {
 						shellInitConfigured = true
 						break
@@ -291,4 +291,31 @@ func renderDocJSON(w io.Writer, results []checkResult) error {
 		return fmt.Errorf("encoding json: %w", err)
 	}
 	return nil
+}
+
+// shellProfiles returns paths to shell profile files to check for soko shell-init.
+func shellProfiles() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	if runtime.GOOS == "windows" {
+		// PowerShell profile path.
+		psProfile := os.Getenv("USERPROFILE")
+		if psProfile == "" {
+			psProfile = home
+		}
+		return []string{
+			filepath.Join(psProfile, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+			filepath.Join(psProfile, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+		}
+	}
+
+	return []string{
+		filepath.Join(home, ".zshrc"),
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".bash_profile"),
+		filepath.Join(home, ".config", "fish", "config.fish"),
+	}
 }
