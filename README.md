@@ -81,6 +81,7 @@ soko status
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
 | `--fish` | `shell-init` | Output fish shell syntax |
+| `--pwsh` | `shell-init` | Output PowerShell syntax |
 
 ## Usage examples
 
@@ -128,6 +129,9 @@ eval "$(soko shell-init)"
 
 # Fish
 soko shell-init --fish | source
+
+# PowerShell
+soko shell-init --pwsh | Invoke-Expression
 ```
 
 Then navigate directly:

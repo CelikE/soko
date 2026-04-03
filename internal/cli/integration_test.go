@@ -1215,3 +1215,13 @@ func TestIntegration_ScanJSON(t *testing.T) {
 		t.Errorf("JSON name = %v, want 'json-scan-repo'", entries[0]["name"])
 	}
 }
+
+func TestIntegration_ShellInitPwsh(t *testing.T) {
+	out := runSoko(t, "shell-init", "--pwsh")
+	if !strings.Contains(out, "Invoke-Expression") {
+		t.Errorf("shell-init --pwsh = %q, want 'Invoke-Expression'", out)
+	}
+	if !strings.Contains(out, "__soko_nav_hook") {
+		t.Errorf("shell-init --pwsh = %q, want '__soko_nav_hook'", out)
+	}
+}
