@@ -36,10 +36,10 @@ soko status
 
 ```
   REPO               BRANCH       STATUS       ↑↓         LAST COMMIT
-  ────────────────────────────────────────────────────────────────────────
-  auth-service       feat/sso     ✎ 3M         ↑2         2h ago
-  backend-api        main         ✓ clean      ↓3         1d ago
-  frontend           dev          ✎ 1M 2U      ↑1         4h ago
+  ──────────────────────────────────────────────────────────────────────────────
+  auth-service       feat/sso     ✎ 3M         ↑2         2h ago  feat: add OAuth
+  backend-api        main         ✓ clean      ↓3         1d ago  fix: rate limiter
+  frontend           dev          ✎ 1M 2U      ↑1         4h ago  refactor: nav bar
 
   3 repos · 2 dirty · 1 behind · 6 changes
 ```
@@ -51,6 +51,7 @@ soko status
 | `soko init` | Register the current git repo |
 | `soko scan` | Discover and register all git repos in a directory |
 | `soko status` | Show status of all registered repos |
+| `soko diff` | Show uncommitted file changes across repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
