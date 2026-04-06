@@ -1225,3 +1225,74 @@ func TestIntegration_ShellInitPwsh(t *testing.T) {
 		t.Errorf("shell-init --pwsh = %q, want '__soko_nav_hook'", out)
 	}
 }
+
+func TestIntegration_StatusShowsCommitMessage(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "msg-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "status")
+	if !strings.Contains(out, "initial commit") {
+		t.Errorf("status = %q, want 'initial commit' message", out)
+	}
+}
+
+func TestIntegration_DiffShowsFiles(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "diff-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	// Make it dirty.
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "diff")
+	if !strings.Contains(out, "diff-repo") {
+		t.Errorf("diff = %q, want 'diff-repo'", out)
+	}
+	if !strings.Contains(out, "new.txt") {
+		t.Errorf("diff = %q, want 'new.txt'", out)
+	}
+	if !strings.Contains(out, "1 files changed") {
+		t.Errorf("diff summary = %q, want '1 files changed'", out)
+	}
+}
+
+func TestIntegration_DiffCleanRepos(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "clean-diff-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "diff")
+	if !strings.Contains(out, "all repos clean") {
+		t.Errorf("diff clean = %q, want 'all repos clean'", out)
+	}
+}
+
+func TestIntegration_DiffJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "json-diff-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "changed.go"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing file: %v", err)
+	}
+
+	out := runSoko(t, "diff", "--json")
+
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("JSON entries = %d, want 1", len(entries))
+	}
+	if entries[0]["name"] != "json-diff-repo" {
+		t.Errorf("JSON name = %v, want 'json-diff-repo'", entries[0]["name"])
+	}
+}

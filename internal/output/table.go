@@ -238,3 +238,19 @@ func FormatTimeAgo(t time.Time) string {
 		return fmt.Sprintf("%dw ago", weeks)
 	}
 }
+
+// FormatLastCommit returns a combined time-ago and truncated commit message.
+func FormatLastCommit(t time.Time, message string) string {
+	timeStr := FormatTimeAgo(t)
+	if message == "" {
+		return timeStr
+	}
+	return timeStr + "  " + truncate(message, 30)
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-1] + "…"
+}
