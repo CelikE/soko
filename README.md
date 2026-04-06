@@ -57,6 +57,7 @@ soko status
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
+| `soko open` | Open a repo in the browser |
 | `soko tag` | Manage repo tags |
 | `soko doc` | Check the health of your soko setup |
 | `soko config` | View config path or open in editor |
@@ -79,6 +80,11 @@ soko status
 | `--group` | `list` | Group repos by tag in a tree view |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
+| `--prs` | `open` | Open pull/merge requests page |
+| `--issues` | `open` | Open issues page |
+| `--actions` | `open` | Open CI/CD page |
+| `--branches` | `open` | Open branches page |
+| `--settings` | `open` | Open settings page |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
 | `--fish` | `shell-init` | Output fish shell syntax |
 | `--pwsh` | `shell-init` | Output PowerShell syntax |
@@ -141,6 +147,20 @@ soko cd auth                        # jump by name (prefix match)
 soko go                             # interactive picker
 soko go --tag backend               # picker filtered by tag
 ```
+
+### Open in browser
+
+```bash
+soko open                           # current repo homepage
+soko open auth-service              # by name
+soko open --prs                     # pull/merge requests
+soko open --issues                  # issues
+soko open --actions                 # CI/CD
+soko open --tag backend             # open all backend repos
+soko open --tag backend --prs       # PRs for all backend repos
+```
+
+Supports GitHub, GitLab, and Bitbucket — auto-detects the platform from the remote URL.
 
 ### Manage repos
 
