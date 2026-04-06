@@ -162,7 +162,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 			r.row.Branch = status.Branch
 			r.row.StatusText = output.FormatStatus(status.Modified, status.Untracked, status.Deleted, status.Conflicts)
 			r.row.AheadBehindText = output.FormatAheadBehind(status.Ahead, status.Behind)
-			r.row.LastCommitText = output.FormatTimeAgo(status.LastCommitTime)
+			r.row.LastCommitText = output.FormatLastCommit(status.LastCommitTime, status.LastCommitMessage)
 			r.row.State = rowState(status)
 			r.dirty = changes > 0
 			r.ahead = status.Ahead > 0
