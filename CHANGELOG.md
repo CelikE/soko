@@ -4,16 +4,11 @@
 
 ### Features
 
-- Open repos in the browser with support for PRs, issues, actions, and more
+- Show file-level uncommitted changes across repos with soko diff
+- Show truncated last commit message in status table
 
-## v0.8.0
+## v0.9.0
 
 ### Features
 
-- PowerShell shell-init hook and Windows-aware config paths
-
-### Bug Fixes
-
-- Fix PowerShell nav hook path construction and prompt guard
-- Platform-aware shell hints and fish nav path fix
-- Config edit defaults to notepad on Windows, doc checks PowerShell profile
+- Open repos in the browser with support for PRs, issues, actions, and more
