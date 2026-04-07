@@ -21,6 +21,9 @@ soko (倉庫 — "storehouse") is a fast, lightweight CLI for managing multiple 
 # Install
 go install github.com/CelikE/soko/cmd/soko@latest
 
+# Make sure $GOPATH/bin is on your PATH (add to .bashrc/.zshrc if not)
+export PATH="$PATH:$(go env GOPATH)/bin"
+
 # Enable shell integration (add to .bashrc or .zshrc)
 eval "$(soko shell-init)"
 
