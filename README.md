@@ -82,6 +82,7 @@ soko status
 | `--dry-run` | `scan` | Show repos that would be registered without registering |
 | `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
 | `--group` | `status`, `list` | Group repos by tag in a tree view |
+| `--all` | `status` | Show all repos without truncation |
 | `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--prs` | `open` | Open pull/merge requests page |

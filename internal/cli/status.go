@@ -78,10 +78,15 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			groupFlag, _ := cmd.Flags().GetBool("group")
-			if groupFlag {
+			allFlag, _ := cmd.Flags().GetBool("all")
+
+			switch {
+			case groupFlag:
 				groups := buildStatusGroups(collected)
 				output.RenderStatusGrouped(w, groups)
-			} else {
+			case allFlag:
+				output.RenderStatusTableN(w, rows, 0)
+			default:
 				output.RenderStatusTable(w, rows)
 			}
 			output.RenderSummary(w, len(collected), dirtyCount, behindCount, totalChanges)
@@ -92,6 +97,7 @@ func newStatusCmd() *cobra.Command {
 
 	cmd.Flags().Bool("fetch", false, "fetch from remotes before collecting status")
 	cmd.Flags().Bool("group", false, "group repos by tag in a tree view")
+	cmd.Flags().Bool("all", false, "show all repos without truncation")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("dirty", false, "show only repos with uncommitted changes")
