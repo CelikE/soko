@@ -21,9 +21,10 @@ soko (倉庫 — "storehouse") is a fast, lightweight CLI for managing multiple 
 # macOS / Linux (Homebrew)
 brew install CelikE/tap/soko
 
-# Debian / Ubuntu
-curl -LO https://github.com/CelikE/soko/releases/latest/download/soko_linux_amd64.deb
-sudo dpkg -i soko_linux_amd64.deb
+# Debian / Ubuntu (replace VERSION with the latest release)
+VERSION=$(curl -s https://api.github.com/repos/CelikE/soko/releases/latest | grep tag_name | cut -d '"' -f4)
+curl -LO "https://github.com/CelikE/soko/releases/download/${VERSION}/soko_${VERSION#v}_linux_amd64.deb"
+sudo dpkg -i soko_*_linux_amd64.deb
 
 # Windows (Scoop)
 scoop bucket add soko https://github.com/CelikE/homebrew-tap
