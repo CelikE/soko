@@ -111,6 +111,17 @@ func RenderStatusGrouped(w io.Writer, groups []StatusGroup) {
 	}
 	cRepo, cBranch, cStatus, cAB := columnWidths(allRows)
 
+	// Header — offset by 6 chars to account for tree connector "  └── ".
+	header := fmt.Sprintf("        %-*s %-*s %-*s %-*s %s",
+		cRepo, "REPO",
+		cBranch, "BRANCH",
+		cStatus, "STATUS",
+		cAB, "↑↓",
+		"LAST COMMIT",
+	)
+	_, _ = fmt.Fprintln(w, Dim(header))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+
 	for i, g := range groups {
 		if i > 0 {
 			_, _ = fmt.Fprintln(w)
