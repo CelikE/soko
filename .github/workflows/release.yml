@@ -20,12 +20,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Generate release notes
-        id: notes
-        uses: codested/chagg-github-actions/release@0
-        with:
-          api_key: ${{ secrets.CHAGG_API_KEY }}
-
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -34,6 +28,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+
+      - name: Generate release notes
+        id: notes
+        uses: codested/chagg-github-actions/release@0
+        with:
+          api_key: ${{ secrets.CHAGG_API_KEY }}
 
       - name: Update release notes
         env:
