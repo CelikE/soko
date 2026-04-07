@@ -4,11 +4,17 @@
 
 ### Features
 
-- Show file-level uncommitted changes across repos with soko diff
+- Type to search in the interactive repo picker
 - Show truncated last commit message in status table
+- Group status output by tag with --group flag
 
-## v0.9.0
+### Bug Fixes
+
+- Add column headers to grouped status output
+
+## v0.10.0
 
 ### Features
 
-- Open repos in the browser with support for PRs, issues, actions, and more
+- Show file-level uncommitted changes across repos with soko diff
+- Show truncated last commit message in status table
