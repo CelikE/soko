@@ -4,12 +4,12 @@
 
 ### Features
 
-- Cross-platform builds and package manager distribution via GoReleaser
-- Type to search in the interactive repo picker
-- Scrolling viewport for picker and auto-truncation for status
+- One-line install script for macOS and Linux with auto-detection
 
-## v0.12.0
+## v0.13.0
 
 ### Features
 
-- Scrolling viewport for picker and auto-truncation for status with --all override
+- Cross-platform builds and package manager distribution via GoReleaser
+- Type to search in the interactive repo picker
+- Scrolling viewport for picker and auto-truncation for status
