@@ -28,13 +28,27 @@ type Options struct {
 	Items []Item
 }
 
+// maxVisible is the maximum number of items shown at once.
+// The rest are accessible by scrolling.
+const maxVisible = 15
+
 type state struct {
 	allItems   []Item
 	filtered   []Item
 	query      string
 	cursor     int
+	offset     int // scroll offset — first visible item index
 	labelWidth int
 	lastLines  int // lines rendered on last draw, for clearing
+}
+
+// visibleCount returns how many items to show in the viewport.
+func (s *state) visibleCount() int {
+	n := len(s.filtered)
+	if n > maxVisible {
+		return maxVisible
+	}
+	return n
 }
 
 // Run displays an interactive picker and returns the index of the selected
@@ -95,6 +109,7 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 				s.query = ""
 				s.filtered = s.allItems
 				s.cursor = 0
+				s.offset = 0
 				render(w, opts.Title, s)
 			} else {
 				return -1
@@ -107,22 +122,31 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 				s.query = s.query[:len(s.query)-1]
 				s.filtered = filterItems(s.allItems, s.query)
 				s.cursor = 0
+				s.offset = 0
 				render(w, opts.Title, s)
 			}
 
 		// Up arrow (ESC [ A).
 		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'A':
 			if s.cursor > 0 {
-				clearLines(w, s.lastLines)
 				s.cursor--
+				// Scroll up if cursor is above the viewport.
+				if s.cursor < s.offset {
+					s.offset = s.cursor
+				}
+				clearLines(w, s.lastLines)
 				render(w, opts.Title, s)
 			}
 
 		// Down arrow (ESC [ B).
 		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'B':
 			if s.cursor < len(s.filtered)-1 {
-				clearLines(w, s.lastLines)
 				s.cursor++
+				// Scroll down if cursor is below the viewport.
+				if s.cursor >= s.offset+s.visibleCount() {
+					s.offset = s.cursor - s.visibleCount() + 1
+				}
+				clearLines(w, s.lastLines)
 				render(w, opts.Title, s)
 			}
 
@@ -132,6 +156,7 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			s.query += string(buf[0])
 			s.filtered = filterItems(s.allItems, s.query)
 			s.cursor = 0
+			s.offset = 0
 			render(w, opts.Title, s)
 		}
 	}
@@ -187,12 +212,25 @@ func render(w io.Writer, title string, s *state) {
 	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(strings.Repeat("─", len(header))))
 	lines += 2
 
-	// Items.
+	// Items — only show the visible viewport.
 	if len(s.filtered) == 0 {
 		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("  no matches"))
 		lines++
 	} else {
-		for i, item := range s.filtered {
+		visible := s.visibleCount()
+		end := s.offset + visible
+		if end > len(s.filtered) {
+			end = len(s.filtered)
+		}
+
+		// Scroll-up indicator.
+		if s.offset > 0 {
+			_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("  ↑ more"))
+			lines++
+		}
+
+		for i := s.offset; i < end; i++ {
+			item := s.filtered[i]
 			paddedLabel := padRight(item.Label, s.labelWidth)
 			if i == s.cursor {
 				line := fmt.Sprintf("  › %s %s", paddedLabel, item.Desc)
@@ -202,6 +240,20 @@ func render(w io.Writer, title string, s *state) {
 					paddedLabel,
 					output.Dim(item.Desc))
 			}
+			lines++
+		}
+
+		// Scroll-down indicator.
+		if end < len(s.filtered) {
+			_, _ = fmt.Fprintf(w, "  %s\r\n",
+				output.Dim(fmt.Sprintf("  ↓ %d more", len(s.filtered)-end)))
+			lines++
+		}
+
+		// Position indicator when scrolling.
+		if len(s.filtered) > maxVisible {
+			_, _ = fmt.Fprintf(w, "  %s\r\n",
+				output.Dim(fmt.Sprintf("  %d of %d", s.cursor+1, len(s.filtered))))
 			lines++
 		}
 	}
