@@ -96,6 +96,56 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 	}
 }
 
+// StatusGroup holds a tag name and its associated status rows.
+type StatusGroup struct {
+	Tag  string
+	Rows []StatusRow
+}
+
+// RenderStatusGrouped writes a status table grouped by tag to w.
+func RenderStatusGrouped(w io.Writer, groups []StatusGroup) {
+	// Collect all rows to compute column widths.
+	var allRows []StatusRow
+	for _, g := range groups {
+		allRows = append(allRows, g.Rows...)
+	}
+	cRepo, cBranch, cStatus, cAB := columnWidths(allRows)
+
+	for i, g := range groups {
+		if i > 0 {
+			_, _ = fmt.Fprintln(w)
+		}
+		_, _ = fmt.Fprintln(w, "  "+Dim(g.Tag))
+
+		for j, r := range g.Rows {
+			connector := "├──"
+			if j == len(g.Rows)-1 {
+				connector = "└──"
+			}
+
+			line := fmt.Sprintf("  %s %-*s %-*s %-*s %-*s %s",
+				Dim(connector),
+				cRepo, r.Name,
+				cBranch, r.Branch,
+				cStatus, r.StatusText,
+				cAB, r.AheadBehindText,
+				r.LastCommitText,
+			)
+
+			switch r.State {
+			case StateClean:
+				_, _ = fmt.Fprintln(w, Green(line))
+			case StateDirty:
+				_, _ = fmt.Fprintln(w, Yellow(line))
+			case StateConflict:
+				_, _ = fmt.Fprintln(w, Red(line))
+			default:
+				_, _ = fmt.Fprintln(w, line)
+			}
+		}
+	}
+}
+
 // RenderSummary writes the status summary line to w.
 func RenderSummary(w io.Writer, totalRepos, dirtyCount, behindCount, totalChanges int) {
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
