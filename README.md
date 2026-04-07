@@ -24,6 +24,9 @@ curl -fsSL https://raw.githubusercontent.com/CelikE/soko/master/install.sh | sh
 # Homebrew (macOS / Linux)
 brew install CelikE/tap/soko
 
+# Windows (winget)
+winget install CelikE.soko
+
 # Windows (Scoop)
 scoop bucket add soko https://github.com/CelikE/homebrew-tap
 scoop install soko
