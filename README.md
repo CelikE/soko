@@ -15,15 +15,30 @@ soko (倉庫 — "storehouse") is a fast, lightweight CLI for managing multiple 
 - **Git** — soko shells out to `git` for all repository operations
 - **Go 1.22+** — only needed if installing from source or via `go install`
 
+## Install
+
+```bash
+# macOS / Linux (Homebrew)
+brew install CelikE/tap/soko
+
+# Debian / Ubuntu
+curl -LO https://github.com/CelikE/soko/releases/latest/download/soko_linux_amd64.deb
+sudo dpkg -i soko_linux_amd64.deb
+
+# Windows (Scoop)
+scoop bucket add soko https://github.com/CelikE/homebrew-tap
+scoop install soko
+
+# From source (any platform)
+go install github.com/CelikE/soko/cmd/soko@latest
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Or download binaries directly from [GitHub Releases](https://github.com/CelikE/soko/releases).
+
 ## Quick start
 
 ```bash
-# Install
-go install github.com/CelikE/soko/cmd/soko@latest
-
-# Make sure $GOPATH/bin is on your PATH (add to .bashrc/.zshrc if not)
-export PATH="$PATH:$(go env GOPATH)/bin"
-
 # Enable shell integration (add to .bashrc or .zshrc)
 eval "$(soko shell-init)"
 
