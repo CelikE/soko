@@ -77,7 +77,13 @@ func newStatusCmd() *cobra.Command {
 				totalChanges += r.changes
 			}
 
-			output.RenderStatusTable(w, rows)
+			groupFlag, _ := cmd.Flags().GetBool("group")
+			if groupFlag {
+				groups := buildStatusGroups(collected)
+				output.RenderStatusGrouped(w, groups)
+			} else {
+				output.RenderStatusTable(w, rows)
+			}
 			output.RenderSummary(w, len(collected), dirtyCount, behindCount, totalChanges)
 
 			return nil
@@ -85,6 +91,7 @@ func newStatusCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("fetch", false, "fetch from remotes before collecting status")
+	cmd.Flags().Bool("group", false, "group repos by tag in a tree view")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("dirty", false, "show only repos with uncommitted changes")
@@ -100,6 +107,7 @@ type statusResult struct {
 	row     output.StatusRow
 	status  *git.RepoStatus
 	path    string
+	tags    []string
 	dirty   bool
 	ahead   bool
 	behind  bool
@@ -120,6 +128,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 			r := statusResult{
 				index: i,
 				path:  repo.Path,
+				tags:  repo.Tags,
 				row:   output.StatusRow{Name: repo.Name},
 			}
 
@@ -180,6 +189,40 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 	// returns nil or a context cancellation which is safe to ignore.
 	_ = g.Wait()
 	return results
+}
+
+// buildStatusGroups organizes results by tag for grouped rendering.
+func buildStatusGroups(results []statusResult) []output.StatusGroup {
+	groups := make(map[string][]output.StatusRow)
+	var untagged []output.StatusRow
+
+	for i := range results {
+		r := &results[i]
+		if len(r.tags) == 0 {
+			untagged = append(untagged, r.row)
+			continue
+		}
+		for _, tag := range r.tags {
+			groups[tag] = append(groups[tag], r.row)
+		}
+	}
+
+	// Sort tag names.
+	tags := make([]string, 0, len(groups))
+	for tag := range groups {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	var result []output.StatusGroup
+	for _, tag := range tags {
+		result = append(result, output.StatusGroup{Tag: tag, Rows: groups[tag]})
+	}
+	if len(untagged) > 0 {
+		result = append(result, output.StatusGroup{Tag: "untagged", Rows: untagged})
+	}
+
+	return result
 }
 
 // sortByIndex sorts results by their original config index.
