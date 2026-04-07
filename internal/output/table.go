@@ -60,8 +60,18 @@ func columnWidths(rows []StatusRow) (repo, branch, status, ab int) {
 	return repo, branch, status, ab
 }
 
+// defaultMaxRows is the max rows shown before truncation. 0 means no limit.
+const defaultMaxRows = 25
+
 // RenderStatusTable writes a formatted status table to w.
+// If there are more rows than defaultMaxRows, the table is truncated with a hint.
 func RenderStatusTable(w io.Writer, rows []StatusRow) {
+	RenderStatusTableN(w, rows, defaultMaxRows)
+}
+
+// RenderStatusTableN writes a status table with a custom max row limit.
+// Pass 0 for maxRows to show all rows.
+func RenderStatusTableN(w io.Writer, rows []StatusRow, maxRows int) {
 	cRepo, cBranch, cStatus, cAB := columnWidths(rows)
 
 	header := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
@@ -74,7 +84,14 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 	_, _ = fmt.Fprintln(w, Dim(header))
 	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
 
-	for _, r := range rows {
+	truncated := false
+	visible := rows
+	if maxRows > 0 && len(rows) > maxRows {
+		visible = rows[:maxRows]
+		truncated = true
+	}
+
+	for _, r := range visible {
 		line := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
 			cRepo, r.Name,
 			cBranch, r.Branch,
@@ -93,6 +110,12 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 		default:
 			_, _ = fmt.Fprintln(w, line)
 		}
+	}
+
+	if truncated {
+		_, _ = fmt.Fprintln(w, Dim(fmt.Sprintf(
+			"  ... showing %d of %d repos — use --all to show all, or --tag/--dirty to filter",
+			maxRows, len(rows))))
 	}
 }
 
