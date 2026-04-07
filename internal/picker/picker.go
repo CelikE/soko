@@ -19,6 +19,7 @@ import (
 type Item struct {
 	Label string
 	Desc  string
+	index int // original index in the full list
 }
 
 // Options configures the picker appearance.
@@ -27,11 +28,17 @@ type Options struct {
 	Items []Item
 }
 
+type state struct {
+	allItems   []Item
+	filtered   []Item
+	query      string
+	cursor     int
+	labelWidth int
+	lastLines  int // lines rendered on last draw, for clearing
+}
+
 // Run displays an interactive picker and returns the index of the selected
-// item, or -1 if the user cancelled (Ctrl+C / Escape / q).
-//
-// The picker renders to stderr so stdout remains clean for piping. It reads
-// keystrokes from the provided input (typically os.Stdin).
+// item from the original Items slice, or -1 if the user cancelled.
 func Run(in *os.File, w io.Writer, opts Options) int {
 	// Force colors on — the picker renders to stderr which is a terminal,
 	// but fatih/color checks stdout which may be a pipe (cd $(soko go)).
@@ -43,15 +50,24 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 	if err != nil {
 		return -1
 	}
+
+	// Tag each item with its original index.
+	for i := range opts.Items {
+		opts.Items[i].index = i
+	}
+
+	s := &state{
+		allItems:   opts.Items,
+		filtered:   opts.Items,
+		labelWidth: computeLabelWidth(opts.Items),
+	}
+
 	defer func() {
 		_ = term.Restore(int(in.Fd()), oldState)
-		clearLines(w, lineCount(opts))
+		clearLines(w, s.lastLines)
 	}()
 
-	labelWidth := computeLabelWidth(opts.Items)
-
-	cursor := 0
-	render(w, opts, cursor, labelWidth)
+	render(w, opts.Title, s)
 
 	buf := make([]byte, 3)
 	for {
@@ -61,31 +77,78 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 		}
 
 		switch {
-		// Enter.
+		// Enter — select current item.
 		case n == 1 && (buf[0] == '\r' || buf[0] == '\n'):
-			return cursor
+			if len(s.filtered) == 0 {
+				continue
+			}
+			return s.filtered[s.cursor].index
 
-		// Ctrl+C or Escape or q.
-		case n == 1 && (buf[0] == 3 || buf[0] == 27 || buf[0] == 'q'):
+		// Ctrl+C.
+		case n == 1 && buf[0] == 3:
 			return -1
 
-		// Up arrow (ESC [ A) or k.
-		case (n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'A') || (n == 1 && buf[0] == 'k'):
-			if cursor > 0 {
-				cursor--
-				clearLines(w, lineCount(opts))
-				render(w, opts, cursor, labelWidth)
+		// Escape — clear filter if active, otherwise quit.
+		case n == 1 && buf[0] == 27:
+			if s.query != "" {
+				clearLines(w, s.lastLines)
+				s.query = ""
+				s.filtered = s.allItems
+				s.cursor = 0
+				render(w, opts.Title, s)
+			} else {
+				return -1
 			}
 
-		// Down arrow (ESC [ B) or j.
-		case (n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'B') || (n == 1 && buf[0] == 'j'):
-			if cursor < len(opts.Items)-1 {
-				cursor++
-				clearLines(w, lineCount(opts))
-				render(w, opts, cursor, labelWidth)
+		// Backspace (127 or 8).
+		case n == 1 && (buf[0] == 127 || buf[0] == 8):
+			if s.query != "" {
+				clearLines(w, s.lastLines)
+				s.query = s.query[:len(s.query)-1]
+				s.filtered = filterItems(s.allItems, s.query)
+				s.cursor = 0
+				render(w, opts.Title, s)
 			}
+
+		// Up arrow (ESC [ A).
+		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'A':
+			if s.cursor > 0 {
+				clearLines(w, s.lastLines)
+				s.cursor--
+				render(w, opts.Title, s)
+			}
+
+		// Down arrow (ESC [ B).
+		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'B':
+			if s.cursor < len(s.filtered)-1 {
+				clearLines(w, s.lastLines)
+				s.cursor++
+				render(w, opts.Title, s)
+			}
+
+		// Printable character — add to search query.
+		case n == 1 && buf[0] >= 32 && buf[0] < 127:
+			clearLines(w, s.lastLines)
+			s.query += string(buf[0])
+			s.filtered = filterItems(s.allItems, s.query)
+			s.cursor = 0
+			render(w, opts.Title, s)
 		}
 	}
+}
+
+func filterItems(items []Item, query string) []Item {
+	if query == "" {
+		return items
+	}
+	query = strings.ToLower(query)
+	var matched []Item
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.Label), query) {
+			matched = append(matched, item)
+		}
+	}
+	return matched
 }
 
 func computeLabelWidth(items []Item) int {
@@ -105,36 +168,55 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-func render(w io.Writer, opts Options, cursor, labelWidth int) {
-	// Title.
-	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(opts.Title))
+func render(w io.Writer, title string, s *state) {
+	lines := 0
 
-	// Header + separator (matches soko status/list style).
-	header := fmt.Sprintf("    %s %s", padRight("NAME", labelWidth), "PATH")
+	// Title with search query.
+	if s.query != "" {
+		_, _ = fmt.Fprintf(w, "  %s %s\r\n",
+			output.Dim(title),
+			output.Green(s.query))
+	} else {
+		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(title))
+	}
+	lines++
+
+	// Header + separator.
+	header := fmt.Sprintf("    %s %s", padRight("NAME", s.labelWidth), "PATH")
 	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(header))
 	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(strings.Repeat("─", len(header))))
+	lines += 2
 
 	// Items.
-	for i, item := range opts.Items {
-		paddedLabel := padRight(item.Label, labelWidth)
-		if i == cursor {
-			line := fmt.Sprintf("  › %s %s", paddedLabel, item.Desc)
-			_, _ = fmt.Fprintf(w, "%s\r\n", output.Green(line))
-		} else {
-			_, _ = fmt.Fprintf(w, "    %s %s\r\n",
-				paddedLabel,
-				output.Dim(item.Desc))
+	if len(s.filtered) == 0 {
+		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("  no matches"))
+		lines++
+	} else {
+		for i, item := range s.filtered {
+			paddedLabel := padRight(item.Label, s.labelWidth)
+			if i == s.cursor {
+				line := fmt.Sprintf("  › %s %s", paddedLabel, item.Desc)
+				_, _ = fmt.Fprintf(w, "%s\r\n", output.Green(line))
+			} else {
+				_, _ = fmt.Fprintf(w, "    %s %s\r\n",
+					paddedLabel,
+					output.Dim(item.Desc))
+			}
+			lines++
 		}
 	}
 
 	// Help line.
 	_, _ = fmt.Fprint(w, "\r\n")
-	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · q quit"))
-}
+	lines++
+	if s.query != "" {
+		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · esc clear · backspace delete"))
+	} else {
+		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · type to search · esc quit"))
+	}
+	lines++
 
-func lineCount(opts Options) int {
-	// title + header + separator + items + blank + help
-	return 1 + 1 + 1 + len(opts.Items) + 1 + 1
+	s.lastLines = lines
 }
 
 func clearLines(w io.Writer, n int) {
