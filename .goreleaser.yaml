@@ -1,0 +1,71 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/soko
+    binary: soko
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+nfpms:
+  - id: soko
+    package_name: soko
+    vendor: CelikE
+    homepage: https://github.com/CelikE/soko
+    maintainer: Emil Celik
+    description: A fast CLI to manage multiple git repositories at once.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
+homebrew_casks:
+  - repository:
+      owner: CelikE
+      name: homebrew-tap
+    homepage: https://github.com/CelikE/soko
+    description: A fast CLI to manage multiple git repositories at once.
+    directory: Casks
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/soko"]
+          end
+
+scoops:
+  - repository:
+      owner: CelikE
+      name: homebrew-tap
+    homepage: https://github.com/CelikE/soko
+    description: A fast CLI to manage multiple git repositories at once.
+    license: MIT
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
