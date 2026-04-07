@@ -1296,3 +1296,32 @@ func TestIntegration_DiffJSON(t *testing.T) {
 		t.Errorf("JSON name = %v, want 'json-diff-repo'", entries[0]["name"])
 	}
 }
+
+func TestIntegration_StatusGroup(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+
+	for _, name := range []string{"back-svc", "front-app", "plain-repo"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+
+	runSoko(t, "tag", "add", "-r", "back-svc", "backend")
+	runSoko(t, "tag", "add", "-r", "front-app", "frontend")
+
+	out := runSoko(t, "status", "--group")
+
+	if !strings.Contains(out, "backend") {
+		t.Errorf("status --group = %q, want 'backend' group", out)
+	}
+	if !strings.Contains(out, "frontend") {
+		t.Errorf("status --group = %q, want 'frontend' group", out)
+	}
+	if !strings.Contains(out, "untagged") {
+		t.Errorf("status --group = %q, want 'untagged' group", out)
+	}
+	if !strings.Contains(out, "back-svc") {
+		t.Errorf("status --group = %q, want 'back-svc'", out)
+	}
+}
