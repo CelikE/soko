@@ -57,6 +57,9 @@ func newRemoveCmd() *cobra.Command {
 }
 
 func removeByName(cfg *config.Config, name string, jsonOut bool, w io.Writer) error {
+	// Check for linked worktrees that would be orphaned.
+	worktrees := config.FindWorktrees(cfg, name)
+
 	cfg, removed, err := config.RemoveRepo(cfg, name)
 	if err != nil {
 		if errors.Is(err, config.ErrRepoNotFound) {
@@ -65,15 +68,28 @@ func removeByName(cfg *config.Config, name string, jsonOut bool, w io.Writer) er
 		return fmt.Errorf("removing repo: %w", err)
 	}
 
+	// Also remove linked worktrees.
+	var allRemoved []config.RepoEntry
+	allRemoved = append(allRemoved, removed)
+	for _, wt := range worktrees {
+		cfg, removed, err = config.RemoveRepo(cfg, wt.Name)
+		if err == nil {
+			allRemoved = append(allRemoved, removed)
+		}
+	}
+
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
 	if jsonOut {
-		return writeRemovedJSON(w, []config.RepoEntry{removed})
+		return writeRemovedJSON(w, allRemoved)
 	}
 
-	output.Confirm(w, fmt.Sprintf("removed %s (%s)", removed.Name, removed.Path))
+	output.Confirm(w, fmt.Sprintf("removed %s (%s)", allRemoved[0].Name, allRemoved[0].Path))
+	for _, wt := range allRemoved[1:] {
+		output.Confirm(w, fmt.Sprintf("removed %s (%s)", wt.Name, wt.Path))
+	}
 	return nil
 }
 

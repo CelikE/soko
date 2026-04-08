@@ -56,15 +56,16 @@ func newListCmd() *cobra.Command {
 }
 
 type listEntry struct {
-	Name string   `json:"name"`
-	Path string   `json:"path"`
-	Tags []string `json:"tags,omitempty"`
+	Name       string   `json:"name"`
+	Path       string   `json:"path"`
+	Tags       []string `json:"tags,omitempty"`
+	WorktreeOf string   `json:"worktree_of,omitempty"`
 }
 
 func renderListJSON(w io.Writer, repos []config.RepoEntry) error {
 	entries := make([]listEntry, len(repos))
 	for i, r := range repos {
-		entries[i] = listEntry{Name: r.Name, Path: r.Path, Tags: r.Tags}
+		entries[i] = listEntry{Name: r.Name, Path: r.Path, Tags: r.Tags, WorktreeOf: r.WorktreeOf}
 	}
 
 	enc := json.NewEncoder(w)
@@ -102,10 +103,14 @@ func renderListTable(w io.Writer, repos []config.RepoEntry) {
 
 		for _, r := range repos {
 			tagStr := strings.Join(r.Tags, ", ")
+			pathStr := output.Dim(r.Path)
+			if r.WorktreeOf != "" {
+				pathStr += output.Dim("  → "+r.WorktreeOf)
+			}
 			_, _ = fmt.Fprintf(w, "  %-*s %s%-*s %s\n",
 				nameWidth, r.Name,
 				"", tagWidth, output.Dim(tagStr),
-				output.Dim(r.Path))
+				pathStr)
 		}
 	} else {
 		header := fmt.Sprintf("  %-*s %s", nameWidth, "NAME", "PATH")
@@ -113,7 +118,11 @@ func renderListTable(w io.Writer, repos []config.RepoEntry) {
 		_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
 
 		for _, r := range repos {
-			_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, output.Dim(r.Path))
+			pathStr := output.Dim(r.Path)
+			if r.WorktreeOf != "" {
+				pathStr += output.Dim("  → "+r.WorktreeOf)
+			}
+			_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, pathStr)
 		}
 	}
 }

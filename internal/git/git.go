@@ -107,6 +107,54 @@ func MainRepoPath(ctx context.Context, dir string) (string, error) {
 	return mainRepo, nil
 }
 
+// WorktreeInfo holds metadata about a single git worktree.
+type WorktreeInfo struct {
+	Path   string
+	Branch string
+}
+
+// WorktreeList returns all linked worktrees for the repo at dir.
+// The main working tree is excluded from the results.
+func WorktreeList(ctx context.Context, dir string) ([]WorktreeInfo, error) {
+	out, err := Run(ctx, dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+
+	var worktrees []WorktreeInfo
+	var current WorktreeInfo
+	isFirst := true
+
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			if !isFirst && current.Path != "" {
+				worktrees = append(worktrees, current)
+			}
+			isFirst = false
+			current = WorktreeInfo{Path: strings.TrimPrefix(line, "worktree ")}
+		case strings.HasPrefix(line, "branch "):
+			ref := strings.TrimPrefix(line, "branch ")
+			// Strip refs/heads/ prefix to get the short branch name.
+			current.Branch = strings.TrimPrefix(ref, "refs/heads/")
+		case line == "bare":
+			current.Branch = "(bare)"
+		case line == "detached":
+			current.Branch = "(detached)"
+		}
+	}
+	// Append last entry.
+	if current.Path != "" && !isFirst {
+		worktrees = append(worktrees, current)
+	}
+
+	// The first entry is always the main worktree — skip it.
+	if len(worktrees) > 1 {
+		return worktrees[1:], nil
+	}
+	return nil, nil
+}
+
 // nameFromURL extracts a repository name from a git remote URL. It handles
 // both SSH (git@host:user/repo.git) and HTTPS (https://host/user/repo.git)
 // formats.
