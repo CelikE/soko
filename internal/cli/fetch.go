@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/output"
 )
@@ -38,6 +39,11 @@ func newFetchCmd() *cobra.Command {
 			if len(repos) == 0 {
 				output.Info(w, noReposMessage(len(cfg.Repos)))
 				return nil
+			}
+
+			noWorktrees, _ := cmd.Flags().GetBool("no-worktrees")
+			if noWorktrees {
+				repos = config.FilterNoWorktrees(repos)
 			}
 
 			pruneFlag, _ := cmd.Flags().GetBool("prune")
@@ -119,6 +125,7 @@ func newFetchCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("prune", false, "pass --prune to git fetch to clean up stale remote refs")
+	cmd.Flags().Bool("no-worktrees", false, "skip worktree entries, only fetch parent repos")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 

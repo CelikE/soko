@@ -67,10 +67,11 @@ soko status
 
 | Command | Description |
 |---------|-------------|
-| `soko init` | Register the current git repo |
+| `soko init` | Register the current git repo (detects worktrees) |
 | `soko scan` | Discover and register all git repos in a directory |
 | `soko status` | Show status of all registered repos |
 | `soko diff` | Show uncommitted file changes across repos |
+| `soko stash` | Stash/pop uncommitted changes across repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
@@ -95,6 +96,9 @@ soko status
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go` | Filter by tag (repeatable, combines with OR) |
+| `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
+| `--worktrees` | `scan` | Also discover and register linked git worktrees |
+| `--no-worktrees` | `fetch`, `exec` | Skip worktree entries, only operate on parent repos |
 | `--dry-run` | `scan` | Show repos that would be registered without registering |
 | `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
 | `--group` | `status`, `list` | Group repos by tag in a tree view |
@@ -205,6 +209,59 @@ soko config set git_path /usr/local/bin/git  # use a custom git binary
 soko config get git_path            # check current git binary
 ```
 
+### Git worktrees
+
+soko has first-class support for git worktrees. If you use worktrees as your primary branching workflow, use `--worktrees` to discover and register them:
+
+```bash
+# Scan and discover repos + worktrees
+soko scan ~/projects --worktrees
+
+# Register a single worktree
+cd ~/projects/api/feat-oauth
+soko init --worktree
+
+# See everything — worktrees show alongside their parent
+soko list
+#  api                ~/projects/api/main
+#  api/feat-oauth     ~/projects/api/feat-oauth  → api
+#  api/hotfix-123     ~/projects/api/hotfix-123  → api
+
+# Jump to a worktree
+soko cd api/feat                    # prefix match on parent/branch
+soko go                             # pick interactively
+
+# Status works per-worktree
+soko status --dirty
+
+# Remove a parent — linked worktrees are removed too
+soko remove api
+
+# Skip worktrees for bulk operations
+soko fetch --no-worktrees
+soko exec --no-worktrees -- git pull
+```
+
+Without `--worktrees`, soko detects when you're in a worktree and registers the main repo instead — no duplicates.
+
+### tmux-sessionizer integration
+
+Use soko as the directory source for your tmux-sessionizer:
+
+```bash
+# Pick a repo/worktree and create a tmux session for it
+TARGET=$(soko list --json | jq -r '.[].path' | fzf)
+SESSION=$(basename "$TARGET")
+tmux new-session -d -s "$SESSION" -c "$TARGET" 2>/dev/null
+tmux switch-client -t "$SESSION"
+```
+
+Or use soko's built-in interactive picker, which supports fuzzy search:
+
+```bash
+soko go    # pick a repo or worktree, cd into it
+```
+
 ## Configuration
 
 soko stores registered repos in a single YAML file:
@@ -222,13 +279,18 @@ repos:
     tags:
       - backend
       - go
+  - name: auth-service/feat-oauth
+    path: /home/dev/worktrees/feat-oauth
+    worktree_of: auth-service
+    tags:
+      - backend
   - name: frontend
     path: /home/dev/work/frontend
     tags:
       - frontend
 ```
 
-Tags are optional — repos without tags work the same as before.
+Tags and `worktree_of` are optional — repos without them work the same as before.
 
 ## Building from source
 

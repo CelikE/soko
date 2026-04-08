@@ -56,6 +56,11 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				return nil
 			}
 
+			noWorktrees, _ := cmd.Flags().GetBool("no-worktrees")
+			if noWorktrees {
+				repos = config.FilterNoWorktrees(repos)
+			}
+
 			seqFlag, _ := cmd.Flags().GetBool("seq")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 
@@ -102,6 +107,7 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 	}
 
 	cmd.Flags().Bool("seq", false, "run sequentially instead of in parallel")
+	cmd.Flags().Bool("no-worktrees", false, "skip worktree entries, only run on parent repos")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 

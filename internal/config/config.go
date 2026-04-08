@@ -26,11 +26,17 @@ var (
 	ErrRepoNotFound = errors.New("repo not found")
 )
 
-// RepoEntry represents a single registered git repository.
+// RepoEntry represents a single registered git repository or worktree.
 type RepoEntry struct {
-	Name string   `yaml:"name"`
-	Path string   `yaml:"path"`
-	Tags []string `yaml:"tags,omitempty"`
+	Name       string   `yaml:"name"`
+	Path       string   `yaml:"path"`
+	Tags       []string `yaml:"tags,omitempty"`
+	WorktreeOf string   `yaml:"worktree_of,omitempty"`
+}
+
+// IsWorktreeEntry returns true if this entry is a linked worktree.
+func (r *RepoEntry) IsWorktreeEntry() bool {
+	return r.WorktreeOf != ""
 }
 
 // Config is the top-level structure of the soko config file.
@@ -333,6 +339,28 @@ func FindRepoByPath(cfg *Config, path string) (*RepoEntry, error) {
 		}
 	}
 	return nil, ErrRepoNotFound
+}
+
+// FindWorktrees returns all entries that are worktrees of the named parent repo.
+func FindWorktrees(cfg *Config, parentName string) []RepoEntry {
+	var worktrees []RepoEntry
+	for _, r := range cfg.Repos {
+		if r.WorktreeOf == parentName {
+			worktrees = append(worktrees, r)
+		}
+	}
+	return worktrees
+}
+
+// FilterNoWorktrees returns only entries that are NOT worktrees.
+func FilterNoWorktrees(repos []RepoEntry) []RepoEntry {
+	var filtered []RepoEntry
+	for _, r := range repos {
+		if r.WorktreeOf == "" {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }
 
 // FindRepo searches for repos matching the query. It first tries an exact
