@@ -41,8 +41,9 @@ func (r *RepoEntry) IsWorktreeEntry() bool {
 
 // Config is the top-level structure of the soko config file.
 type Config struct {
-	GitPath string      `yaml:"git_path,omitempty"`
-	Repos   []RepoEntry `yaml:"repos"`
+	GitPath string            `yaml:"git_path,omitempty"`
+	Aliases map[string]string `yaml:"aliases,omitempty"`
+	Repos   []RepoEntry       `yaml:"repos"`
 }
 
 // GitBinary returns the git binary path. If GitPath is set in the config,
