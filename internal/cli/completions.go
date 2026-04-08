@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -40,6 +41,35 @@ func tagCompletionFunc() cobra.CompletionFunc {
 
 		return completions, cobra.ShellCompDirectiveNoFileComp
 	}
+}
+
+// matchReposByName returns repos matching any of the given queries.
+// Each query tries exact match first, then prefix match — same as config.FindRepo.
+func matchReposByName(repos []config.RepoEntry, queries []string) []config.RepoEntry {
+	seen := make(map[string]bool)
+	var matched []config.RepoEntry
+
+	for _, q := range queries {
+		// Exact match first.
+		for _, r := range repos {
+			if r.Name == q && !seen[r.Path] {
+				seen[r.Path] = true
+				matched = append(matched, r)
+			}
+		}
+		if seen[q] || len(matched) > 0 && matched[len(matched)-1].Name == q {
+			continue
+		}
+		// Prefix match fallback.
+		for _, r := range repos {
+			if strings.HasPrefix(r.Name, q) && !seen[r.Path] {
+				seen[r.Path] = true
+				matched = append(matched, r)
+			}
+		}
+	}
+
+	return matched
 }
 
 // loadReposWithTagFilter loads the config and applies --tag filtering if set.

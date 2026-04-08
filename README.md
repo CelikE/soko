@@ -69,7 +69,7 @@ soko status
 |---------|-------------|
 | `soko init` | Register the current git repo (detects worktrees) |
 | `soko scan` | Discover and register all git repos in a directory |
-| `soko status` | Show status of all registered repos |
+| `soko status [repos...]` | Show status of all (or specific) repos |
 | `soko diff` | Show uncommitted file changes across repos |
 | `soko stash` | Stash/pop uncommitted changes across repos |
 | `soko list` | List all registered repos |
@@ -121,6 +121,8 @@ soko status
 
 ```bash
 soko status                         # all repos
+soko status auth                    # single repo (prefix match)
+soko status auth frontend           # multiple specific repos
 soko status --fetch                 # fetch first, then show status
 soko status --dirty                 # only repos with uncommitted changes
 soko status --tag backend --behind  # only backend repos behind remote

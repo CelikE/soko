@@ -23,14 +23,19 @@ const significantBehindThreshold = 5
 // newStatusCmd creates the cobra command for soko status.
 func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "status",
+		Use:   "status [repos...]",
 		Short: "Show status of all registered repos",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
 				return err
+			}
+
+			if len(args) > 0 {
+				repos = matchReposByName(repos, args)
 			}
 
 			if len(repos) == 0 {
