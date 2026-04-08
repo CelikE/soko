@@ -134,6 +134,10 @@ func runStashPush(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(visible) == 0 {
+		if jsonFlag {
+			_, _ = fmt.Fprintln(w, "[]")
+			return nil
+		}
 		output.Info(w, "all repos clean")
 		return nil
 	}
