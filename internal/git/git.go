@@ -74,6 +74,39 @@ func Fetch(ctx context.Context, dir string, prune bool) error {
 	return err
 }
 
+// IsWorktree returns true if dir is a linked git worktree (not the main
+// working tree). It compares --git-dir and --git-common-dir.
+func IsWorktree(ctx context.Context, dir string) bool {
+	gitDir, err := Run(ctx, dir, "rev-parse", "--git-dir")
+	if err != nil {
+		return false
+	}
+	commonDir, err := Run(ctx, dir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return false
+	}
+	// In a linked worktree, git-dir points to .git/worktrees/<name> while
+	// git-common-dir points to the shared .git directory.
+	return filepath.Clean(gitDir) != filepath.Clean(commonDir)
+}
+
+// MainRepoPath returns the top-level working directory of the main checkout
+// for the repository. In a linked worktree this resolves back to the primary
+// working tree; for a normal repo it returns the repo root.
+func MainRepoPath(ctx context.Context, dir string) (string, error) {
+	commonDir, err := Run(ctx, dir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	// commonDir is the shared .git directory (absolute or relative to dir).
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(dir, commonDir)
+	}
+	// The main repo is the parent of the .git directory.
+	mainRepo := filepath.Dir(filepath.Clean(commonDir))
+	return mainRepo, nil
+}
+
 // nameFromURL extracts a repository name from a git remote URL. It handles
 // both SSH (git@host:user/repo.git) and HTTPS (https://host/user/repo.git)
 // formats.
