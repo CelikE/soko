@@ -1068,14 +1068,21 @@ func TestIntegration_ConfigSetAndGet(t *testing.T) {
 		t.Errorf("config get default = %q, want 'git (default)'", out)
 	}
 
-	out = runSoko(t, "config", "set", "git_path", "/custom/git")
-	if !strings.Contains(out, "git_path = /custom/git") {
-		t.Errorf("config set = %q, want 'git_path = /custom/git'", out)
+	// Create a temporary executable to use as a custom git path.
+	tmpDir := t.TempDir()
+	customGit := filepath.Join(tmpDir, "custom-git")
+	if err := os.WriteFile(customGit, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("creating custom git: %v", err)
+	}
+
+	out = runSoko(t, "config", "set", "git_path", customGit)
+	if !strings.Contains(out, "git_path = "+customGit) {
+		t.Errorf("config set = %q, want 'git_path = %s'", out, customGit)
 	}
 
 	out = runSoko(t, "config", "get", "git_path")
-	if !strings.Contains(out, "/custom/git") {
-		t.Errorf("config get after set = %q, want '/custom/git'", out)
+	if !strings.Contains(out, customGit) {
+		t.Errorf("config get after set = %q, want '%s'", out, customGit)
 	}
 }
 

@@ -15,8 +15,11 @@ var version = "dev"
 
 func main() {
 	// Load config early to set git binary path before any commands run.
-	if cfg, err := config.Load(); err == nil {
-		git.SetBinary(cfg.GitBinary())
+	// Only use custom git_path if the binary is a valid executable.
+	if cfg, err := config.Load(); err == nil && cfg.GitPath != "" {
+		if config.ValidateGitPath(cfg.GitPath) == nil {
+			git.SetBinary(cfg.GitPath)
+		}
 	}
 
 	if err := cli.NewRootCmd(version).Execute(); err != nil {
