@@ -212,7 +212,7 @@ func newTagListCmd() *cobra.Command {
 
 			counts := config.TagCount(cfg)
 			for _, tag := range tags {
-				_, _ = fmt.Fprintf(w, "  %s (%d repos)\n", tag, counts[tag])
+				_, _ = fmt.Fprintf(w, "  %s (%d %s)\n", tag, counts[tag], output.Plural(counts[tag], "repo"))
 			}
 
 			return nil

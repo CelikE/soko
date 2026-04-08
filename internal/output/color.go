@@ -19,6 +19,14 @@ var (
 	Dim = color.New(color.Faint).SprintFunc()
 )
 
+// Plural returns word as-is when n == 1, otherwise appends "s".
+func Plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
 // Symbols used in status output.
 const (
 	SymClean    = "✓"

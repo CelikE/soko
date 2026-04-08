@@ -114,8 +114,8 @@ func RenderStatusTableN(w io.Writer, rows []StatusRow, maxRows int) {
 
 	if truncated {
 		_, _ = fmt.Fprintln(w, Dim(fmt.Sprintf(
-			"  ... showing %d of %d repos — use --all to show all, or --tag/--dirty to filter",
-			maxRows, len(rows))))
+			"  ... showing %d of %d %s — use --all to show all, or --tag/--dirty to filter",
+			maxRows, len(rows), Plural(len(rows), "repo"))))
 	}
 }
 
@@ -183,8 +183,10 @@ func RenderStatusGrouped(w io.Writer, groups []StatusGroup) {
 // RenderSummary writes the status summary line to w.
 func RenderSummary(w io.Writer, totalRepos, dirtyCount, behindCount, totalChanges int) {
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
-		"%d repos · %d dirty · %d behind · %d changes",
-		totalRepos, dirtyCount, behindCount, totalChanges,
+		"%d %s · %d dirty · %d behind · %d %s",
+		totalRepos, Plural(totalRepos, "repo"),
+		dirtyCount, behindCount,
+		totalChanges, Plural(totalChanges, "change"),
 	)))
 }
 
@@ -219,7 +221,7 @@ func RenderActionResults(w io.Writer, rows []ActionRow) {
 // RenderActionSummary writes a summary line for action commands to w.
 func RenderActionSummary(w io.Writer, total, ok, failed int) {
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
-		"%d repos · %d ok · %d failed", total, ok, failed)))
+		"%d %s · %d ok · %d failed", total, Plural(total, "repo"), ok, failed)))
 }
 
 // Confirm prints a success confirmation message.

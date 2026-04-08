@@ -20,5 +20,9 @@ func noReposMessage(totalRepos int) string {
 	if totalRepos == 0 {
 		return "no repos registered yet — cd into a repo and run: soko init"
 	}
-	return fmt.Sprintf("no repos match the tag filter (%d repos registered)", totalRepos)
+	noun := "repos"
+	if totalRepos == 1 {
+		noun = "repo"
+	}
+	return fmt.Sprintf("no repos match the tag filter (%d %s registered)", totalRepos, noun)
 }
