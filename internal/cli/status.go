@@ -109,16 +109,17 @@ func newStatusCmd() *cobra.Command {
 }
 
 type statusResult struct {
-	index   int
-	row     output.StatusRow
-	status  *git.RepoStatus
-	path    string
-	tags    []string
-	dirty   bool
-	ahead   bool
-	behind  bool
-	changes int
-	err     string
+	index      int
+	row        output.StatusRow
+	status     *git.RepoStatus
+	path       string
+	tags       []string
+	worktreeOf string
+	dirty      bool
+	ahead      bool
+	behind     bool
+	changes    int
+	err        string
 }
 
 func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResult {
@@ -132,10 +133,11 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 	for i, repo := range cfg.Repos {
 		g.Go(func() error {
 			r := statusResult{
-				index: i,
-				path:  repo.Path,
-				tags:  repo.Tags,
-				row:   output.StatusRow{Name: repo.Name},
+				index:      i,
+				path:       repo.Path,
+				tags:       repo.Tags,
+				worktreeOf: repo.WorktreeOf,
+				row:        output.StatusRow{Name: repo.Name},
 			}
 
 			if !pathExists(repo.Path) {
@@ -277,6 +279,7 @@ type statusJSON struct {
 	Behind            int    `json:"behind"`
 	LastCommitTime    string `json:"last_commit_time"`
 	LastCommitMessage string `json:"last_commit_message"`
+	WorktreeOf        string `json:"worktree_of,omitempty"`
 	Error             string `json:"error,omitempty"`
 }
 
@@ -287,9 +290,10 @@ func renderStatusJSON(w io.Writer, results []statusResult) error {
 	for i := range results {
 		r := &results[i]
 		entry := statusJSON{
-			Name:  r.row.Name,
-			Path:  r.path,
-			Error: r.err,
+			Name:       r.row.Name,
+			Path:       r.path,
+			WorktreeOf: r.worktreeOf,
+			Error:      r.err,
 		}
 
 		if r.status != nil {

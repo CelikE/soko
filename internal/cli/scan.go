@@ -49,6 +49,7 @@ Skips hidden directories and repos already registered.`,
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			maxDepth, _ := cmd.Flags().GetInt("depth")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
+			worktreesFlag, _ := cmd.Flags().GetBool("worktrees")
 
 			cfg, err := config.Load()
 			if err != nil {
@@ -95,7 +96,6 @@ Skips hidden directories and repos already registered.`,
 				r := scanResult{Name: name, Path: path}
 
 				if dryRun {
-					// In dry-run, check if it would be a duplicate without modifying config.
 					for _, existing := range cfg.Repos {
 						if existing.Path == path {
 							r.AlreadyRegistered = true
@@ -123,6 +123,48 @@ Skips hidden directories and repos already registered.`,
 				}
 
 				found = append(found, r)
+
+				// Discover linked worktrees if --worktrees flag is set.
+				if worktreesFlag {
+					wts, wtErr := git.WorktreeList(ctx, path)
+					if wtErr == nil {
+						for _, wt := range wts {
+							wtName := name + "/" + wt.Branch
+							wr := scanResult{Name: wtName, Path: wt.Path, IsWorktree: true}
+
+							if dryRun {
+								for _, existing := range cfg.Repos {
+									if existing.Path == wt.Path {
+										wr.AlreadyRegistered = true
+										break
+									}
+								}
+								if !wr.AlreadyRegistered {
+									wr.Registered = true
+								}
+							} else {
+								_, addErr := config.AddRepo(cfg, config.RepoEntry{
+									Name:       wtName,
+									Path:       wt.Path,
+									Tags:       tags,
+									WorktreeOf: name,
+								})
+								if addErr != nil {
+									if errors.Is(addErr, config.ErrRepoAlreadyExists) {
+										wr.AlreadyRegistered = true
+									} else {
+										wr.Error = addErr.Error()
+									}
+								} else {
+									wr.Registered = true
+								}
+							}
+
+							found = append(found, wr)
+						}
+					}
+				}
+
 				return fs.SkipDir
 			})
 
@@ -141,6 +183,9 @@ Skips hidden directories and repos already registered.`,
 
 			// Print header.
 			scanHeader := fmt.Sprintf("scanning %s (depth: %d", shortenHome(root), maxDepth)
+			if worktreesFlag {
+				scanHeader += ", worktrees: on"
+			}
 			if len(tags) > 0 {
 				scanHeader += ", tags: " + strings.Join(tags, ", ")
 			}
@@ -166,24 +211,31 @@ Skips hidden directories and repos already registered.`,
 			_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
 
 			// Rows.
-			var registered, existing int
+			var registered, existing, wtCount int
 			for _, r := range found {
 				shortPath := shortenHome(r.Path)
+				displayName := r.Name
+				if r.IsWorktree {
+					displayName = r.Name + " → " + strings.SplitN(r.Name, "/", 2)[0]
+				}
 
 				switch {
 				case r.Error != "":
 					_, _ = fmt.Fprintln(w, output.Red(fmt.Sprintf(
-						"  %-*s %-8s %s", nameWidth, r.Name, output.SymConflict, r.Error)))
+						"  %-*s %-8s %s", nameWidth, displayName, output.SymConflict, r.Error)))
 				case r.AlreadyRegistered:
 					_, _ = fmt.Fprintf(w, "  %-*s %s       %s\n",
-						nameWidth, r.Name,
+						nameWidth, displayName,
 						output.Green(output.SymClean),
 						output.Dim(shortPath))
 					existing++
 				case r.Registered:
 					_, _ = fmt.Fprintln(w, output.Green(fmt.Sprintf(
-						"  %-*s %s       %s", nameWidth, r.Name, output.SymClean, shortPath)))
+						"  %-*s %s       %s", nameWidth, displayName, output.SymClean, shortPath)))
 					registered++
+				}
+				if r.IsWorktree {
+					wtCount++
 				}
 			}
 
@@ -195,15 +247,16 @@ Skips hidden directories and repos already registered.`,
 			}
 
 			_, _ = fmt.Fprintln(w)
+			summary := fmt.Sprintf("found %d repos", len(found))
 			if dryRun {
-				output.Info(w, fmt.Sprintf(
-					"found %d repos · %d not initialized · %d already in soko",
-					len(found), registered, existing))
+				summary += fmt.Sprintf(" · %d not initialized · %d already in soko", registered, existing)
 			} else {
-				output.Info(w, fmt.Sprintf(
-					"found %d repos · %d initialized · %d already in soko",
-					len(found), registered, existing))
+				summary += fmt.Sprintf(" · %d initialized · %d already in soko", registered, existing)
 			}
+			if wtCount > 0 {
+				summary += fmt.Sprintf(" · %d worktrees", wtCount)
+			}
+			output.Info(w, summary)
 
 			return nil
 		},
@@ -212,6 +265,7 @@ Skips hidden directories and repos already registered.`,
 	cmd.Flags().StringSlice("tag", nil, "tags to apply to discovered repos")
 	cmd.Flags().Bool("dry-run", false, "show repos that would be registered without registering them")
 	cmd.Flags().Int("depth", 5, "maximum directory depth to scan")
+	cmd.Flags().Bool("worktrees", false, "also discover and register linked git worktrees")
 
 	return cmd
 }
@@ -221,6 +275,7 @@ type scanResult struct {
 	Path              string `json:"path"`
 	Registered        bool   `json:"registered"`
 	AlreadyRegistered bool   `json:"already_registered"`
+	IsWorktree        bool   `json:"is_worktree,omitempty"`
 	Error             string `json:"error,omitempty"`
 }
 
