@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -280,12 +279,7 @@ type scanResult struct {
 }
 
 func renderScanJSON(w io.Writer, results []scanResult) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(results); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, results)
 }
 
 func shortenHome(path string) string {

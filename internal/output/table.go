@@ -1,11 +1,19 @@
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 )
+
+// RenderJSON encodes data as pretty-printed JSON to w.
+func RenderJSON(w io.Writer, data any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(data)
+}
 
 // RowState indicates the health of a repo row for colorization.
 type RowState int

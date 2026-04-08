@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -164,10 +163,5 @@ func writeRemovedJSON(w io.Writer, entries []config.RepoEntry) error {
 		out[i] = entry{Name: e.Name, Path: e.Path}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(out); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, out)
 }

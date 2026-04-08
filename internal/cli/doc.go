@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -292,12 +291,7 @@ func renderDocJSON(w io.Writer, results []checkResult) error {
 		}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }
 
 // shellProfiles returns paths to shell profile files to check for soko shell-init.

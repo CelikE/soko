@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -68,12 +67,7 @@ func renderListJSON(w io.Writer, repos []config.RepoEntry) error {
 		entries[i] = listEntry{Name: r.Name, Path: r.Path, Tags: r.Tags, WorktreeOf: r.WorktreeOf}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }
 
 func renderListTable(w io.Writer, repos []config.RepoEntry) {

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -113,10 +112,5 @@ type goJSON struct {
 }
 
 func writeGoJSON(w io.Writer, entry config.RepoEntry) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(goJSON{Name: entry.Name, Path: entry.Path}); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, goJSON{Name: entry.Name, Path: entry.Path})
 }
