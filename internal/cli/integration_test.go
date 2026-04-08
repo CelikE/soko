@@ -1263,8 +1263,8 @@ func TestIntegration_DiffShowsFiles(t *testing.T) {
 	if !strings.Contains(out, "new.txt") {
 		t.Errorf("diff = %q, want 'new.txt'", out)
 	}
-	if !strings.Contains(out, "1 files changed") {
-		t.Errorf("diff summary = %q, want '1 files changed'", out)
+	if !strings.Contains(out, "1 file changed") {
+		t.Errorf("diff summary = %q, want '1 file changed'", out)
 	}
 }
 

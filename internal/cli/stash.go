@@ -71,6 +71,10 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 
 	if len(args) > 0 {
 		repos = matchReposByName(repos, args)
+		if len(repos) == 0 {
+			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
+			return nil
+		}
 	}
 
 	if len(repos) == 0 {
@@ -164,10 +168,10 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 	}
 
 	_, _ = fmt.Fprintln(w)
-	output.Info(w, fmt.Sprintf("%d repos stashed", stashed))
+	output.Info(w, fmt.Sprintf("%d %s stashed", stashed, output.Plural(stashed, "repo")))
 
 	if failed > 0 {
-		return fmt.Errorf("%d repos failed to stash", failed)
+		return fmt.Errorf("%d %s failed to stash", failed, output.Plural(failed, "repo"))
 	}
 
 	return nil
@@ -269,10 +273,10 @@ func runStashPop(cmd *cobra.Command, _ []string) error {
 	}
 
 	_, _ = fmt.Fprintln(w)
-	output.Info(w, fmt.Sprintf("%d repos restored", restored))
+	output.Info(w, fmt.Sprintf("%d %s restored", restored, output.Plural(restored, "repo")))
 
 	if failed > 0 {
-		return fmt.Errorf("%d repos failed to pop stash", failed)
+		return fmt.Errorf("%d %s failed to pop stash", failed, output.Plural(failed, "repo"))
 	}
 
 	return nil

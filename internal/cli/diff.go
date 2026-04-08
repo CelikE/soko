@@ -34,6 +34,10 @@ Clean repos are silently skipped.`,
 
 			if len(args) > 0 {
 				repos = matchReposByName(repos, args)
+				if len(repos) == 0 {
+					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
+					return nil
+				}
 			}
 
 			if len(repos) == 0 {
@@ -125,7 +129,7 @@ Clean repos are silently skipped.`,
 			}
 
 			_, _ = fmt.Fprintln(w)
-			output.Info(w, fmt.Sprintf("%d repos · %d files changed", len(results), totalFiles))
+			output.Info(w, fmt.Sprintf("%d %s · %d %s changed", len(results), output.Plural(len(results), "repo"), totalFiles, output.Plural(totalFiles, "file")))
 
 			return nil
 		},
