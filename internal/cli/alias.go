@@ -114,12 +114,16 @@ func newAliasListCmd() *cobra.Command {
 				return fmt.Errorf("loading config: %w", err)
 			}
 
+			jsonFlag, _ := cmd.Flags().GetBool("json")
+
 			if len(cfg.Aliases) == 0 {
+				if jsonFlag {
+					_, _ = fmt.Fprintln(w, "[]")
+					return nil
+				}
 				output.Info(w, "no aliases defined")
 				return nil
 			}
-
-			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
 				return renderAliasListJSON(w, cfg.Aliases)
 			}
