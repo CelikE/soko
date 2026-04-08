@@ -79,6 +79,7 @@ soko status
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
 | `soko open` | Open a repo in the browser |
+| `soko report [repos...]` | Summarize commit activity across repos |
 | `soko tag` | Manage repo tags |
 | `soko alias` | Manage command aliases |
 | `soko doc` | Check the health of your soko setup |
@@ -96,7 +97,7 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go`, `report` | Filter by tag (repeatable, combines with OR) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
 | `--no-worktrees` | `fetch`, `exec` | Skip worktree entries, only operate on parent repos |
@@ -111,6 +112,10 @@ soko status
 | `--actions` | `open` | Open CI/CD page |
 | `--branches` | `open` | Open branches page |
 | `--settings` | `open` | Open settings page |
+| `--days` | `report` | Number of days to look back (default: 7) |
+| `--author` | `report` | Filter commits by author name (substring match) |
+| `--all-authors` | `report` | Show commits from all authors |
+| `--max` | `report` | Max commits per repo (default: 5, 0 for all) |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
 | `--fish` | `shell-init` | Output fish shell syntax |
 | `--pwsh` | `shell-init` | Output PowerShell syntax |
@@ -156,6 +161,18 @@ soko deploy                                        # runs soko exec --tag prod -
 ```
 
 Built-in commands always take priority over aliases.
+
+### Activity report
+
+```bash
+soko report                         # your commits, last 7 days
+soko report --days 1                # standup: yesterday
+soko report --days 30               # monthly summary
+soko report --tag backend           # only backend repos
+soko report auth                    # specific repo
+soko report --all-authors           # everyone's commits
+soko report --author "John"         # specific author
+```
 
 ### Run commands across repos
 
