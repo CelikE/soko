@@ -247,14 +247,14 @@ Skips hidden directories and repos already registered.`,
 			}
 
 			_, _ = fmt.Fprintln(w)
-			summary := fmt.Sprintf("found %d repos", len(found))
+			summary := fmt.Sprintf("found %d %s", len(found), output.Plural(len(found), "repo"))
 			if dryRun {
 				summary += fmt.Sprintf(" · %d not initialized · %d already in soko", registered, existing)
 			} else {
 				summary += fmt.Sprintf(" · %d initialized · %d already in soko", registered, existing)
 			}
 			if wtCount > 0 {
-				summary += fmt.Sprintf(" · %d worktrees", wtCount)
+				summary += fmt.Sprintf(" · %d %s", wtCount, output.Plural(wtCount, "worktree"))
 			}
 			output.Info(w, summary)
 
