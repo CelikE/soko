@@ -1332,3 +1332,75 @@ func TestIntegration_StatusGroup(t *testing.T) {
 		t.Errorf("status --group = %q, want 'back-svc'", out)
 	}
 }
+
+func TestIntegration_StatusByRepoName(t *testing.T) {
+	testEnv(t)
+	dir1 := filepath.Join(t.TempDir(), "alpha")
+	dir2 := filepath.Join(t.TempDir(), "bravo")
+	initRepo(t, dir1)
+	initRepo(t, dir2)
+	runSokoInit(t, dir1)
+	runSokoInit(t, dir2)
+
+	// Exact match: only alpha.
+	out := runSoko(t, "status", "alpha")
+	if !strings.Contains(out, "alpha") {
+		t.Errorf("status alpha = %q, want 'alpha'", out)
+	}
+	if strings.Contains(out, "bravo") {
+		t.Errorf("status alpha = %q, should not contain 'bravo'", out)
+	}
+	if !strings.Contains(out, "1 repo") {
+		t.Errorf("status alpha = %q, want '1 repo' in summary", out)
+	}
+}
+
+func TestIntegration_StatusByRepoPrefix(t *testing.T) {
+	testEnv(t)
+	dir1 := filepath.Join(t.TempDir(), "api-auth")
+	dir2 := filepath.Join(t.TempDir(), "api-gateway")
+	dir3 := filepath.Join(t.TempDir(), "frontend")
+	initRepo(t, dir1)
+	initRepo(t, dir2)
+	initRepo(t, dir3)
+	runSokoInit(t, dir1)
+	runSokoInit(t, dir2)
+	runSokoInit(t, dir3)
+
+	// Prefix match: api- matches two repos.
+	out := runSoko(t, "status", "api-")
+	if !strings.Contains(out, "api-auth") {
+		t.Errorf("status api- = %q, want 'api-auth'", out)
+	}
+	if !strings.Contains(out, "api-gateway") {
+		t.Errorf("status api- = %q, want 'api-gateway'", out)
+	}
+	if strings.Contains(out, "frontend") {
+		t.Errorf("status api- = %q, should not contain 'frontend'", out)
+	}
+}
+
+func TestIntegration_StatusMultipleRepoArgs(t *testing.T) {
+	testEnv(t)
+	dir1 := filepath.Join(t.TempDir(), "alpha")
+	dir2 := filepath.Join(t.TempDir(), "bravo")
+	dir3 := filepath.Join(t.TempDir(), "charlie")
+	initRepo(t, dir1)
+	initRepo(t, dir2)
+	initRepo(t, dir3)
+	runSokoInit(t, dir1)
+	runSokoInit(t, dir2)
+	runSokoInit(t, dir3)
+
+	// Multiple args: alpha and charlie.
+	out := runSoko(t, "status", "alpha", "charlie")
+	if !strings.Contains(out, "alpha") {
+		t.Errorf("status alpha charlie = %q, want 'alpha'", out)
+	}
+	if !strings.Contains(out, "charlie") {
+		t.Errorf("status alpha charlie = %q, want 'charlie'", out)
+	}
+	if strings.Contains(out, "bravo") {
+		t.Errorf("status alpha charlie = %q, should not contain 'bravo'", out)
+	}
+}
