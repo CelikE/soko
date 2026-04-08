@@ -105,7 +105,7 @@ func renderListTable(w io.Writer, repos []config.RepoEntry) {
 			tagStr := strings.Join(r.Tags, ", ")
 			pathStr := output.Dim(r.Path)
 			if r.WorktreeOf != "" {
-				pathStr += output.Dim("  → "+r.WorktreeOf)
+				pathStr += output.Dim("  → " + r.WorktreeOf)
 			}
 			_, _ = fmt.Fprintf(w, "  %-*s %s%-*s %s\n",
 				nameWidth, r.Name,
@@ -120,7 +120,7 @@ func renderListTable(w io.Writer, repos []config.RepoEntry) {
 		for _, r := range repos {
 			pathStr := output.Dim(r.Path)
 			if r.WorktreeOf != "" {
-				pathStr += output.Dim("  → "+r.WorktreeOf)
+				pathStr += output.Dim("  → " + r.WorktreeOf)
 			}
 			_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, pathStr)
 		}
