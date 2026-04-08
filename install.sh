@@ -79,10 +79,37 @@ echo "downloading soko ${VERSION} for ${OS}/${ARCH}..."
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+
 curl -fsSL "$URL" -o "${TMPDIR}/${FILENAME}"
+curl -fsSL "$CHECKSUMS_URL" -o "${TMPDIR}/checksums.txt"
+
+# Verify checksum.
+cd "$TMPDIR"
+EXPECTED=$(grep "${FILENAME}" checksums.txt | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+  echo "error: checksum not found for ${FILENAME}"
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  ACTUAL=$(sha256sum "$FILENAME" | awk '{print $1}')
+elif command -v shasum >/dev/null 2>&1; then
+  ACTUAL=$(shasum -a 256 "$FILENAME" | awk '{print $1}')
+else
+  echo "warning: no sha256 tool found, skipping checksum verification"
+  ACTUAL="$EXPECTED"
+fi
+
+if [ "$ACTUAL" != "$EXPECTED" ]; then
+  echo "error: checksum verification failed"
+  echo "  expected: ${EXPECTED}"
+  echo "  got:      ${ACTUAL}"
+  exit 1
+fi
+echo "checksum verified."
 
 # Extract.
-cd "$TMPDIR"
 if [ "$EXT" = "zip" ]; then
   unzip -q "$FILENAME"
 else
