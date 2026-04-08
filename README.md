@@ -70,8 +70,8 @@ soko status
 | `soko init` | Register the current git repo (detects worktrees) |
 | `soko scan` | Discover and register all git repos in a directory |
 | `soko status [repos...]` | Show status of all (or specific) repos |
-| `soko diff` | Show uncommitted file changes across repos |
-| `soko stash` | Stash/pop uncommitted changes across repos |
+| `soko diff [repos...]` | Show uncommitted file changes across repos |
+| `soko stash [repos...]` | Stash/pop uncommitted changes across repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |

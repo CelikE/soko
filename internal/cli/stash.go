@@ -27,13 +27,15 @@ type stashResult struct {
 
 func newStashCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stash",
+		Use:   "stash [repos...]",
 		Short: "Stash uncommitted changes across repos",
 		Long: `Stash all dirty repos in one command. Clean repos are silently skipped.
 Use "soko stash pop" to restore only stashes created by soko.`,
 		Example: `  soko stash
+  soko stash auth
   soko stash pop
   soko stash --tag backend`,
+		Args: cobra.ArbitraryArgs,
 		RunE: runStashPush,
 	}
 
@@ -58,13 +60,17 @@ func newStashPopCmd() *cobra.Command {
 	return cmd
 }
 
-func runStashPush(cmd *cobra.Command, _ []string) error {
+func runStashPush(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	w := cmd.OutOrStdout()
 
 	cfg, repos, err := loadReposWithTagFilter(cmd)
 	if err != nil {
 		return err
+	}
+
+	if len(args) > 0 {
+		repos = matchReposByName(repos, args)
 	}
 
 	if len(repos) == 0 {
