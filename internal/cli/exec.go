@@ -96,11 +96,10 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				}
 			}
 
-			_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
-				"%d repos · %d ok · %d failed", len(results), succeeded, failed)))
+			output.RenderActionSummary(w, len(results), succeeded, failed)
 
 			if failed > 0 {
-				return fmt.Errorf("%d repos failed", failed)
+				return fmt.Errorf("%d %s failed", failed, output.Plural(failed, "repo"))
 			}
 			return nil
 		},
