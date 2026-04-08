@@ -80,6 +80,7 @@ soko status
 | `soko exec` | Run a command in all registered repos |
 | `soko open` | Open a repo in the browser |
 | `soko tag` | Manage repo tags |
+| `soko alias` | Manage command aliases |
 | `soko doc` | Check the health of your soko setup |
 | `soko config` | View config path or open in editor |
 | `soko shell-init` | Print shell integration hook |
@@ -139,6 +140,20 @@ soko status --tag backend           # filter any command by tag
 soko fetch --tag frontend           # fetch only frontend repos
 soko exec --tag go -- go mod tidy   # run in tagged repos only
 ```
+
+### Aliases
+
+```bash
+soko alias set morning "sync --tag work"          # create an alias
+soko alias set deploy "exec --tag prod -- make deploy"
+soko alias list                                    # show all aliases
+soko alias remove morning                          # remove an alias
+
+soko morning                                       # runs soko sync --tag work
+soko deploy                                        # runs soko exec --tag prod -- make deploy
+```
+
+Built-in commands always take priority over aliases.
 
 ### Run commands across repos
 
@@ -273,6 +288,9 @@ soko stores registered repos in a single YAML file:
 Respects `$XDG_CONFIG_HOME` if set. The format is minimal:
 
 ```yaml
+aliases:
+  morning: sync --tag work
+  deploy: exec --tag prod -- make deploy
 repos:
   - name: auth-service
     path: /home/dev/work/auth-service
