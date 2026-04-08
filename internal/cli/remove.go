@@ -149,7 +149,7 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut bool, w io
 		return writeRemovedJSON(w, removed)
 	}
 
-	output.Confirm(w, fmt.Sprintf("removed all %d repos", count))
+	output.Confirm(w, fmt.Sprintf("removed all %d %s", count, output.Plural(count, "repo")))
 	return nil
 }
 

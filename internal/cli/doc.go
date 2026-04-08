@@ -85,7 +85,7 @@ func newDocCmd() *cobra.Command {
 			results = append(results, checkResult{
 				Name:    "config",
 				Status:  statusPass,
-				Message: fmt.Sprintf("%s (%d repos)", cfgPath, len(cfg.Repos)),
+				Message: fmt.Sprintf("%s (%d %s)", cfgPath, len(cfg.Repos), output.Plural(len(cfg.Repos), "repo")),
 			})
 
 			// Check each repo.
@@ -256,8 +256,11 @@ func renderDocResults(w io.Writer, results []checkResult) {
 	}
 
 	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
-		"%d checks · %d passed · %d warnings · %d errors",
-		len(results), passed, warned, errored)))
+		"%d %s · %d passed · %d %s · %d %s",
+		len(results), output.Plural(len(results), "check"),
+		passed,
+		warned, output.Plural(warned, "warning"),
+		errored, output.Plural(errored, "error"))))
 }
 
 type docJSON struct {
