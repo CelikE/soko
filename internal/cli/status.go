@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -324,12 +323,7 @@ func renderStatusJSON(w io.Writer, results []statusResult) error {
 		entries[i] = entry
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }
 
 // rowState determines the RowState from a RepoStatus.

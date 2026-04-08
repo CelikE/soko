@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -172,10 +171,5 @@ func renderAliasListJSON(w io.Writer, aliases map[string]string) error {
 		entries[i] = aliasListJSON{Name: name, Command: aliases[name]}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -81,10 +80,5 @@ type cdJSON struct {
 }
 
 func writeCdJSON(w io.Writer, entry config.RepoEntry) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(cdJSON{Name: entry.Name, Path: entry.Path}); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, cdJSON{Name: entry.Name, Path: entry.Path})
 }
