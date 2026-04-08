@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -306,10 +305,5 @@ func renderStashJSON(w io.Writer, results []stashResult) error {
 		}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }

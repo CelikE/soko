@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -234,10 +233,5 @@ func renderTagListJSON(w io.Writer, cfg *config.Config, tags []string) error {
 		entries[i] = tagListJSON{Tag: tag, Count: counts[tag]}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }

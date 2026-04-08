@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -155,10 +154,5 @@ func renderFetchJSON(w io.Writer, results []fetchResult) error {
 		}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(entries); err != nil {
-		return fmt.Errorf("encoding json: %w", err)
-	}
-	return nil
+	return output.RenderJSON(w, entries)
 }
