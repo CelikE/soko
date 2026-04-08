@@ -27,8 +27,7 @@ func newInitCmd() *cobra.Command {
 			}
 
 			if !git.IsGitRepo(ctx, dir) {
-				output.Fail(cmd.ErrOrStderr(), "not a git repository")
-				os.Exit(1)
+				return fmt.Errorf("not a git repository")
 			}
 
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")

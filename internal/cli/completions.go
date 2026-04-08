@@ -43,9 +43,9 @@ func tagCompletionFunc() cobra.CompletionFunc {
 	}
 }
 
-// matchReposByName returns repos matching any of the given queries.
+// findReposMatching returns repos matching any of the given queries.
 // Each query tries exact match first, then prefix match — same as config.FindRepo.
-func matchReposByName(repos []config.RepoEntry, queries []string) []config.RepoEntry {
+func findReposMatching(repos []config.RepoEntry, queries []string) []config.RepoEntry {
 	seen := make(map[string]bool)
 	var matched []config.RepoEntry
 

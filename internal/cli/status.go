@@ -36,7 +36,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			if len(args) > 0 {
-				repos = matchReposByName(repos, args)
+				repos = findReposMatching(repos, args)
 				if len(repos) == 0 {
 					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
 					return nil
