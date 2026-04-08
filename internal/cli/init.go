@@ -31,6 +31,15 @@ func newInitCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			// If inside a linked worktree, resolve to the main repo.
+			if git.IsWorktree(ctx, dir) {
+				mainPath, err := git.MainRepoPath(ctx, dir)
+				if err == nil {
+					output.Info(w, fmt.Sprintf("worktree detected — registering main repo at %s", mainPath))
+					dir = mainPath
+				}
+			}
+
 			name := git.RepoName(ctx, dir)
 			tags, _ := cmd.Flags().GetStringSlice("tag")
 
