@@ -33,7 +33,7 @@ Clean repos are silently skipped.`,
 			}
 
 			if len(args) > 0 {
-				repos = matchReposByName(repos, args)
+				repos = findReposMatching(repos, args)
 				if len(repos) == 0 {
 					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
 					return nil
@@ -83,9 +83,9 @@ Clean repos are silently skipped.`,
 
 				if len(files) > 0 {
 					results = append(results, diffResult{
-						RepoName: repo.Name,
-						RepoPath: repo.Path,
-						Files:    files,
+						Name:  repo.Name,
+						Path:  repo.Path,
+						Files: files,
 					})
 					totalFiles += len(files)
 				}
@@ -109,7 +109,7 @@ Clean repos are silently skipped.`,
 					_, _ = fmt.Fprintln(w)
 				}
 				_, _ = fmt.Fprintf(w, "  %s %s\n",
-					r.RepoName,
+					r.Name,
 					output.Dim(fmt.Sprintf("(%d files)", len(r.Files))))
 
 				for _, f := range r.Files {
@@ -142,9 +142,9 @@ Clean repos are silently skipped.`,
 }
 
 type diffResult struct {
-	RepoName string     `json:"name"`
-	RepoPath string     `json:"path"`
-	Files    []diffFile `json:"files"`
+	Name  string     `json:"name"`
+	Path  string     `json:"path"`
+	Files []diffFile `json:"files"`
 }
 
 type diffFile struct {
