@@ -26,6 +26,7 @@ then run soko status from anywhere to see the state of every tracked repo.`,
 	cmd.AddCommand(newScanCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newDiffCmd())
+	cmd.AddCommand(newStashCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newRemoveCmd())
 	cmd.AddCommand(newFetchCmd())
