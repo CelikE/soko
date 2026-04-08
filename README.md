@@ -228,7 +228,7 @@ soko config get git_path            # check current git binary
 
 ### Git worktrees
 
-soko has first-class support for git worktrees. If you use worktrees as your primary branching workflow, use `--worktrees` to discover and register them:
+soko supports git worktrees natively. If you use worktrees as your primary branching workflow, use `--worktrees` to discover and register them:
 
 ```bash
 # Scan and discover repos + worktrees
