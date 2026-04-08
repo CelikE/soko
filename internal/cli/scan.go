@@ -80,8 +80,15 @@ Skips hidden directories and repos already registered.`,
 
 				// Check if this directory is a git repo.
 				gitDir := filepath.Join(path, ".git")
-				if _, statErr := os.Stat(gitDir); os.IsNotExist(statErr) {
+				info, statErr := os.Stat(gitDir)
+				if os.IsNotExist(statErr) {
 					return nil // not a repo, keep walking
+				}
+
+				// A linked worktree has a .git *file* (not directory). Skip it
+				// to avoid registering the same repo multiple times.
+				if !info.IsDir() {
+					return fs.SkipDir
 				}
 
 				name := git.RepoName(ctx, path)
