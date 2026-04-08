@@ -52,11 +52,48 @@ func (c *Config) GitBinary() string {
 func Set(cfg *Config, key, value string) error {
 	switch key {
 	case "git_path":
+		if value != "" {
+			if err := validateExecutable(value); err != nil {
+				return fmt.Errorf("invalid git_path: %w", err)
+			}
+		}
 		cfg.GitPath = value
 		return nil
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
+}
+
+// ValidateGitPath checks that path points to a regular, executable file.
+// Exported for use in main.go startup validation.
+func ValidateGitPath(path string) error {
+	return validateExecutable(path)
+}
+
+// validateExecutable checks that path points to a regular, executable file.
+func validateExecutable(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		// Resolve symlink and re-stat to check the target.
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolving symlink: %w", err)
+		}
+		info, err = os.Stat(resolved)
+		if err != nil {
+			return fmt.Errorf("%s: %w", resolved, err)
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s: not a regular file", path)
+	}
+	if info.Mode()&0o111 == 0 {
+		return fmt.Errorf("%s: not executable", path)
+	}
+	return nil
 }
 
 // Get returns the value of a config key. Returns an error for unknown keys.
@@ -138,7 +175,7 @@ func Save(cfg *Config) error {
 // parent directory if necessary.
 func SaveTo(cfg *Config, path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 

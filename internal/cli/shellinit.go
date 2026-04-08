@@ -159,9 +159,19 @@ func writeNavFile(path string) error {
 		return fmt.Errorf("could not determine nav file path")
 	}
 	dir := filepath.Dir(navPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating nav directory: %w", err)
 	}
+
+	// Prevent symlink attacks: if the file exists and is a symlink, remove it.
+	if info, err := os.Lstat(navPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(navPath); err != nil {
+				return fmt.Errorf("removing symlinked nav file: %w", err)
+			}
+		}
+	}
+
 	return os.WriteFile(navPath, []byte(path), 0o600)
 }
 
