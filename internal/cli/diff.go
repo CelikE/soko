@@ -15,19 +15,25 @@ import (
 // newDiffCmd creates the cobra command for soko diff.
 func newDiffCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "diff",
+		Use:   "diff [repos...]",
 		Short: "Show uncommitted file changes across repos",
 		Long: `Show a file-level summary of uncommitted changes across all dirty repos.
 Clean repos are silently skipped.`,
 		Example: `  soko diff
+  soko diff auth
   soko diff --tag backend`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
 				return err
+			}
+
+			if len(args) > 0 {
+				repos = matchReposByName(repos, args)
 			}
 
 			if len(repos) == 0 {
