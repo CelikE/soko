@@ -1404,3 +1404,15 @@ func TestIntegration_StatusMultipleRepoArgs(t *testing.T) {
 		t.Errorf("status alpha charlie = %q, should not contain 'bravo'", out)
 	}
 }
+
+func TestIntegration_StatusNoMatchMessage(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "alpha")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "status", "nonexistent")
+	if !strings.Contains(out, "no repos found matching: nonexistent") {
+		t.Errorf("status nonexistent = %q, want 'no repos found matching: nonexistent'", out)
+	}
+}
