@@ -43,7 +43,7 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 			w := cmd.OutOrStdout()
 
 			if len(args) == 0 {
-				return cmd.Usage()
+				return fmt.Errorf("no command specified — usage: soko exec -- <command> [args...]")
 			}
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
