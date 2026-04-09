@@ -165,14 +165,30 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 
 // renderReport prints the report to w.
 func renderReport(w io.Writer, active []reportResult, inactive []string, days, maxCommits int) {
-	_, _ = fmt.Fprintf(w, "  %s\n\n", output.Dim(fmt.Sprintf("activity: last %d %s", days, output.Plural(days, "day"))))
+	// Compute column widths.
+	nameWidth := len("REPO")
+	branchWidth := len("BRANCH")
+	for _, r := range active {
+		if len(r.Name) > nameWidth {
+			nameWidth = len(r.Name)
+		}
+		if len(r.Branch) > branchWidth {
+			branchWidth = len(r.Branch)
+		}
+	}
+	nameWidth += 2
+	branchWidth += 2
+
+	header := fmt.Sprintf("  %-*s %-*s %s", nameWidth, "REPO", branchWidth, "BRANCH", "COMMITS")
+	_, _ = fmt.Fprintln(w, output.Dim(header))
+	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
 
 	totalCommits := 0
-	for _, r := range active {
-		_, _ = fmt.Fprintf(w, "  %s %s %s\n",
-			r.Name,
-			output.Dim(r.Branch),
-			output.Dim(fmt.Sprintf("(%d %s)", len(r.Commits), output.Plural(len(r.Commits), "commit"))))
+	for i, r := range active {
+		_, _ = fmt.Fprintf(w, "  %-*s %-*s %s\n",
+			nameWidth, r.Name,
+			branchWidth, output.Dim(r.Branch),
+			output.Dim(fmt.Sprintf("%d", len(r.Commits))))
 
 		show := r.Commits
 		remaining := 0
@@ -181,25 +197,34 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 			show = show[:maxCommits]
 		}
 
-		for _, c := range show {
-			dateStr := c.Time.Format("Jan 02")
-			agoStr := output.FormatTimeAgo(c.Time)
-			_, _ = fmt.Fprintf(w, "    %s  %s\n",
-				output.Dim(fmt.Sprintf("%-6s %-8s", dateStr, agoStr)),
+		for j, c := range show {
+			connector := "├──"
+			if j == len(show)-1 && remaining == 0 {
+				connector = "└──"
+			}
+			ts := c.Time.Format("01-02 15:04")
+			_, _ = fmt.Fprintf(w, "  %s %s  %s\n",
+				output.Dim(connector),
+				output.Dim(ts),
 				c.Message)
 		}
 		if remaining > 0 {
-			_, _ = fmt.Fprintf(w, "    %s\n", output.Dim(fmt.Sprintf("...and %d more", remaining)))
+			_, _ = fmt.Fprintf(w, "  %s %s\n",
+				output.Dim("└──"),
+				output.Dim(fmt.Sprintf("+%d more", remaining)))
 		}
 
-		_, _ = fmt.Fprintln(w)
+		if i < len(active)-1 {
+			_, _ = fmt.Fprintln(w)
+		}
 		totalCommits += len(r.Commits)
 	}
 
-	_, _ = fmt.Fprintf(w, "  %s\n", output.Dim(fmt.Sprintf(
-		"%d active %s · %d %s",
+	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
+		"%d active %s · %d %s · last %d %s",
 		len(active), output.Plural(len(active), "repo"),
-		totalCommits, output.Plural(totalCommits, "commit"))))
+		totalCommits, output.Plural(totalCommits, "commit"),
+		days, output.Plural(days, "day"))))
 
 	if len(inactive) > 0 {
 		maxInactive := 5
