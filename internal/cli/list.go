@@ -150,6 +150,11 @@ func renderListTree(w io.Writer, repos []config.RepoEntry) {
 	}
 	nameWidth += 2
 
+	// Header — offset by 6 chars to account for tree connector "  └── ".
+	header := fmt.Sprintf("        %-*s %s", nameWidth, "NAME", "PATH")
+	_, _ = fmt.Fprintln(w, output.Dim(header))
+	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
+
 	for i, tag := range tags {
 		if i > 0 {
 			_, _ = fmt.Fprintln(w)
