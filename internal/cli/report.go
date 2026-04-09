@@ -182,9 +182,10 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 		}
 
 		for _, c := range show {
-			timeStr := output.FormatTimeAgo(c.Time)
+			dateStr := c.Time.Format("Jan 02")
+			agoStr := output.FormatTimeAgo(c.Time)
 			_, _ = fmt.Fprintf(w, "    %s  %s\n",
-				output.Dim(fmt.Sprintf("%-8s", timeStr)),
+				output.Dim(fmt.Sprintf("%-6s %-8s", dateStr, agoStr)),
 				c.Message)
 		}
 		if remaining > 0 {
