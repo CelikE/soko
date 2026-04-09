@@ -3,6 +3,8 @@
 package output
 
 import (
+	"strings"
+
 	"github.com/fatih/color"
 )
 
@@ -19,10 +21,15 @@ var (
 	Dim = color.New(color.Faint).SprintFunc()
 )
 
-// Plural returns word as-is when n == 1, otherwise appends "s".
+// Plural returns word as-is when n == 1, otherwise appends "s" or "es".
 func Plural(n int, word string) string {
 	if n == 1 {
 		return word
+	}
+	if strings.HasSuffix(word, "ch") || strings.HasSuffix(word, "sh") ||
+		strings.HasSuffix(word, "s") || strings.HasSuffix(word, "x") ||
+		strings.HasSuffix(word, "z") {
+		return word + "es"
 	}
 	return word + "s"
 }
