@@ -189,9 +189,11 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 
 	totalCommits := 0
 	for i, r := range active {
-		_, _ = fmt.Fprintf(w, "  %-*s %-*s %s\n",
+		// Pad branch manually before dimming to avoid ANSI codes breaking alignment.
+		paddedBranch := fmt.Sprintf("%-*s", branchWidth, r.Branch)
+		_, _ = fmt.Fprintf(w, "  %-*s %s %s\n",
 			nameWidth, r.Name,
-			branchWidth, output.Dim(r.Branch),
+			output.Dim(paddedBranch),
 			output.Dim(fmt.Sprintf("%d", len(r.Commits))))
 
 		show := r.Commits
