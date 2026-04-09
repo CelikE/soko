@@ -34,8 +34,9 @@ Use "soko stash pop" to restore only stashes created by soko.`,
   soko stash auth
   soko stash pop
   soko stash --tag backend`,
-		Args: cobra.ArbitraryArgs,
-		RunE: runStashPush,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: repoNameCompletionFunc(),
+		RunE:              runStashPush,
 	}
 
 	cmd.AddCommand(newStashPopCmd())

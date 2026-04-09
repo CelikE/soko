@@ -106,6 +106,7 @@ func newInitCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "tags to apply to the repo (can be repeated)")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("worktree", false, "register as a linked worktree instead of resolving to main repo")
 
 	return cmd
