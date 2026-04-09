@@ -38,6 +38,7 @@ jobs:
       - name: Update release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG: ${{ steps.notes.outputs.changelog }}
         run: |
           gh release edit "${{ github.ref_name }}" \
-            --notes "${{ steps.notes.outputs.changelog }}"
+            --notes "$CHANGELOG"
