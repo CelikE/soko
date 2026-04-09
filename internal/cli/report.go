@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,10 +15,16 @@ import (
 	"github.com/CelikE/soko/internal/output"
 )
 
+type reportCommit struct {
+	Message string    `json:"message"`
+	Time    time.Time `json:"time"`
+}
+
 type reportResult struct {
-	Name    string   `json:"name"`
-	Path    string   `json:"path"`
-	Commits []string `json:"commits"`
+	Name    string         `json:"name"`
+	Path    string         `json:"path"`
+	Branch  string         `json:"branch"`
+	Commits []reportCommit `json:"commits"`
 }
 
 func newReportCmd() *cobra.Command {
@@ -112,7 +119,9 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 			continue
 		}
 
-		gitArgs := []string{"log", "--oneline", "--format=%s", "--since=" + since}
+		branch, _ := git.Run(ctx, repo.Path, "rev-parse", "--abbrev-ref", "HEAD")
+
+		gitArgs := []string{"log", "--format=%s\x1f%aI", "--since=" + since}
 		if author != "" {
 			gitArgs = append(gitArgs, "--author="+author)
 		}
@@ -123,7 +132,16 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 			continue
 		}
 
-		commits := strings.Split(out, "\n")
+		var commits []reportCommit
+		for _, line := range strings.Split(out, "\n") {
+			parts := strings.SplitN(line, "\x1f", 2)
+			if len(parts) < 2 || parts[0] == "" {
+				continue
+			}
+			t, _ := time.Parse(time.RFC3339, parts[1])
+			commits = append(commits, reportCommit{Message: parts[0], Time: t})
+		}
+
 		if len(commits) == 0 {
 			inactive = append(inactive, repo.Name)
 			continue
@@ -132,6 +150,7 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 		active = append(active, reportResult{
 			Name:    repo.Name,
 			Path:    repo.Path,
+			Branch:  branch,
 			Commits: commits,
 		})
 	}
@@ -150,7 +169,10 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 
 	totalCommits := 0
 	for _, r := range active {
-		_, _ = fmt.Fprintf(w, "  %s (%d %s)\n", r.Name, len(r.Commits), output.Plural(len(r.Commits), "commit"))
+		_, _ = fmt.Fprintf(w, "  %s %s %s\n",
+			r.Name,
+			output.Dim(r.Branch),
+			output.Dim(fmt.Sprintf("(%d %s)", len(r.Commits), output.Plural(len(r.Commits), "commit"))))
 
 		show := r.Commits
 		remaining := 0
@@ -159,8 +181,11 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 			show = show[:maxCommits]
 		}
 
-		for _, msg := range show {
-			_, _ = fmt.Fprintf(w, "    %s\n", msg)
+		for _, c := range show {
+			timeStr := output.FormatTimeAgo(c.Time)
+			_, _ = fmt.Fprintf(w, "    %s  %s\n",
+				output.Dim(fmt.Sprintf("%-8s", timeStr)),
+				c.Message)
 		}
 		if remaining > 0 {
 			_, _ = fmt.Fprintf(w, "    %s\n", output.Dim(fmt.Sprintf("...and %d more", remaining)))
