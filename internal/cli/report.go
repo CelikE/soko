@@ -180,8 +180,12 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 	branchWidth += 2
 
 	header := fmt.Sprintf("  %-*s %-*s %s", nameWidth, "REPO", branchWidth, "BRANCH", "COMMITS")
+	separatorWidth := len(header) - 2
+	if separatorWidth < 60 {
+		separatorWidth = 60
+	}
 	_, _ = fmt.Fprintln(w, output.Dim(header))
-	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
+	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", separatorWidth)))
 
 	totalCommits := 0
 	for i, r := range active {
@@ -203,7 +207,7 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 				connector = "└──"
 			}
 			ts := c.Time.Format("01-02 15:04")
-			_, _ = fmt.Fprintf(w, "  %s %s  %s\n",
+			_, _ = fmt.Fprintf(w, "  %s %s   %s\n",
 				output.Dim(connector),
 				output.Dim(ts),
 				c.Message)
