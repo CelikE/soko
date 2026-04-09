@@ -72,6 +72,7 @@ soko status
 | `soko status [repos...]` | Show status of all (or specific) repos |
 | `soko diff [repos...]` | Show uncommitted file changes across repos |
 | `soko stash [repos...]` | Stash/pop uncommitted changes across repos |
+| `soko clean [repos...]` | Delete merged branches across repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko fetch` | Fetch all registered repos in parallel |
@@ -97,15 +98,16 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go`, `report` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go`, `report`, `clean` | Filter by tag (repeatable, combines with OR) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
 | `--no-worktrees` | `fetch`, `exec` | Skip worktree entries, only operate on parent repos |
-| `--dry-run` | `scan` | Show repos that would be registered without registering |
+| `--dry-run` | `scan`, `clean` | Preview what would happen without making changes |
 | `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
 | `--group` | `status`, `list` | Group repos by tag in a tree view |
 | `--all` | `status` | Show all repos without truncation |
-| `--prune` | `fetch` | Pass `--prune` to git fetch to clean up stale refs |
+| `--prune` | `fetch`, `clean` | Prune stale remote tracking refs |
+| `--force` | `remove`, `clean` | Skip confirmation prompt |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--prs` | `open` | Open pull/merge requests page |
 | `--issues` | `open` | Open issues page |
@@ -230,6 +232,17 @@ soko list --tag infra               # filter by tag
 soko remove old-project             # unregister by name
 soko remove --path /old/path        # unregister by path
 soko remove --all --force           # clear everything
+```
+
+### Clean up stale branches
+
+```bash
+soko clean --dry-run               # preview merged branches
+soko clean                         # delete with confirmation
+soko clean --force                 # skip confirmation
+soko clean --prune                 # also prune stale remote refs
+soko clean --tag backend           # only backend repos
+soko clean auth                    # specific repo
 ```
 
 ### Health check and config
