@@ -42,7 +42,8 @@ Use --all-authors to include everyone's commits.`,
   soko report --tag backend           # only backend repos
   soko report --all-authors           # everyone's commits
   soko report --author "John"         # specific author`,
-		Args: cobra.ArbitraryArgs,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
