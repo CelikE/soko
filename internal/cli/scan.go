@@ -86,6 +86,7 @@ Skips hidden directories and repos already registered.`,
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "tags to apply to discovered repos")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("dry-run", false, "show repos that would be registered without registering them")
 	cmd.Flags().Int("depth", 5, "maximum directory depth to scan")
 	cmd.Flags().Bool("worktrees", false, "also discover and register linked git worktrees")
