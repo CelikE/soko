@@ -94,8 +94,8 @@ func TestIntegration_ReportMaxTruncation(t *testing.T) {
 	runSokoInit(t, dir)
 
 	out := runSoko(t, "report", "--days", "1", "--max", "2", "--all-authors")
-	if !strings.Contains(out, "...and") {
-		t.Errorf("report --max 2 = %q, want '...and N more'", out)
+	if !strings.Contains(out, "+") || !strings.Contains(out, "more") {
+		t.Errorf("report --max 2 = %q, want '+N more'", out)
 	}
 }
 
