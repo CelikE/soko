@@ -21,7 +21,8 @@ Clean repos are silently skipped.`,
 		Example: `  soko diff
   soko diff auth
   soko diff --tag backend`,
-		Args: cobra.ArbitraryArgs,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()

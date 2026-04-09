@@ -37,7 +37,8 @@ Use --dry-run to preview what would be deleted.`,
   soko clean --force                 # delete without confirmation
   soko clean --prune                 # also prune stale remote refs
   soko clean --tag backend           # only backend repos`,
-		Args: cobra.ArbitraryArgs,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
