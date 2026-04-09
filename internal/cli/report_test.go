@@ -108,8 +108,11 @@ func TestIntegration_ReportJSON(t *testing.T) {
 	out := runSoko(t, "report", "--days", "1", "--json", "--all-authors")
 
 	var results []struct {
-		Name    string   `json:"name"`
-		Commits []string `json:"commits"`
+		Name    string `json:"name"`
+		Branch  string `json:"branch"`
+		Commits []struct {
+			Message string `json:"message"`
+		} `json:"commits"`
 	}
 	if err := json.Unmarshal([]byte(out), &results); err != nil {
 		t.Fatalf("json unmarshal: %v", err)
