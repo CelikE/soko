@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Show a live progress counter during `soko fetch` so users can see how many repos have been fetched
+
 ## v0.18.0
 
 ### Bug Fixes
