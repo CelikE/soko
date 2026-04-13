@@ -79,11 +79,32 @@ pages like pull requests, issues, or CI/CD.`,
 				repos = []config.RepoEntry{*entry}
 			}
 
+			jsonFlag, _ := cmd.Flags().GetBool("json")
+
+			type openResultJSON struct {
+				Name  string `json:"name"`
+				Path  string `json:"path"`
+				URL   string `json:"url,omitempty"`
+				Error string `json:"error,omitempty"`
+			}
+
+			var jsonResults []openResultJSON
+			var failed int
+
 			// Open each repo.
 			for _, repo := range repos {
 				remote, err := git.Run(ctx, repo.Path, "remote", "get-url", "origin")
 				if err != nil {
-					output.Fail(w, fmt.Sprintf("%s: no remote origin configured", repo.Name))
+					failed++
+					if jsonFlag {
+						jsonResults = append(jsonResults, openResultJSON{
+							Name:  repo.Name,
+							Path:  repo.Path,
+							Error: "no remote origin configured",
+						})
+					} else {
+						output.Fail(w, fmt.Sprintf("%s: no remote origin configured", repo.Name))
+					}
 					continue
 				}
 
@@ -91,11 +112,38 @@ pages like pull requests, issues, or CI/CD.`,
 				fullURL := baseURL + browser.SubPagePath(baseURL, page)
 
 				if err := browser.Open(fullURL); err != nil {
-					output.Fail(w, fmt.Sprintf("%s: %s", repo.Name, err))
+					failed++
+					if jsonFlag {
+						jsonResults = append(jsonResults, openResultJSON{
+							Name:  repo.Name,
+							Path:  repo.Path,
+							Error: err.Error(),
+						})
+					} else {
+						output.Fail(w, fmt.Sprintf("%s: %s", repo.Name, err))
+					}
 					continue
 				}
 
-				output.Confirm(w, fmt.Sprintf("opened %s %s", repo.Name, output.Dim(fullURL)))
+				if jsonFlag {
+					jsonResults = append(jsonResults, openResultJSON{
+						Name: repo.Name,
+						Path: repo.Path,
+						URL:  fullURL,
+					})
+				} else {
+					output.Confirm(w, fmt.Sprintf("opened %s %s", repo.Name, output.Dim(fullURL)))
+				}
+			}
+
+			if jsonFlag {
+				if err := output.RenderJSON(w, jsonResults); err != nil {
+					return err
+				}
+			}
+
+			if failed > 0 {
+				return fmt.Errorf("%d %s failed to open", failed, output.Plural(failed, "repo"))
 			}
 
 			return nil
