@@ -253,6 +253,10 @@ func runStashPop(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(visible) == 0 {
+		if jsonFlag {
+			_, _ = fmt.Fprintln(w, "[]")
+			return nil
+		}
 		output.Info(w, "no soko stashes found")
 		return nil
 	}
