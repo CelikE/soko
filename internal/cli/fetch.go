@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -24,15 +25,25 @@ type fetchResult struct {
 // newFetchCmd creates the cobra command for soko fetch.
 func newFetchCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "fetch",
+		Use:   "fetch [repos...]",
 		Short: "Fetch all registered repos",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: repoNameCompletionFunc(),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
 				return err
+			}
+
+			if len(args) > 0 {
+				repos = findReposMatching(repos, args)
+				if len(repos) == 0 {
+					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
+					return nil
+				}
 			}
 
 			if len(repos) == 0 {
