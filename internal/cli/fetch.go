@@ -105,7 +105,19 @@ func newFetchCmd() *cobra.Command {
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
-				return renderFetchJSON(w, ordered)
+				if err := renderFetchJSON(w, ordered); err != nil {
+					return err
+				}
+				var failed int
+				for _, r := range ordered {
+					if !r.success {
+						failed++
+					}
+				}
+				if failed > 0 {
+					return fmt.Errorf("%d %s failed to fetch", failed, output.Plural(failed, "repo"))
+				}
+				return nil
 			}
 
 			rows := make([]output.FetchRow, len(ordered))
