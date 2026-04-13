@@ -114,6 +114,9 @@ PowerShell:
 				if flag, ok := hints[args[0]]; ok {
 					return fmt.Errorf("unknown argument %q — did you mean %s?", args[0], flag)
 				}
+				if args[0] == "bash" || args[0] == "zsh" {
+					return fmt.Errorf("unknown argument %q — bash/zsh is the default, just run: soko shell-init", args[0])
+				}
 				return fmt.Errorf("unknown argument %q — use --fish or --pwsh for non-bash/zsh shells", args[0])
 			}
 			return nil
