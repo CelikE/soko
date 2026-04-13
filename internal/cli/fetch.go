@@ -25,8 +25,8 @@ type fetchResult struct {
 // newFetchCmd creates the cobra command for soko fetch.
 func newFetchCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "fetch [repos...]",
-		Short: "Fetch all registered repos",
+		Use:               "fetch [repos...]",
+		Short:             "Fetch all registered repos",
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
