@@ -52,6 +52,11 @@ func newAliasSetCmd() *cobra.Command {
 				return fmt.Errorf("alias command must not be empty")
 			}
 
+			// Reject aliases that shadow built-in commands.
+			if isBuiltinName(cmd.Root(), name) {
+				return fmt.Errorf("cannot create alias %q — it shadows the built-in %s command", name, name)
+			}
+
 			cfg, err := config.Load()
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
@@ -70,6 +75,21 @@ func newAliasSetCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// isBuiltinName returns true if name matches a registered cobra subcommand.
+func isBuiltinName(root *cobra.Command, name string) bool {
+	for _, c := range root.Commands() {
+		if c.Name() == name {
+			return true
+		}
+		for _, a := range c.Aliases {
+			if a == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newAliasRemoveCmd() *cobra.Command {
