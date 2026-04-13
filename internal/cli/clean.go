@@ -66,6 +66,10 @@ Use --dry-run to preview what would be deleted.`,
 			force, _ := cmd.Flags().GetBool("force")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 
+			if jsonFlag && !force && !dryRun {
+				return fmt.Errorf("--json requires --force or --dry-run")
+			}
+
 			results := findStaleBranches(ctx, repos, prune)
 
 			// Filter to repos that have stale branches.
