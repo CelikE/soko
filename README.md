@@ -75,7 +75,7 @@ soko status
 | `soko clean [repos...]` | Delete merged branches across repos |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
-| `soko fetch` | Fetch all registered repos in parallel |
+| `soko fetch [repos...]` | Fetch all (or specific) registered repos in parallel |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
