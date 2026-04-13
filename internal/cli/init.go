@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -24,6 +25,11 @@ func newInitCmd() *cobra.Command {
 			dir, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("getting working directory: %w", err)
+			}
+			// Resolve symlinks for consistent path matching with scan
+			// (e.g. macOS /var → /private/var).
+			if resolved, evalErr := filepath.EvalSymlinks(dir); evalErr == nil {
+				dir = resolved
 			}
 
 			if !git.IsGitRepo(ctx, dir) {
