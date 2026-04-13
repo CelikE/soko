@@ -57,6 +57,12 @@ func newFetchCmd() *cobra.Command {
 			}
 
 			pruneFlag, _ := cmd.Flags().GetBool("prune")
+			jsonFlag, _ := cmd.Flags().GetBool("json")
+
+			var prog *output.Progress
+			if !jsonFlag {
+				prog = output.NewProgress(cmd.ErrOrStderr(), "Fetching repositories", len(repos))
+			}
 
 			results := make([]fetchResult, 0, len(repos))
 			var mu sync.Mutex
@@ -73,6 +79,9 @@ func newFetchCmd() *cobra.Command {
 						mu.Lock()
 						results = append(results, r)
 						mu.Unlock()
+						if prog != nil {
+							prog.Increment()
+						}
 						return nil
 					}
 
@@ -81,6 +90,9 @@ func newFetchCmd() *cobra.Command {
 						mu.Lock()
 						results = append(results, r)
 						mu.Unlock()
+						if prog != nil {
+							prog.Increment()
+						}
 						return nil
 					}
 
@@ -89,6 +101,9 @@ func newFetchCmd() *cobra.Command {
 					mu.Lock()
 					results = append(results, r)
 					mu.Unlock()
+					if prog != nil {
+						prog.Increment()
+					}
 					return nil
 				})
 			}
@@ -97,13 +112,16 @@ func newFetchCmd() *cobra.Command {
 			// returns nil or a context cancellation which is safe to ignore.
 			_ = g.Wait()
 
+			if prog != nil {
+				prog.Done()
+			}
+
 			// Restore config order.
 			ordered := make([]fetchResult, len(results))
 			for idx := range results {
 				ordered[results[idx].index] = results[idx]
 			}
 
-			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
 				if err := renderFetchJSON(w, ordered); err != nil {
 					return err
