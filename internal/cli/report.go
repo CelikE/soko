@@ -67,6 +67,9 @@ Use --all-authors to include everyone's commits.`,
 			}
 
 			days, _ := cmd.Flags().GetInt("days")
+			if days <= 0 {
+				return fmt.Errorf("--days must be a positive integer")
+			}
 			maxCommits, _ := cmd.Flags().GetInt("max")
 			authorFlag, _ := cmd.Flags().GetString("author")
 			allAuthors, _ := cmd.Flags().GetBool("all-authors")
