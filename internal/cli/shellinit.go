@@ -104,6 +104,20 @@ Fish:
 
 PowerShell:
   soko shell-init --pwsh | Invoke-Expression`,
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				hints := map[string]string{
+					"fish":       "--fish",
+					"pwsh":       "--pwsh",
+					"powershell": "--pwsh",
+				}
+				if flag, ok := hints[args[0]]; ok {
+					return fmt.Errorf("unknown argument %q — did you mean %s?", args[0], flag)
+				}
+				return fmt.Errorf("unknown argument %q — use --fish or --pwsh for non-bash/zsh shells", args[0])
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			fishFlag, _ := cmd.Flags().GetBool("fish")
 			pwshFlag, _ := cmd.Flags().GetBool("pwsh")
