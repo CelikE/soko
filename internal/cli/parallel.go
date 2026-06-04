@@ -2,7 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
+
+	"github.com/CelikE/soko/internal/output"
 )
 
 // maxConcurrency is the maximum number of goroutines for parallel repo
@@ -25,4 +28,19 @@ func noReposMessage(totalRepos int) string {
 		noun = "repo"
 	}
 	return fmt.Sprintf("no repos match the tag filter (%d %s registered)", totalRepos, noun)
+}
+
+// renderMissingHint prints a non-destructive warning nudging the user to run
+// soko prune when n registered repos no longer exist on disk. It is a no-op
+// when n is zero.
+func renderMissingHint(w io.Writer, n int) {
+	if n <= 0 {
+		return
+	}
+	verb := "exist"
+	if n == 1 {
+		verb = "exists"
+	}
+	output.Warn(w, fmt.Sprintf("%d %s no longer %s — run: soko prune",
+		n, output.Plural(n, "repo"), verb))
 }

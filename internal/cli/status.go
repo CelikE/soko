@@ -51,6 +51,7 @@ func newStatusCmd() *cobra.Command {
 			fetchFlag, _ := cmd.Flags().GetBool("fetch")
 			filteredCfg := &config.Config{Repos: repos}
 			collected := collectAll(cmd, filteredCfg, fetchFlag)
+			missingCount := len(findMissingRepos(repos))
 
 			dirtyFlag, _ := cmd.Flags().GetBool("dirty")
 			cleanFlag, _ := cmd.Flags().GetBool("clean")
@@ -100,6 +101,7 @@ func newStatusCmd() *cobra.Command {
 				output.RenderStatusTable(w, rows)
 			}
 			output.RenderSummary(w, len(collected), dirtyCount, behindCount, totalChanges)
+			renderMissingHint(w, missingCount)
 
 			return nil
 		},

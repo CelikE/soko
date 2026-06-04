@@ -39,10 +39,12 @@ func newListCmd() *cobra.Command {
 
 			if groupFlag {
 				renderListTree(w, repos)
+				renderMissingHint(w, len(findMissingRepos(repos)))
 				return nil
 			}
 
 			renderListTable(w, repos)
+			renderMissingHint(w, len(findMissingRepos(repos)))
 			return nil
 		},
 	}
