@@ -101,8 +101,40 @@ func runDocChecks(ctx context.Context, fixFlag bool) ([]checkResult, *config.Con
 	results = append(results, repoResults...)
 	results = append(results, checkDuplicates(cfg)...)
 	results = append(results, checkShellInit()...)
+	results = append(results, checkDiscover(cfg)...)
 
 	return results, cfg, toRemove
+}
+
+// checkDiscover reports auto-discovery status. When discovery is enabled it
+// also verifies the shell hook is present in a profile, since enabling alone
+// has no effect until the shell integration is re-evaluated.
+func checkDiscover(cfg *config.Config) []checkResult {
+	if !cfg.DiscoverEnabled() {
+		return nil
+	}
+
+	scope := "anywhere"
+	if len(cfg.Discover.Roots) > 0 {
+		scope = strings.Join(shortenAll(cfg.Discover.Roots), ", ")
+	}
+
+	for _, profile := range shellProfiles() {
+		data, readErr := os.ReadFile(profile)
+		if readErr == nil && strings.Contains(string(data), "__soko_discover_hook") {
+			return []checkResult{{
+				Name:    "discover",
+				Status:  statusPass,
+				Message: fmt.Sprintf("auto-discovery on (%s)", scope),
+			}}
+		}
+	}
+
+	return []checkResult{{
+		Name:    "discover",
+		Status:  statusWarn,
+		Message: fmt.Sprintf("enabled but shell hook not active — re-run: %s", shellInitActivateHint()),
+	}}
 }
 
 // checkGit verifies that git is available on the system.

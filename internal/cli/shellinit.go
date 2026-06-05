@@ -7,6 +7,8 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/CelikE/soko/internal/config"
 )
 
 const shellInitScript = `# soko shell integration
@@ -87,6 +89,59 @@ if (-not (Get-Variable __soko_original_prompt -Scope Global -ErrorAction Silentl
 }
 `
 
+// bashZshDiscoverScript installs a directory-change hook that auto-discovers
+// repos. Emitted only when discovery is enabled. zsh uses the native chpwd
+// hook; bash tracks $PWD across prompts. The hook only spawns soko when the
+// directory holds a .git entry, so plain cds incur no process startup.
+const bashZshDiscoverScript = `
+# soko auto-discovery (toggle with: soko discover on|off)
+__soko_discover_hook() {
+  [[ $- == *i* ]] || return
+  [[ -e "$PWD/.git" ]] || return
+  command soko discover hook
+}
+if [[ -n "${ZSH_VERSION-}" ]]; then
+  autoload -Uz add-zsh-hook
+  add-zsh-hook chpwd __soko_discover_hook
+elif [[ -n "${BASH_VERSION-}" ]]; then
+  __soko_discover_pc() {
+    if [[ "$PWD" != "${__soko_last_pwd-}" ]]; then
+      __soko_last_pwd="$PWD"
+      __soko_discover_hook
+    fi
+  }
+  PROMPT_COMMAND="__soko_discover_pc${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+fi
+`
+
+const fishDiscoverScript = `
+# soko auto-discovery (toggle with: soko discover on|off)
+function __soko_discover_hook --on-variable PWD
+  status is-interactive; or return
+  test -e "$PWD/.git"; or return
+  command soko discover hook
+end
+`
+
+const pwshDiscoverScript = `
+# soko auto-discovery (toggle with: soko discover on|off)
+function __soko_discover_hook {
+    if (Test-Path (Join-Path $PWD ".git")) {
+        if ($global:__soko_last_pwd -ne $PWD.Path) {
+            $global:__soko_last_pwd = $PWD.Path
+            & soko discover hook
+        }
+    }
+}
+if (-not (Get-Variable __soko_discover_prompt -Scope Global -ErrorAction SilentlyContinue)) {
+    $global:__soko_discover_prompt = $function:prompt
+    function global:prompt {
+        __soko_discover_hook
+        & $global:__soko_discover_prompt
+    }
+}
+`
+
 // newShellInitCmd creates the cobra command for soko shell-init.
 func newShellInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -125,13 +180,27 @@ PowerShell:
 			fishFlag, _ := cmd.Flags().GetBool("fish")
 			pwshFlag, _ := cmd.Flags().GetBool("pwsh")
 
+			// Auto-discovery is opt-in: only emit the directory-change hook when
+			// the user has enabled it, so non-users pay no per-prompt cost.
+			discover := false
+			if cfg, err := config.Load(); err == nil {
+				discover = cfg.DiscoverEnabled()
+			}
+
+			var base, discoverBlock string
 			switch {
 			case fishFlag:
-				_, _ = fmt.Fprint(cmd.OutOrStdout(), fishInitScript)
+				base, discoverBlock = fishInitScript, fishDiscoverScript
 			case pwshFlag:
-				_, _ = fmt.Fprint(cmd.OutOrStdout(), pwshInitScript)
+				base, discoverBlock = pwshInitScript, pwshDiscoverScript
 			default:
-				_, _ = fmt.Fprint(cmd.OutOrStdout(), shellInitScript)
+				base, discoverBlock = shellInitScript, bashZshDiscoverScript
+			}
+
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprint(out, base)
+			if discover {
+				_, _ = fmt.Fprint(out, discoverBlock)
 			}
 			return nil
 		},
@@ -190,6 +259,15 @@ func writeNavFile(path string) error {
 	}
 
 	return os.WriteFile(navPath, []byte(path), 0o600)
+}
+
+// shellInitActivateHint returns the one-line command that re-evaluates the
+// shell integration, used to (de)activate auto-discovery in the current shell.
+func shellInitActivateHint() string {
+	if runtime.GOOS == "windows" {
+		return "soko shell-init --pwsh | Invoke-Expression"
+	}
+	return `eval "$(soko shell-init)"`
 }
 
 // shellInitHint returns the hint message shown after init.
