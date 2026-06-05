@@ -39,11 +39,101 @@ func (r *RepoEntry) IsWorktreeEntry() bool {
 	return r.WorktreeOf != ""
 }
 
+// DiscoverConfig controls automatic repo discovery driven by the shell hook.
+// When Enabled, navigating into a git repo registers it without soko scan.
+type DiscoverConfig struct {
+	// Enabled turns auto-discovery on. Off by default.
+	Enabled bool `yaml:"enabled"`
+	// Roots, when non-empty, restricts discovery to repos under these paths.
+	// Empty means discover anywhere. Paths must be absolute (the CLI resolves
+	// them on input); a hand-edited "~/..." root will not match.
+	Roots []string `yaml:"roots,omitempty"`
+	// Ignore holds glob patterns; a repo whose path matches any pattern (on a
+	// path segment or the full path) is skipped. Built-in ignores always apply.
+	Ignore []string `yaml:"ignore,omitempty"`
+	// Tags are applied to every auto-discovered repo.
+	Tags []string `yaml:"tags,omitempty"`
+}
+
 // Config is the top-level structure of the soko config file.
 type Config struct {
-	GitPath string            `yaml:"git_path,omitempty"`
-	Aliases map[string]string `yaml:"aliases,omitempty"`
-	Repos   []RepoEntry       `yaml:"repos"`
+	GitPath  string            `yaml:"git_path,omitempty"`
+	Aliases  map[string]string `yaml:"aliases,omitempty"`
+	Discover *DiscoverConfig   `yaml:"discover,omitempty"`
+	Repos    []RepoEntry       `yaml:"repos"`
+}
+
+// builtinDiscoverIgnores are path segments never auto-discovered. These are
+// dependency/vendor trees that frequently contain nested git repos a developer
+// would not want registered.
+var builtinDiscoverIgnores = []string{"node_modules", "vendor"}
+
+// DiscoverEnabled reports whether auto-discovery is turned on.
+func (c *Config) DiscoverEnabled() bool {
+	return c.Discover != nil && c.Discover.Enabled
+}
+
+// EnsureDiscover returns the discover config, allocating it if absent.
+func (c *Config) EnsureDiscover() *DiscoverConfig {
+	if c.Discover == nil {
+		c.Discover = &DiscoverConfig{}
+	}
+	return c.Discover
+}
+
+// ShouldDiscover reports whether a repo at the given (cleaned, absolute) path
+// is eligible for auto-discovery: discovery must be enabled, the path must sit
+// under a configured root (if any), and it must not match a built-in or
+// user-configured ignore pattern.
+func ShouldDiscover(cfg *Config, path string) bool {
+	if !cfg.DiscoverEnabled() {
+		return false
+	}
+	d := cfg.Discover
+
+	if len(d.Roots) > 0 {
+		within := false
+		for _, root := range d.Roots {
+			if pathWithinRoot(path, root) {
+				within = true
+				break
+			}
+		}
+		if !within {
+			return false
+		}
+	}
+
+	for _, seg := range strings.Split(path, string(os.PathSeparator)) {
+		for _, ig := range builtinDiscoverIgnores {
+			if seg == ig {
+				return false
+			}
+		}
+		for _, pat := range d.Ignore {
+			if matched, _ := filepath.Match(pat, seg); matched {
+				return false
+			}
+		}
+	}
+	for _, pat := range d.Ignore {
+		if matched, _ := filepath.Match(pat, path); matched {
+			return false
+		}
+	}
+
+	return true
+}
+
+// pathWithinRoot reports whether path is root itself or nested under it,
+// matching on path-segment boundaries so /home/me/proj does not match /home/me/pr.
+func pathWithinRoot(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if path == root {
+		return true
+	}
+	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
 // GitBinary returns the git binary path. If GitPath is set in the config,
@@ -191,8 +281,29 @@ func SaveTo(cfg *Config, path string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	// Write atomically via a temp file in the same directory followed by a
+	// rename, so concurrent writers (e.g. discover hooks in multiple shells)
+	// never observe a truncated or partially written config.
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp config file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // no-op once renamed away
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("writing config file: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("setting config permissions: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp config file: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("replacing config file: %w", err)
 	}
 
 	return nil

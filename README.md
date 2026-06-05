@@ -69,6 +69,7 @@ soko status
 |---------|-------------|
 | `soko init` | Register the current git repo (detects worktrees) |
 | `soko scan` | Discover and register all git repos in a directory |
+| `soko discover` | Auto-register repos as you cd into them (opt-in) |
 | `soko status [repos...]` | Show status of all (or specific) repos |
 | `soko diff [repos...]` | Show uncommitted file changes across repos |
 | `soko stash [repos...]` | Stash/pop uncommitted changes across repos |
@@ -99,7 +100,9 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go`, `report`, `clean`, `prune` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go`, `report`, `clean`, `prune`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |
+| `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
 | `--no-worktrees` | `fetch`, `exec` | Skip worktree entries, only operate on parent repos |
@@ -209,6 +212,36 @@ soko cd auth                        # jump by name (prefix match)
 soko go                             # interactive picker
 soko go --tag backend               # picker filtered by tag
 ```
+
+### Automatic discovery
+
+Tired of running `soko init` or `soko scan`? Turn on auto-discovery and repos
+register themselves the first time you `cd` into them. It's opt-in and, like
+`mise activate`, runs from the shell hook on directory change.
+
+```bash
+soko discover on                    # enable auto-discovery
+soko discover on --root ~/work      # only discover under ~/work (repeatable)
+soko discover on --tag discovered   # tag everything discovered
+soko discover on --ignore '*-tmp'   # skip paths matching a glob (filepath.Match)
+soko discover status                # show current settings
+soko discover off                   # disable
+```
+
+Enabling or disabling changes what `soko shell-init` emits, so open a new shell
+or re-run `eval "$(soko shell-init)"` afterwards to activate it. Then just work
+as usual:
+
+```bash
+cd ~/work/new-service
+#  ✓ discovered new-service (~/work/new-service)
+```
+
+Discovery is conservative by design: it's off until you enable it, the hook
+only runs in interactive shells (never in CI or scripts), and it skips
+submodules, your home directory, and `node_modules`/`vendor` trees. Use `--root`
+to scope it and `--tag discovered` to make discovered repos easy to find or
+clean up later (`soko remove`, `soko list --tag discovered`).
 
 ### Open in browser
 

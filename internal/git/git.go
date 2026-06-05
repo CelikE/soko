@@ -51,6 +51,24 @@ func IsGitRepo(ctx context.Context, dir string) bool {
 	return err == nil
 }
 
+// Toplevel returns the absolute path to the root of the working tree that dir
+// belongs to. For a linked worktree this is the worktree's own root, not the
+// main checkout.
+func Toplevel(ctx context.Context, dir string) (string, error) {
+	return Run(ctx, dir, "rev-parse", "--show-toplevel")
+}
+
+// Superproject returns the working-tree root of the superproject when dir is
+// inside a git submodule, or an empty string when it is not. It is used to
+// avoid registering submodules as standalone repositories.
+func Superproject(ctx context.Context, dir string) string {
+	out, err := Run(ctx, dir, "rev-parse", "--show-superproject-working-tree")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
 // RepoName returns the repository name for the git repo at dir. It first tries
 // to extract the name from the origin remote URL. If there is no remote, it
 // falls back to the directory basename.
