@@ -4,6 +4,15 @@
 
 ### Features
 
+- Accept an optional filter argument on soko go to pre-narrow the picker by name
+- Automatic repo discovery with `soko discover` — opt in with `soko discover on` and repos register themselves the first time you cd into them, no `soko scan` needed. Driven by the shell hook (fires on directory change); scope it with `--root`, apply `--tag`s, and skip paths with `--ignore`. Skips submodules, the home directory, `node_modules`/`vendor`, and non-interactive shells. `soko doc` reports discovery status
+- Prune deleted repos with `soko prune` — remove registry entries whose directories no longer exist on disk (cascading to their linked worktrees), with `--dry-run`/`--force`/`--json` and `--tag` filtering. `status` and `list` now warn when registered repos have gone missing
+- Workspace stats with `soko stats` — aggregate repo counts, sizes, and commit totals alongside health signals (dirty, behind, stale branches, no remote) and 30-day activity
+
+## v0.18.1
+
+### Features
+
 - Show a live progress counter during `soko fetch` so users can see how many repos have been fetched
 
 ## v0.18.0
