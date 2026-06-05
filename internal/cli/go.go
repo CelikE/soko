@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -15,15 +16,24 @@ import (
 // newGoCmd creates the cobra command for soko go.
 func newGoCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "go",
+		Use:   "go [filter]",
 		Short: "Interactively select a repo and navigate to it",
 		Long: `Open an interactive picker to select a registered repo. Once selected,
 soko navigates your shell to that directory.
 
+Pass an optional filter to open the picker with the list already narrowed to
+repos whose name contains the filter (case-insensitive). The filter stays
+editable — backspace to broaden, type to refine, esc to clear.
+
 Requires shell integration. See: soko shell-init --help
 
 Use --tag to filter the picker to repos with specific tags.`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args: cobra.MaximumNArgs(1),
+		// Tab-completion is prefix-based (cobra), while the runtime [filter]
+		// arg matches case-insensitive substrings (filterReposByName). The
+		// completion set is intentionally a strict subset — don't "align" them.
+		ValidArgsFunction: repoNameCompletionFunc(),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			stderr := cmd.ErrOrStderr()
 
@@ -37,11 +47,23 @@ Use --tag to filter the picker to repos with specific tags.`,
 				return fmt.Errorf("no repos available")
 			}
 
+			filter := ""
+			if len(args) == 1 {
+				filter = strings.TrimSpace(args[0])
+			}
+
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 
 			// If stdin is not a terminal (piped), fall back.
 			if !picker.HasTerminal(os.Stdin) {
-				return goNonInteractive(repos, jsonFlag, w, stderr)
+				matched := repos
+				if filter != "" {
+					matched = filterReposByName(repos, filter)
+				}
+				if len(matched) == 0 {
+					return fmt.Errorf("no repos matching: %s", filter)
+				}
+				return goNonInteractive(matched, jsonFlag, w, stderr)
 			}
 
 			names := make([]string, len(repos))
@@ -54,8 +76,9 @@ Use --tag to filter the picker to repos with specific tags.`,
 			items := picker.FormatItems(names, paths)
 			picker.HideCursor(stderr)
 			idx := picker.Run(os.Stdin, stderr, picker.Options{
-				Title: "Select a repo:",
-				Items: items,
+				Title:        "Select a repo:",
+				Items:        items,
+				InitialQuery: filter,
 			})
 			picker.ShowCursor(stderr)
 
@@ -113,4 +136,17 @@ type goJSON struct {
 
 func writeGoJSON(w io.Writer, entry config.RepoEntry) error {
 	return output.RenderJSON(w, goJSON{Name: entry.Name, Path: entry.Path})
+}
+
+// filterReposByName returns repos whose name contains the query
+// (case-insensitive), matching the picker's live-search semantics.
+func filterReposByName(repos []config.RepoEntry, query string) []config.RepoEntry {
+	q := strings.ToLower(query)
+	var matched []config.RepoEntry
+	for _, r := range repos {
+		if strings.Contains(strings.ToLower(r.Name), q) {
+			matched = append(matched, r)
+		}
+	}
+	return matched
 }

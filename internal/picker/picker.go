@@ -26,6 +26,10 @@ type Item struct {
 type Options struct {
 	Title string
 	Items []Item
+	// InitialQuery pre-seeds the search filter so the picker opens with the
+	// list already narrowed. It is editable like a typed query — backspace
+	// broadens, esc clears.
+	InitialQuery string
 }
 
 // maxVisible is the maximum number of items shown at once.
@@ -72,9 +76,10 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 
 	s := &state{
 		allItems:   opts.Items,
-		filtered:   opts.Items,
+		query:      opts.InitialQuery,
 		labelWidth: computeLabelWidth(opts.Items),
 	}
+	s.filtered = filterItems(opts.Items, s.query)
 
 	defer func() {
 		_ = term.Restore(int(in.Fd()), oldState)

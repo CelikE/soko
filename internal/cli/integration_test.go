@@ -1416,3 +1416,77 @@ func TestIntegration_StatusNoMatchMessage(t *testing.T) {
 		t.Errorf("status nonexistent = %q, want 'no repos found matching: nonexistent'", out)
 	}
 }
+
+func TestIntegration_GoFilterNonInteractive(t *testing.T) {
+	testEnv(t)
+	alpha := filepath.Join(t.TempDir(), "alpha-service")
+	beta := filepath.Join(t.TempDir(), "beta-service")
+	initRepo(t, alpha)
+	initRepo(t, beta)
+	runSokoInit(t, alpha)
+	runSokoInit(t, beta)
+
+	// Filter narrows to a single repo — non-interactive writes the nav file.
+	runSoko(t, "go", "alph")
+	got := readNavFile(t)
+	wantReal, _ := filepath.EvalSymlinks(alpha)
+	if got != alpha && got != wantReal {
+		t.Errorf("go filter nav = %q, want %q", got, alpha)
+	}
+}
+
+func TestIntegration_GoFilterSubstring(t *testing.T) {
+	testEnv(t)
+	// "fso" is a substring of "reactjs-fso", not a prefix. Prefix matching
+	// (soko cd) would miss this; the picker filter is substring-based.
+	repo := filepath.Join(t.TempDir(), "reactjs-fso")
+	other := filepath.Join(t.TempDir(), "widget")
+	initRepo(t, repo)
+	initRepo(t, other)
+	runSokoInit(t, repo)
+	runSokoInit(t, other)
+
+	runSoko(t, "go", "fso")
+	got := readNavFile(t)
+	wantReal, _ := filepath.EvalSymlinks(repo)
+	if got != repo && got != wantReal {
+		t.Errorf("go substring filter nav = %q, want %q", got, repo)
+	}
+}
+
+func TestIntegration_GoFilterWhitespace(t *testing.T) {
+	testEnv(t)
+	// A whitespace-only arg is trimmed to empty and behaves like no filter,
+	// so the single registered repo is navigated to (not "no repos matching").
+	dir := filepath.Join(t.TempDir(), "solo-repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	runSoko(t, "go", "   ")
+	got := readNavFile(t)
+	wantReal, _ := filepath.EvalSymlinks(dir)
+	if got != dir && got != wantReal {
+		t.Errorf("go whitespace filter nav = %q, want %q", got, dir)
+	}
+}
+
+func TestIntegration_GoFilterNoMatch(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "alpha")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+
+	var stdout bytes.Buffer
+	cmd := cli.NewRootCmd("test")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"go", "zzz"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("go with non-matching filter should return an error")
+	}
+	if !strings.Contains(err.Error(), "no repos matching: zzz") {
+		t.Errorf("error = %q, want 'no repos matching: zzz'", err.Error())
+	}
+}
