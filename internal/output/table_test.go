@@ -142,6 +142,72 @@ func TestRenderGrepResultsNoColor(t *testing.T) {
 	}
 }
 
+func TestRenderApplyPlan(t *testing.T) {
+	var buf bytes.Buffer
+	rows := []ApplyRow{
+		{Name: "svc", Dest: "ci.yml", Action: "update", Diff: "--- ci.yml\n+++ ci.yml\n@@ -1,1 +1,1 @@\n-old\n+new\n"},
+		{Name: "gw", Dest: "ci.yml", Action: "unchanged"},
+		{Name: "bad", Dest: "ci.yml", Action: "error", Err: "destination escapes repo root"},
+	}
+	RenderApplyPlan(&buf, rows)
+	got := buf.String()
+	for _, want := range []string{"svc", "(update)", "-old", "+new", "· unchanged", "destination escapes repo root"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderApplyPlan missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderApplyPlanColor(t *testing.T) {
+	old := color.NoColor
+	color.NoColor = false
+	defer func() { color.NoColor = old }()
+
+	var buf bytes.Buffer
+	RenderApplyPlan(&buf, []ApplyRow{
+		{Name: "svc", Dest: "f", Action: "create", Diff: "+++ f\n@@ -0,0 +1,1 @@\n+hello\n"},
+	})
+	got := buf.String()
+	if !strings.Contains(got, Green("+hello")) {
+		t.Errorf("added line should be green:\n%q", got)
+	}
+}
+
+func TestRenderApplyPlanNoColor(t *testing.T) {
+	old := color.NoColor
+	color.NoColor = true
+	defer func() { color.NoColor = old }()
+
+	var buf bytes.Buffer
+	RenderApplyPlan(&buf, []ApplyRow{
+		{Name: "svc", Dest: "f", Action: "update", Diff: "--- f\n+++ f\n@@ -1,1 +1,1 @@\n-a\n+b\n"},
+	})
+	if strings.Contains(buf.String(), "\x1b[") {
+		t.Errorf("expected no ANSI under NO_COLOR, got %q", buf.String())
+	}
+}
+
+func TestRenderApplySummary(t *testing.T) {
+	var buf bytes.Buffer
+	RenderApplySummary(&buf, 1, 2, 3, 6, false)
+	if !strings.Contains(buf.String(), "1 to create · 2 to update · 3 unchanged · 6 repos") {
+		t.Errorf("dry summary = %q", buf.String())
+	}
+
+	buf.Reset()
+	RenderApplySummary(&buf, 1, 2, 3, 6, true)
+	if !strings.Contains(buf.String(), "3 written · 3 unchanged · 6 repos") {
+		t.Errorf("written summary = %q", buf.String())
+	}
+
+	// Pluralization: a single repo uses the singular noun.
+	buf.Reset()
+	RenderApplySummary(&buf, 1, 0, 0, 1, false)
+	if !strings.Contains(buf.String(), "1 repo") || strings.Contains(buf.String(), "1 repos") {
+		t.Errorf("singular pluralization = %q", buf.String())
+	}
+}
+
 func TestRenderGrepSummary(t *testing.T) {
 	cases := []struct {
 		repos, matches int

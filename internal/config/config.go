@@ -95,7 +95,7 @@ func ShouldDiscover(cfg *Config, path string) bool {
 	if len(d.Roots) > 0 {
 		within := false
 		for _, root := range d.Roots {
-			if pathWithinRoot(path, root) {
+			if PathWithinRoot(path, root) {
 				within = true
 				break
 			}
@@ -126,9 +126,10 @@ func ShouldDiscover(cfg *Config, path string) bool {
 	return true
 }
 
-// pathWithinRoot reports whether path is root itself or nested under it,
+// PathWithinRoot reports whether path is root itself or nested under it,
 // matching on path-segment boundaries so /home/me/proj does not match /home/me/pr.
-func pathWithinRoot(path, root string) bool {
+// Shared by repo discovery and soko apply's destination containment guard.
+func PathWithinRoot(path, root string) bool {
 	path = filepath.Clean(path)
 	root = filepath.Clean(root)
 	if path == root {
