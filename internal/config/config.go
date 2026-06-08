@@ -136,6 +136,11 @@ func pathWithinRoot(path, root string) bool {
 	return strings.HasPrefix(path, root+string(os.PathSeparator))
 }
 
+// RepoCount returns the number of registered repos.
+func RepoCount(cfg *Config) int {
+	return len(cfg.Repos)
+}
+
 // GitBinary returns the git binary path. If GitPath is set in the config,
 // it uses that. Otherwise falls back to "git" (resolved via PATH).
 func (c *Config) GitBinary() string {
