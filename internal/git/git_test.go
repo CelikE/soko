@@ -229,6 +229,98 @@ func TestHasUpstream(t *testing.T) {
 	})
 }
 
+func TestRemotes(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no remotes returns empty non-nil map", func(t *testing.T) {
+		dir := initTestRepo(t)
+		got, err := Remotes(ctx, dir)
+		if err != nil {
+			t.Fatalf("Remotes() error = %v", err)
+		}
+		if got == nil {
+			t.Fatal("Remotes() = nil, want empty non-nil map")
+		}
+		if len(got) != 0 {
+			t.Errorf("Remotes() = %v, want empty", got)
+		}
+	})
+
+	t.Run("single origin", func(t *testing.T) {
+		dir := initTestRepo(t)
+		gitMust(t, dir, "remote", "add", "origin", "git@github.com:acme/api.git")
+
+		got, err := Remotes(ctx, dir)
+		if err != nil {
+			t.Fatalf("Remotes() error = %v", err)
+		}
+		if want := "git@github.com:acme/api.git"; got["origin"] != want {
+			t.Errorf("Remotes()[origin] = %q, want %q", got["origin"], want)
+		}
+		if len(got) != 1 {
+			t.Errorf("Remotes() has %d entries, want 1 (fetch/push deduped)", len(got))
+		}
+	})
+
+	t.Run("multiple remotes", func(t *testing.T) {
+		dir := initTestRepo(t)
+		gitMust(t, dir, "remote", "add", "origin", "git@github.com:acme/api.git")
+		gitMust(t, dir, "remote", "add", "fork", "git@github.com:me/api.git")
+
+		got, err := Remotes(ctx, dir)
+		if err != nil {
+			t.Fatalf("Remotes() error = %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("Remotes() has %d entries, want 2", len(got))
+		}
+		if got["origin"] != "git@github.com:acme/api.git" {
+			t.Errorf("Remotes()[origin] = %q", got["origin"])
+		}
+		if got["fork"] != "git@github.com:me/api.git" {
+			t.Errorf("Remotes()[fork] = %q", got["fork"])
+		}
+	})
+}
+
+func TestUpstreamBranch(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no upstream returns error", func(t *testing.T) {
+		dir := initTestRepo(t)
+		if _, err := UpstreamBranch(ctx, dir); err == nil {
+			t.Error("UpstreamBranch() error = nil, want error for repo with no upstream")
+		}
+		if HasUpstream(ctx, dir) {
+			t.Error("HasUpstream() = true, want false — must agree with UpstreamBranch")
+		}
+	})
+
+	t.Run("tracking branch returns short name", func(t *testing.T) {
+		bare := t.TempDir()
+		gitMust(t, bare, "init", "--bare", "-b", "master", ".")
+		seed := t.TempDir()
+		gitMust(t, seed, "clone", bare, ".")
+		configRepo(t, seed)
+		writeAndCommit(t, seed, "a.txt", "one", "first")
+		gitMust(t, seed, "push", "origin", "master")
+
+		repo := t.TempDir()
+		gitMust(t, repo, "clone", bare, ".")
+
+		got, err := UpstreamBranch(ctx, repo)
+		if err != nil {
+			t.Fatalf("UpstreamBranch() error = %v", err)
+		}
+		if want := "origin/master"; got != want {
+			t.Errorf("UpstreamBranch() = %q, want %q", got, want)
+		}
+		if !HasUpstream(ctx, repo) {
+			t.Error("HasUpstream() = false, want true — must agree with UpstreamBranch")
+		}
+	})
+}
+
 // gitMust runs a git command in dir and fails the test on error.
 func gitMust(t *testing.T, dir string, args ...string) {
 	t.Helper()
