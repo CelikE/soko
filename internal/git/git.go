@@ -92,6 +92,36 @@ func Fetch(ctx context.Context, dir string, prune bool) error {
 	return err
 }
 
+// HasUpstream reports whether the current branch has an upstream tracking
+// branch configured. It returns false for a detached HEAD or a branch with no
+// tracking information — both cases where git pull has nothing to pull from.
+func HasUpstream(ctx context.Context, dir string) bool {
+	_, err := Run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	return err == nil
+}
+
+// Pull runs git pull in the given directory and reports whether it advanced the
+// working tree. By default it passes --ff-only so it never creates a merge
+// commit and fails fast on diverged branches; pass rebase=true to use --rebase
+// instead. The updated flag is derived by comparing HEAD before and after, so an
+// already up-to-date repo returns (false, nil).
+func Pull(ctx context.Context, dir string, rebase bool) (bool, error) {
+	before, _ := Run(ctx, dir, "rev-parse", "HEAD")
+
+	args := []string{"pull"}
+	if rebase {
+		args = append(args, "--rebase")
+	} else {
+		args = append(args, "--ff-only")
+	}
+	if _, err := Run(ctx, dir, args...); err != nil {
+		return false, err
+	}
+
+	after, _ := Run(ctx, dir, "rev-parse", "HEAD")
+	return before != after, nil
+}
+
 // IsWorktree returns true if dir is a linked git worktree (not the main
 // working tree). It compares --git-dir and --git-common-dir.
 func IsWorktree(ctx context.Context, dir string) bool {

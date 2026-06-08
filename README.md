@@ -78,6 +78,7 @@ soko status
 | `soko remove` | Remove a repo from the registry |
 | `soko prune` | Remove repos whose directories no longer exist |
 | `soko fetch [repos...]` | Fetch all (or specific) registered repos in parallel |
+| `soko pull [repos...]` | Pull all (or specific) registered repos in parallel |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
@@ -100,12 +101,13 @@ soko status
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `exec`, `go`, `report`, `clean`, `prune`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `pull`, `exec`, `go`, `report`, `clean`, `prune`, `discover on` | Filter by tag (repeatable, combines with OR) |
 | `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |
 | `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
-| `--no-worktrees` | `fetch`, `exec` | Skip worktree entries, only operate on parent repos |
+| `--no-worktrees` | `fetch`, `pull`, `exec` | Skip worktree entries, only operate on parent repos |
+| `--rebase` | `pull` | Rebase local commits onto the upstream instead of fast-forward only |
 | `--dry-run` | `scan`, `clean`, `prune` | Preview what would happen without making changes |
 | `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
 | `--group` | `status`, `list` | Group repos by tag in a tree view |
@@ -139,6 +141,23 @@ soko status --dirty                 # only repos with uncommitted changes
 soko status --tag backend --behind  # only backend repos behind remote
 soko status --json                  # machine-readable output
 ```
+
+### Pull updates
+
+```bash
+soko pull                           # fast-forward every repo (--ff-only)
+soko pull auth frontend             # pull specific repos
+soko pull --rebase                  # replay local commits onto the upstream
+soko pull --tag backend             # pull only backend repos
+soko pull --no-worktrees            # skip linked worktrees
+soko pull --json                    # machine-readable output
+```
+
+`soko pull` uses `--ff-only` by default, so it never creates a surprise merge
+commit and reports a clear failure on any repo that has diverged from its
+upstream. Use `--rebase` when you want your local commits replayed on top.
+Repos whose current branch has no upstream (local-only branches, detached HEAD)
+are skipped rather than counted as failures.
 
 ### Tags
 
