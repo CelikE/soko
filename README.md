@@ -82,6 +82,7 @@ soko status
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
+| `soko grep <pattern>` | Search file content across repos with git grep |
 | `soko open` | Open a repo in the browser |
 | `soko report [repos...]` | Summarize commit activity across repos |
 | `soko health` | Rank repos by an urgency score — most neglected first |
@@ -107,7 +108,10 @@ soko status
 | `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
-| `--no-worktrees` | `fetch`, `pull`, `exec` | Skip worktree entries, only operate on parent repos |
+| `--no-worktrees` | `fetch`, `pull`, `exec`, `grep` | Skip worktree entries, only operate on parent repos |
+| `--ignore-case`, `-i` | `grep` | Case-insensitive match |
+| `--regexp`, `-e` | `grep` | Treat the pattern as a POSIX extended regex (default: fixed string) |
+| `--files-only` | `grep` | List matching file paths only, not lines |
 | `--rebase` | `pull` | Rebase local commits onto the upstream instead of fast-forward only |
 | `--dry-run` | `scan`, `clean`, `prune` | Preview what would happen without making changes |
 | `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
@@ -228,6 +232,23 @@ soko exec -- make test              # run tests everywhere
 soko exec --seq -- git log -1       # sequential, one at a time
 soko exec --tag backend -- go vet   # only in backend repos
 ```
+
+### Search across repos
+
+```bash
+soko grep handleAuth                  # search every registered repo
+soko grep handleAuth auth backend     # only these repos (name / prefix match)
+soko grep handleAuth --tag go         # only repos tagged "go"
+soko grep "func .*Handler" --regexp   # treat the pattern as an extended regex
+soko grep TODO -i                     # case-insensitive
+soko grep config.yaml --files-only    # list matching file paths, not lines
+soko grep handleAuth --json           # machine-readable, grouped by repo
+```
+
+`soko grep` runs `git grep` across the selected repos in parallel and groups
+matches by repo; repos with no match drop out silently. It is read-only and
+honours each repo's tracked-file set and `.gitignore`. The pattern is a fixed
+string by default — pass `--regexp` for a POSIX extended regex.
 
 ### Navigation
 

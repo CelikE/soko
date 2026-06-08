@@ -47,6 +47,69 @@ func TestRenderHealthSummary(t *testing.T) {
 	}
 }
 
+func TestRenderGrepResults(t *testing.T) {
+	var buf bytes.Buffer
+	groups := []GrepGroup{
+		{Repo: "auth-service", Matches: []GrepMatch{
+			{File: "h.go", Line: 42, Text: "func handleAuth() {}"},
+			{File: "h.go", Line: 89, Text: "// handleAuth callback"},
+		}},
+		{Repo: "gateway", Matches: []GrepMatch{
+			{File: "m.go", Line: 15, Text: "auth.handleAuth(ctx)"},
+		}},
+	}
+	RenderGrepResults(&buf, groups, false)
+	got := buf.String()
+
+	for _, want := range []string{"auth-service", "gateway", "h.go:42", "h.go:89", "m.go:15", "func handleAuth() {}"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderGrepResults missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderGrepResultsFilesOnly(t *testing.T) {
+	var buf bytes.Buffer
+	groups := []GrepGroup{
+		{Repo: "auth-service", Matches: []GrepMatch{{File: "deploy/config.yaml"}}},
+	}
+	RenderGrepResults(&buf, groups, true)
+	got := buf.String()
+	if !strings.Contains(got, "deploy/config.yaml") {
+		t.Errorf("files-only render missing path\n%s", got)
+	}
+	if strings.Contains(got, ":0") {
+		t.Errorf("files-only render leaked a line number\n%s", got)
+	}
+}
+
+func TestRenderGrepResultsEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	RenderGrepResults(&buf, nil, false)
+	if buf.Len() != 0 {
+		t.Errorf("empty groups should render nothing, got %q", buf.String())
+	}
+}
+
+func TestRenderGrepSummary(t *testing.T) {
+	cases := []struct {
+		repos, matches int
+		filesOnly      bool
+		want           string
+	}{
+		{1, 1, false, "1 repo · 1 match"},
+		{2, 3, false, "2 repos · 3 matches"},
+		{2, 3, true, "2 repos · 3 files"},
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		RenderGrepSummary(&buf, c.repos, c.matches, c.filesOnly)
+		if !strings.Contains(buf.String(), c.want) {
+			t.Errorf("RenderGrepSummary(%d,%d,%v) = %q, want %q", c.repos, c.matches, c.filesOnly, buf.String(), c.want)
+		}
+	}
+}
+
 func TestFormatStatus(t *testing.T) {
 	tests := []struct {
 		name      string
