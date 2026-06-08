@@ -157,6 +157,46 @@ func TestRenderActionSummary(t *testing.T) {
 	}
 }
 
+func TestRenderPullSummary(t *testing.T) {
+	var buf bytes.Buffer
+	RenderPullSummary(&buf, 5, 2, 1, 1, 1)
+	out := buf.String()
+
+	for _, want := range []string{"5 repos", "2 updated", "1 up to date", "1 skipped", "1 failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("RenderPullSummary = %q, want %q", out, want)
+		}
+	}
+
+	// Singular repo noun.
+	buf.Reset()
+	RenderPullSummary(&buf, 1, 0, 1, 0, 0)
+	if !strings.Contains(buf.String(), "1 repo ") {
+		t.Errorf("RenderPullSummary singular = %q, want '1 repo'", buf.String())
+	}
+}
+
+func TestRenderPullResults(t *testing.T) {
+	var buf bytes.Buffer
+	RenderPullResults(&buf, []PullRow{
+		{Name: "ok-repo", Outcome: PullOK, Message: "updated"},
+		{Name: "skip-repo", Outcome: PullSkip, Message: "no upstream"},
+		{Name: "err-repo", Outcome: PullErr, Message: "fatal: boom"},
+	})
+	out := buf.String()
+
+	for _, want := range []string{"REPO", "RESULT", "ok-repo", "updated", "skip-repo", "no upstream", "err-repo", "fatal: boom"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("RenderPullResults = %q, want %q", out, want)
+		}
+	}
+
+	// Header must precede the first data row.
+	if strings.Index(out, "REPO") > strings.Index(out, "ok-repo") {
+		t.Errorf("RenderPullResults header should appear before rows:\n%s", out)
+	}
+}
+
 func TestConfirmWarnFailInfo(t *testing.T) {
 	tests := []struct {
 		name string

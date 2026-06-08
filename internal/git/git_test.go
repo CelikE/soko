@@ -113,6 +113,150 @@ func TestRun_ReturnsErrorWithStderr(t *testing.T) {
 	}
 }
 
+func TestPull(t *testing.T) {
+	ctx := context.Background()
+
+	// Bare upstream with HEAD fixed to master so clones check out cleanly.
+	bare := t.TempDir()
+	gitMust(t, bare, "init", "--bare", "-b", "master", ".")
+
+	// Seed working tree pushes the first commit to the upstream.
+	seed := t.TempDir()
+	gitMust(t, seed, "clone", bare, ".")
+	configRepo(t, seed)
+	writeAndCommit(t, seed, "a.txt", "one", "first")
+	gitMust(t, seed, "push", "origin", "master")
+
+	// The repo under test tracks the upstream.
+	repo := t.TempDir()
+	gitMust(t, repo, "clone", bare, ".")
+	configRepo(t, repo)
+
+	// Nothing new upstream: HEAD must not move.
+	updated, err := Pull(ctx, repo, false)
+	if err != nil {
+		t.Fatalf("Pull (up to date) error = %v", err)
+	}
+	if updated {
+		t.Error("Pull() updated = true, want false when already up to date")
+	}
+
+	// Advance the upstream, then pull must fast-forward.
+	writeAndCommit(t, seed, "b.txt", "two", "second")
+	gitMust(t, seed, "push", "origin", "master")
+
+	updated, err = Pull(ctx, repo, false)
+	if err != nil {
+		t.Fatalf("Pull (update) error = %v", err)
+	}
+	if !updated {
+		t.Error("Pull() updated = false, want true after upstream advanced")
+	}
+}
+
+func TestPull_NoUpstreamReturnsError(t *testing.T) {
+	ctx := context.Background()
+	dir := initTestRepo(t)
+
+	// No remote and no upstream tracking branch — pull must error, not panic.
+	if _, err := Pull(ctx, dir, false); err == nil {
+		t.Error("Pull() error = nil, want error for repo with no upstream")
+	}
+}
+
+// TestPull_RebaseDiverged covers the path where rebase=true matters: a branch
+// that has diverged from its upstream. --ff-only must fail, --rebase succeeds.
+func TestPull_RebaseDiverged(t *testing.T) {
+	ctx := context.Background()
+
+	bare := t.TempDir()
+	gitMust(t, bare, "init", "--bare", "-b", "master", ".")
+
+	seed := t.TempDir()
+	gitMust(t, seed, "clone", bare, ".")
+	configRepo(t, seed)
+	writeAndCommit(t, seed, "a.txt", "one", "first")
+	gitMust(t, seed, "push", "origin", "master")
+
+	repo := t.TempDir()
+	gitMust(t, repo, "clone", bare, ".")
+	configRepo(t, repo)
+
+	// Diverge: a local commit in repo and a different commit upstream.
+	writeAndCommit(t, repo, "local.txt", "local", "local change")
+	writeAndCommit(t, seed, "b.txt", "two", "upstream change")
+	gitMust(t, seed, "push", "origin", "master")
+
+	// Fast-forward-only cannot reconcile a diverged branch.
+	if _, err := Pull(ctx, repo, false); err == nil {
+		t.Error("Pull(rebase=false) on diverged branch = nil, want error")
+	}
+
+	// Rebase replays the local commit on top of the upstream and advances HEAD.
+	updated, err := Pull(ctx, repo, true)
+	if err != nil {
+		t.Fatalf("Pull(rebase=true) error = %v", err)
+	}
+	if !updated {
+		t.Error("Pull(rebase=true) updated = false, want true after rebase")
+	}
+}
+
+func TestHasUpstream(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no upstream", func(t *testing.T) {
+		dir := initTestRepo(t)
+		if HasUpstream(ctx, dir) {
+			t.Error("HasUpstream() = true, want false for repo with no remote")
+		}
+	})
+
+	t.Run("with upstream", func(t *testing.T) {
+		bare := t.TempDir()
+		gitMust(t, bare, "init", "--bare", "-b", "master", ".")
+		seed := t.TempDir()
+		gitMust(t, seed, "clone", bare, ".")
+		configRepo(t, seed)
+		writeAndCommit(t, seed, "a.txt", "one", "first")
+		gitMust(t, seed, "push", "origin", "master")
+
+		repo := t.TempDir()
+		gitMust(t, repo, "clone", bare, ".")
+		if !HasUpstream(ctx, repo) {
+			t.Error("HasUpstream() = false, want true for tracking clone")
+		}
+	})
+}
+
+// gitMust runs a git command in dir and fails the test on error.
+func gitMust(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// configRepo sets a local identity so commits succeed under an isolated config.
+func configRepo(t *testing.T, dir string) {
+	t.Helper()
+	gitMust(t, dir, "config", "user.email", "test@test.com")
+	gitMust(t, dir, "config", "user.name", "Test")
+}
+
+// writeAndCommit writes a file and commits it in dir.
+func writeAndCommit(t *testing.T, dir, name, content, message string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", name, err)
+	}
+	gitMust(t, dir, "add", ".")
+	gitMust(t, dir, "commit", "-m", message)
+}
+
 // initTestRepo creates a temporary git repository and returns its path.
 func initTestRepo(t *testing.T) string {
 	t.Helper()

@@ -232,6 +232,72 @@ func RenderActionSummary(w io.Writer, total, ok, failed int) {
 		"%d %s · %d ok · %d failed", total, Plural(total, "repo"), ok, failed)))
 }
 
+// PullOutcome classifies a pull result row for colorization.
+type PullOutcome int
+
+const (
+	// PullOK marks a repo that updated or was already up to date (green).
+	PullOK PullOutcome = iota
+	// PullSkip marks a repo that was skipped, e.g. no upstream (dimmed).
+	PullSkip
+	// PullErr marks a repo that failed to pull (red).
+	PullErr
+)
+
+// PullRow holds the result of pulling one repo.
+type PullRow struct {
+	Name    string
+	Outcome PullOutcome
+	Message string
+}
+
+// RenderPullResults writes pull results to w under a header row. Skipped repos
+// are dimmed rather than coloured as success or failure, so a wall of "no
+// upstream" rows reads as neutral noise instead of alarming errors.
+func RenderPullResults(w io.Writer, rows []PullRow) {
+	if len(rows) == 0 {
+		return
+	}
+
+	nameWidth := len("REPO")
+	for _, r := range rows {
+		if len(r.Name) > nameWidth {
+			nameWidth = len(r.Name)
+		}
+	}
+	nameWidth += 2
+
+	// Four-space indent lines REPO up under the repo names: two base spaces
+	// plus the one-glyph status column and its trailing space in each row.
+	header := fmt.Sprintf("    %-*s %s", nameWidth, "REPO", "RESULT")
+	_, _ = fmt.Fprintln(w, Dim(header))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+
+	for _, r := range rows {
+		switch r.Outcome {
+		case PullOK:
+			_, _ = fmt.Fprintln(w, Green(fmt.Sprintf(
+				"  %s %-*s %s", SymClean, nameWidth, r.Name, r.Message)))
+		case PullSkip:
+			_, _ = fmt.Fprintln(w, Dim(fmt.Sprintf(
+				"  %s %-*s %s", SymInSync, nameWidth, r.Name, r.Message)))
+		case PullErr:
+			_, _ = fmt.Fprintln(w, Red(fmt.Sprintf(
+				"  %s %-*s %s", SymConflict, nameWidth, r.Name, r.Message)))
+		}
+	}
+}
+
+// RenderPullSummary writes a summary line for the pull command to w. Unlike the
+// generic action summary it breaks results into updated, already up-to-date,
+// skipped (no upstream), and failed — the distinctions that matter when pulling.
+func RenderPullSummary(w io.Writer, total, updated, upToDate, skipped, failed int) {
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d %s · %d updated · %d up to date · %d skipped · %d failed",
+		total, Plural(total, "repo"), updated, upToDate, skipped, failed,
+	)))
+}
+
 // Confirm prints a success confirmation message.
 func Confirm(w io.Writer, message string) {
 	_, _ = fmt.Fprintf(w, "  %s %s\n", Green(SymClean), message)
