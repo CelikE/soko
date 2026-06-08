@@ -84,6 +84,7 @@ soko status
 | `soko exec` | Run a command in all registered repos |
 | `soko open` | Open a repo in the browser |
 | `soko report [repos...]` | Summarize commit activity across repos |
+| `soko health` | Rank repos by an urgency score — most neglected first |
 | `soko tag` | Manage repo tags |
 | `soko alias` | Manage command aliases |
 | `soko doc` | Check the health of your soko setup |
@@ -124,6 +125,8 @@ soko status
 | `--author` | `report` | Filter commits by author name (substring match) |
 | `--all-authors` | `report` | Show commits from all authors |
 | `--max` | `report` | Max commits per repo (default: 5, 0 for all) |
+| `--top` | `health` | Show only the N most-neglected repos |
+| `--threshold` | `health` | Minimum severity to display: `warn` or `crit` |
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
 | `--fish` | `shell-init` | Output fish shell syntax |
 | `--pwsh` | `shell-init` | Output PowerShell syntax |
@@ -198,6 +201,22 @@ soko report auth                    # specific repo
 soko report --all-authors           # everyone's commits
 soko report --author "John"         # specific author
 ```
+
+### Triage repo health
+
+```bash
+soko health                         # ranked table, worst repo first
+soko health --tag backend           # only backend repos
+soko health --top 5                 # the 5 most-neglected repos
+soko health --threshold crit        # only repos that need urgent attention
+soko health --json                  # machine-readable ranking
+```
+
+`soko health` answers "where do I start?". It reuses the same signals as
+`soko stats` — dirty state, commits behind, stale branches, conflicts, detached
+HEAD, missing remote — but scores and ranks each repo individually instead of
+aggregating workspace totals. It is read-only: it never fetches or mutates a
+repo.
 
 ### Run commands across repos
 

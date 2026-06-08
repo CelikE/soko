@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -186,6 +187,81 @@ func RenderStatusGrouped(w io.Writer, groups []StatusGroup) {
 			}
 		}
 	}
+}
+
+// HealthRow holds everything needed to render one row in the health table.
+type HealthRow struct {
+	Rank         int
+	Name         string
+	SeverityText string
+	ScoreText    string
+	Reason       string
+	State        RowState
+}
+
+// RenderHealthTable writes a ranked repo-health table to w, colored per row by
+// State (the same green/yellow/red vocabulary as the status table).
+func RenderHealthTable(w io.Writer, rows []HealthRow) {
+	cRank := len("#")
+	cName := len("REPO")
+	cSev := len("SEVERITY")
+	cScore := len("SCORE")
+	for _, r := range rows {
+		if l := len(strconv.Itoa(r.Rank)); l > cRank {
+			cRank = l
+		}
+		if len(r.Name) > cName {
+			cName = len(r.Name)
+		}
+		if len(r.SeverityText) > cSev {
+			cSev = len(r.SeverityText)
+		}
+		if len(r.ScoreText) > cScore {
+			cScore = len(r.ScoreText)
+		}
+	}
+	cName += 2
+	cSev += 2
+	cScore += 2
+
+	header := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
+		cRank, "#",
+		cName, "REPO",
+		cSev, "SEVERITY",
+		cScore, "SCORE",
+		"REASON",
+	)
+	_, _ = fmt.Fprintln(w, Dim(header))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+
+	for _, r := range rows {
+		line := fmt.Sprintf("  %-*d %-*s %-*s %-*s %s",
+			cRank, r.Rank,
+			cName, r.Name,
+			cSev, r.SeverityText,
+			cScore, r.ScoreText,
+			r.Reason,
+		)
+
+		switch r.State {
+		case StateClean:
+			_, _ = fmt.Fprintln(w, Green(line))
+		case StateDirty:
+			_, _ = fmt.Fprintln(w, Yellow(line))
+		case StateConflict:
+			_, _ = fmt.Fprintln(w, Red(line))
+		default:
+			_, _ = fmt.Fprintln(w, line)
+		}
+	}
+}
+
+// RenderHealthSummary writes the health summary line to w.
+func RenderHealthSummary(w io.Writer, total, crit, warn, ok int) {
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d %s · %d crit · %d warn · %d ok",
+		total, Plural(total, "repo"), crit, warn, ok,
+	)))
 }
 
 // RenderSummary writes the status summary line to w.
