@@ -94,7 +94,9 @@ func suggestRepoNames(repos []config.RepoEntry, query string) []string {
 	seen := make(map[string]bool)
 	for _, r := range repos {
 		lname := strings.ToLower(r.Name)
-		if lname == query || seen[r.Name] {
+		// Dedupe on the lowercased name so a duplicate or a case variant
+		// ("Auth" and "auth") is suggested at most once.
+		if lname == query || seen[lname] {
 			continue
 		}
 		d := boundedLevenshtein(query, lname, threshold)
@@ -102,7 +104,7 @@ func suggestRepoNames(repos []config.RepoEntry, query string) []string {
 		// that contains the query as a substring is an intent candidate even
 		// when the raw distance is large (e.g. "pay" → "payments").
 		if d <= threshold || strings.Contains(lname, query) {
-			seen[r.Name] = true
+			seen[lname] = true
 			candidates = append(candidates, candidate{name: r.Name, dist: d})
 		}
 	}

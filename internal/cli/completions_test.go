@@ -80,6 +80,15 @@ func TestSuggestRepoNames(t *testing.T) {
 			"aax",
 			[]string{"aab", "aac", "aad"},
 		},
+		{
+			"case-variant names deduped to one",
+			[]config.RepoEntry{
+				{Name: "Auth", Path: "/tmp/Auth"},
+				{Name: "auth", Path: "/tmp/auth"},
+			},
+			"autth",
+			[]string{"Auth"},
+		},
 	}
 
 	for _, tt := range tests {
