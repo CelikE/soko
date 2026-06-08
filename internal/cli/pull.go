@@ -27,12 +27,13 @@ const (
 )
 
 type pullResult struct {
-	index   int
-	name    string
-	path    string
-	status  pullStatus
-	message string
-	elapsed time.Duration
+	index     int
+	name      string
+	path      string
+	status    pullStatus
+	message   string
+	errorCode string
+	elapsed   time.Duration
 }
 
 // newPullCmd creates the cobra command for soko pull.
@@ -98,11 +99,13 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 					case !pathExists(repo.Path):
 						r.status = pullFailed
 						r.message = "path not found"
+						r.errorCode = codePathMissing
 					case !git.HasUpstream(ctx, repo.Path):
 						// Local-only branch or detached HEAD — nothing to pull.
 						// Treat as a skip, not a failure.
 						r.status = pullSkipped
 						r.message = "no upstream"
+						r.errorCode = codeNoUpstream
 					default:
 						updated, pullErr := git.Pull(ctx, repo.Path, rebase)
 						switch {
@@ -111,6 +114,7 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 							// Keep the full error here; the table cleans it to a
 							// single line, but --json emits it in full like fetch.
 							r.message = pullErr.Error()
+							r.errorCode = gitErrorCode(pullErr)
 						case updated:
 							r.status = pullUpdated
 							r.message = "updated"
@@ -259,6 +263,7 @@ type pullJSON struct {
 	Path       string `json:"path"`
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
+	ErrorCode  string `json:"error_code,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
@@ -280,6 +285,9 @@ func renderPullJSON(w io.Writer, results []pullResult, rows []output.TimingRow, 
 		case pullFailed:
 			entries[i].Status = "failed"
 			entries[i].Error = r.message
+		}
+		if r.errorCode != "" {
+			entries[i].ErrorCode = r.errorCode
 		}
 		if output.Perf() {
 			entries[i].DurationMS = r.elapsed.Milliseconds()

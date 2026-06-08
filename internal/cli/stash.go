@@ -16,12 +16,13 @@ import (
 const stashMessage = "soko stash"
 
 type stashResult struct {
-	index   int
-	name    string
-	path    string
-	action  string
-	success bool
-	message string
+	index     int
+	name      string
+	path      string
+	action    string
+	success   bool
+	message   string
+	errorCode string
 }
 
 func newStashCmd() *cobra.Command {
@@ -96,6 +97,7 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 
 			if !pathExists(repo.Path) {
 				r.message = "path not found"
+				r.errorCode = codePathMissing
 				mu.Lock()
 				results = append(results, r)
 				mu.Unlock()
@@ -113,6 +115,7 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 
 			if _, err := git.Run(ctx, repo.Path, "stash", "push", "-m", stashMessage); err != nil {
 				r.message = err.Error()
+				r.errorCode = gitErrorCode(err)
 				mu.Lock()
 				results = append(results, r)
 				mu.Unlock()
@@ -205,6 +208,7 @@ func runStashPop(cmd *cobra.Command, _ []string) error {
 
 			if !pathExists(repo.Path) {
 				r.message = "path not found"
+				r.errorCode = codePathMissing
 				mu.Lock()
 				results = append(results, r)
 				mu.Unlock()
@@ -223,6 +227,7 @@ func runStashPop(cmd *cobra.Command, _ []string) error {
 
 			if _, err := git.Run(ctx, repo.Path, "stash", "pop"); err != nil {
 				r.message = err.Error()
+				r.errorCode = gitErrorCode(err)
 				mu.Lock()
 				results = append(results, r)
 				mu.Unlock()
@@ -287,11 +292,12 @@ func runStashPop(cmd *cobra.Command, _ []string) error {
 }
 
 type stashJSON struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Action string `json:"action"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Action    string `json:"action"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
 }
 
 func renderStashJSON(w io.Writer, results []stashResult) error {
@@ -307,6 +313,7 @@ func renderStashJSON(w io.Writer, results []stashResult) error {
 		} else {
 			entries[i].Status = "failed"
 			entries[i].Error = r.message
+			entries[i].ErrorCode = r.errorCode
 		}
 	}
 
