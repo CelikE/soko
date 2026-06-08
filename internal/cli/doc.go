@@ -301,6 +301,9 @@ func renderDocResults(w io.Writer, results []checkResult) {
 		_, _ = fmt.Fprintf(w, "  %s %s: %s\n", icon, r.Name, r.Message)
 	}
 
+	if output.Quiet() {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
 		"%d %s · %d passed · %d %s · %d %s",
 		len(results), output.Plural(len(results), "check"),

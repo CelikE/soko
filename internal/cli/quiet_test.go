@@ -113,6 +113,33 @@ func TestQuietMalformedEnvIsOff(t *testing.T) {
 	}
 }
 
+func TestQuietSuppressesInlineFooter(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Cleanup(func() { output.SetQuiet(false) })
+	saveConfig(t, config.RepoEntry{Name: "api", Path: "/x/api", Meta: map[string]string{"owner": "alice"}})
+
+	// annotate --list renders its footer inline (not via output.Render*Summary),
+	// so it must consult output.Quiet() explicitly.
+	loud, _, err := runRootIO(t, "annotate", "--list")
+	if err != nil {
+		t.Fatalf("annotate --list: %v", err)
+	}
+	if !strings.Contains(loud, "annotated") {
+		t.Fatalf("plain annotate --list missing footer:\n%s", loud)
+	}
+
+	quiet, _, err := runRootIO(t, "annotate", "--list", "--quiet")
+	if err != nil {
+		t.Fatalf("annotate --list --quiet: %v", err)
+	}
+	if !strings.Contains(quiet, "api") {
+		t.Errorf("quiet annotate --list dropped the table:\n%s", quiet)
+	}
+	if strings.Contains(quiet, "annotated") {
+		t.Errorf("quiet annotate --list still printed the footer:\n%s", quiet)
+	}
+}
+
 func TestQuietEmptyRegistry(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Cleanup(func() { output.SetQuiet(false) })

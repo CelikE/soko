@@ -148,15 +148,18 @@ Use --dry-run to preview what would be deleted.`,
 				return output.RenderJSON(w, withBranches)
 			}
 
-			_, _ = fmt.Fprintln(w)
+			// A partial failure is a real failure: return an error so it stays
+			// visible (the error path is never gated by --quiet) and the exit
+			// code is non-zero, matching pull/fetch/stash.
 			if failed > 0 {
-				output.Warn(w, fmt.Sprintf("deleted %d %s, %d failed",
-					deleted, output.Plural(deleted, "branch"), failed))
-			} else {
-				output.Confirm(w, fmt.Sprintf("deleted %d stale %s across %d %s",
-					deleted, output.Plural(deleted, "branch"),
-					len(withBranches), output.Plural(len(withBranches), "repo")))
+				return fmt.Errorf("deleted %d %s, %d failed to delete",
+					deleted, output.Plural(deleted, "branch"), failed)
 			}
+
+			_, _ = fmt.Fprintln(w)
+			output.Confirm(w, fmt.Sprintf("deleted %d stale %s across %d %s",
+				deleted, output.Plural(deleted, "branch"),
+				len(withBranches), output.Plural(len(withBranches), "repo")))
 
 			return nil
 		},
@@ -306,6 +309,9 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 		totalBranches += len(r.Branches)
 	}
 
+	if output.Quiet() {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
 		"%d stale %s across %d %s",
 		totalBranches, output.Plural(totalBranches, "branch"),
