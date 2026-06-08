@@ -37,6 +37,9 @@ type repoStats struct {
 	hasRemote     bool
 	dirty         bool
 	behind        int
+	conflicts     int
+	detached      bool
+	changes       int
 	commits       int
 	branches      int
 	sizeBytes     int64
@@ -162,8 +165,11 @@ func collectRepoStats(ctx context.Context, path string, r *repoStats) {
 	}
 
 	if status, err := git.ParseStatus(ctx, path); err == nil {
-		r.dirty = status.Modified+status.Untracked+status.Deleted+status.Conflicts > 0
+		r.changes = status.Modified + status.Untracked + status.Deleted
+		r.dirty = r.changes+status.Conflicts > 0
 		r.behind = status.Behind
+		r.conflicts = status.Conflicts
+		r.detached = status.Branch == detachedBranch
 	}
 
 	if out, err := git.Run(ctx, path, "rev-list", "--count", "HEAD"); err == nil {
