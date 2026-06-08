@@ -130,6 +130,38 @@ func TestIntegration_GrepJSON(t *testing.T) {
 	}
 }
 
+func TestIntegration_GrepFilesOnlyJSON(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "repo")
+	initRepo(t, dir)
+	writeAndCommit(t, dir, map[string]string{"a.go": "TODO here\n"})
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "grep", "TODO", "--files-only", "--json")
+	var entries []struct {
+		Repo    string `json:"repo"`
+		Matches []struct {
+			File string `json:"file"`
+			Line int    `json:"line"`
+			Text string `json:"text"`
+		} `json:"matches"`
+	}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("json unmarshal: %v\noutput: %s", err, out)
+	}
+	if len(entries) != 1 || len(entries[0].Matches) != 1 {
+		t.Fatalf("entries = %+v, want 1 repo with 1 match", entries)
+	}
+	m := entries[0].Matches[0]
+	if m.File == "" {
+		t.Errorf("files-only json should populate file, got %+v", m)
+	}
+	// Files-only mode carries only file: line is 0 and text is empty.
+	if m.Line != 0 || m.Text != "" {
+		t.Errorf("files-only json should carry only file, got line=%d text=%q", m.Line, m.Text)
+	}
+}
+
 func TestIntegration_GrepTagAndRepoFilter(t *testing.T) {
 	testEnv(t)
 	base := t.TempDir()

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 func TestRenderHealthTable(t *testing.T) {
@@ -88,6 +90,55 @@ func TestRenderGrepResultsEmpty(t *testing.T) {
 	RenderGrepResults(&buf, nil, false)
 	if buf.Len() != 0 {
 		t.Errorf("empty groups should render nothing, got %q", buf.String())
+	}
+}
+
+func TestRenderGrepResultsHighlight(t *testing.T) {
+	old := color.NoColor
+	color.NoColor = false // force color so the highlight is observable
+	defer func() { color.NoColor = old }()
+
+	var buf bytes.Buffer
+	groups := []GrepGroup{
+		{Repo: "r", Matches: []GrepMatch{
+			// "  func handleAuth() {}" — "handleAuth" starts at byte 7, len 10.
+			{File: "h.go", Line: 1, Text: "  func handleAuth() {}", Col: 7, Length: 10},
+		}},
+	}
+	RenderGrepResults(&buf, groups, false)
+	got := buf.String()
+
+	if !strings.Contains(got, Yellow("handleAuth")) {
+		t.Errorf("expected matched span highlighted in yellow, got %q", got)
+	}
+	if !strings.Contains(got, "h.go:1") {
+		t.Errorf("expected file:line preserved, got %q", got)
+	}
+	// Leading indentation is trimmed; the surrounding code is untouched.
+	if !strings.Contains(got, "func ") || !strings.Contains(got, "() {}") {
+		t.Errorf("expected surrounding text preserved, got %q", got)
+	}
+}
+
+func TestRenderGrepResultsNoColor(t *testing.T) {
+	old := color.NoColor
+	color.NoColor = true // NO_COLOR equivalent
+	defer func() { color.NoColor = old }()
+
+	var buf bytes.Buffer
+	groups := []GrepGroup{
+		{Repo: "r", Matches: []GrepMatch{
+			{File: "h.go", Line: 1, Text: "func handleAuth() {}", Col: 5, Length: 10},
+		}},
+	}
+	RenderGrepResults(&buf, groups, false)
+	got := buf.String()
+
+	if strings.Contains(got, "\x1b[") {
+		t.Errorf("expected no ANSI escapes under NO_COLOR, got %q", got)
+	}
+	if !strings.Contains(got, "func handleAuth() {}") {
+		t.Errorf("expected plain text preserved, got %q", got)
 	}
 }
 
