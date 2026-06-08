@@ -16,12 +16,13 @@ import (
 )
 
 type fetchResult struct {
-	index   int
-	name    string
-	path    string
-	success bool
-	message string
-	elapsed time.Duration
+	index     int
+	name      string
+	path      string
+	success   bool
+	message   string
+	errorCode string
+	elapsed   time.Duration
 }
 
 // newFetchCmd creates the cobra command for soko fetch.
@@ -81,9 +82,11 @@ func newFetchCmd() *cobra.Command {
 					switch {
 					case !pathExists(repo.Path):
 						r.message = "path not found"
+						r.errorCode = codePathMissing
 					default:
 						if fetchErr := git.Fetch(ctx, repo.Path, pruneFlag); fetchErr != nil {
 							r.message = fetchErr.Error()
+							r.errorCode = gitErrorCode(fetchErr)
 						} else {
 							r.success = true
 							r.message = "fetched"
@@ -177,6 +180,7 @@ type fetchJSON struct {
 	Path       string `json:"path"`
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
+	ErrorCode  string `json:"error_code,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
@@ -193,6 +197,7 @@ func renderFetchJSON(w io.Writer, results []fetchResult, rows []output.TimingRow
 		} else {
 			entries[i].Status = "failed"
 			entries[i].Error = r.message
+			entries[i].ErrorCode = r.errorCode
 		}
 		if output.Perf() {
 			entries[i].DurationMS = r.elapsed.Milliseconds()

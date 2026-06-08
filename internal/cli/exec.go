@@ -18,14 +18,15 @@ import (
 )
 
 type execResult struct {
-	index    int
-	name     string
-	path     string
-	stdout   string
-	stderr   string
-	exitCode int
-	err      string
-	elapsed  time.Duration
+	index     int
+	name      string
+	path      string
+	stdout    string
+	stderr    string
+	exitCode  int
+	err       string
+	errorCode string
+	elapsed   time.Duration
 }
 
 // newExecCmd creates the cobra command for soko exec.
@@ -173,13 +174,16 @@ func execOne(ctx context.Context, index int, repo *config.RepoEntry, args []stri
 
 	if !pathExists(repo.Path) {
 		r.err = "path not found"
+		r.errorCode = codePathMissing
 		r.exitCode = 1
 		return r
 	}
 
 	result, err := iexec.RunCommand(ctx, repo.Path, args)
 	if err != nil {
+		// Failed to spawn the binary — a non-git failure, not an exit code.
 		r.err = err.Error()
+		r.errorCode = codeUnknown
 		r.exitCode = 1
 		return r
 	}
@@ -213,6 +217,7 @@ type execJSON struct {
 	Stdout     string `json:"stdout"`
 	Stderr     string `json:"stderr"`
 	Error      string `json:"error,omitempty"`
+	ErrorCode  string `json:"error_code,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
@@ -227,6 +232,9 @@ func renderExecJSON(w io.Writer, results []execResult, rows []output.TimingRow, 
 			Stdout:   r.stdout,
 			Stderr:   r.stderr,
 			Error:    r.err,
+		}
+		if r.errorCode != "" {
+			entries[i].ErrorCode = r.errorCode
 		}
 		if output.Perf() {
 			entries[i].DurationMS = r.elapsed.Milliseconds()

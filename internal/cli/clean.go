@@ -17,11 +17,12 @@ import (
 )
 
 type cleanResult struct {
-	Name     string   `json:"name"`
-	Path     string   `json:"path"`
-	Branches []string `json:"branches"`
-	Pruned   bool     `json:"pruned,omitempty"`
-	Error    string   `json:"error,omitempty"`
+	Name      string   `json:"name"`
+	Path      string   `json:"path"`
+	Branches  []string `json:"branches"`
+	Pruned    bool     `json:"pruned,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	ErrorCode string   `json:"error_code,omitempty"`
 }
 
 func newCleanCmd() *cobra.Command {
@@ -225,6 +226,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 
 			if !pathExists(repo.Path) {
 				r.Error = "path not found"
+				r.ErrorCode = codePathMissing
 				results[i] = r
 				return nil
 			}
@@ -237,6 +239,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			defBranch := defaultBranch(ctx, repo.Path)
 			if defBranch == "" {
 				r.Error = "could not detect default branch"
+				r.ErrorCode = codeGitFailure
 				results[i] = r
 				return nil
 			}
@@ -248,6 +251,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			merged, err := git.Run(ctx, repo.Path, "branch", "--merged", defBranch)
 			if err != nil {
 				r.Error = "failed to list merged branches"
+				r.ErrorCode = gitErrorCode(err)
 				results[i] = r
 				return nil
 			}
