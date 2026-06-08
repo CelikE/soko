@@ -206,7 +206,7 @@ func TestAddRepo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{Repos: tt.initial}
 
-			result, err := AddRepo(cfg, tt.entry)
+			result, err := AddRepo(cfg, &tt.entry)
 
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("AddRepo() error = %v, want %v", err, tt.wantErr)

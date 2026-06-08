@@ -50,6 +50,7 @@ func newListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	cmd.Flags().StringSlice("meta", nil, "filter by metadata key=value (repeatable, combines with AND)")
 	cmd.Flags().Bool("group", false, "group repos by tag in a tree view")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 
@@ -57,16 +58,17 @@ func newListCmd() *cobra.Command {
 }
 
 type listEntry struct {
-	Name       string   `json:"name"`
-	Path       string   `json:"path"`
-	Tags       []string `json:"tags,omitempty"`
-	WorktreeOf string   `json:"worktree_of,omitempty"`
+	Name       string            `json:"name"`
+	Path       string            `json:"path"`
+	Tags       []string          `json:"tags,omitempty"`
+	WorktreeOf string            `json:"worktree_of,omitempty"`
+	Meta       map[string]string `json:"meta,omitempty"`
 }
 
 func renderListJSON(w io.Writer, repos []config.RepoEntry) error {
 	entries := make([]listEntry, len(repos))
 	for i, r := range repos {
-		entries[i] = listEntry{Name: r.Name, Path: r.Path, Tags: r.Tags, WorktreeOf: r.WorktreeOf}
+		entries[i] = listEntry{Name: r.Name, Path: r.Path, Tags: r.Tags, WorktreeOf: r.WorktreeOf, Meta: r.Meta}
 	}
 
 	return output.RenderJSON(w, entries)

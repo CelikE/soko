@@ -156,7 +156,7 @@ func findMissingRepos(repos []config.RepoEntry) []config.RepoEntry {
 
 // entryKey identifies a registry entry by name, path, and worktree parent so
 // duplicate paths (only reachable via a hand-edited config) are not confused.
-func entryKey(e config.RepoEntry) string {
+func entryKey(e *config.RepoEntry) string {
 	return e.Name + "\x00" + e.Path + "\x00" + e.WorktreeOf
 }
 
@@ -168,7 +168,7 @@ func pruneTargets(cfg *config.Config, missing []config.RepoEntry) []config.RepoE
 	var targets []config.RepoEntry
 
 	add := func(e config.RepoEntry) {
-		if k := entryKey(e); !seen[k] {
+		if k := entryKey(&e); !seen[k] {
 			seen[k] = true
 			targets = append(targets, e)
 		}
@@ -190,12 +190,12 @@ func pruneTargets(cfg *config.Config, missing []config.RepoEntry) []config.RepoE
 func removePruneTargets(cfg *config.Config, targets []config.RepoEntry) {
 	drop := make(map[string]bool, len(targets))
 	for _, t := range targets {
-		drop[entryKey(t)] = true
+		drop[entryKey(&t)] = true
 	}
 
 	kept := make([]config.RepoEntry, 0, len(cfg.Repos))
 	for _, e := range cfg.Repos {
-		if drop[entryKey(e)] {
+		if drop[entryKey(&e)] {
 			continue
 		}
 		kept = append(kept, e)

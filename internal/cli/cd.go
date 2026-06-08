@@ -53,7 +53,7 @@ func cdByQuery(cfg *config.Config, query string, jsonOut bool, w, stderr io.Writ
 		return notFoundWithSuggestions(query, cfg.Repos)
 	case 1:
 		if jsonOut {
-			return writeCdJSON(w, matches[0])
+			return writeCdJSON(w, &matches[0])
 		}
 
 		// Write nav file so the shell hook can cd.
@@ -79,6 +79,6 @@ type cdJSON struct {
 	Path string `json:"path"`
 }
 
-func writeCdJSON(w io.Writer, entry config.RepoEntry) error {
+func writeCdJSON(w io.Writer, entry *config.RepoEntry) error {
 	return output.RenderJSON(w, cdJSON{Name: entry.Name, Path: entry.Path})
 }
