@@ -52,7 +52,7 @@ pages like pull requests, issues, or CI/CD.`,
 				}
 				matches := config.FindRepo(cfg, args[0])
 				if len(matches) == 0 {
-					return fmt.Errorf("no repo matching: %s", args[0])
+					return notFoundWithSuggestions(args[0], cfg.Repos)
 				}
 				if len(matches) > 1 {
 					output.Warn(w, fmt.Sprintf("multiple repos match %q:", args[0]))

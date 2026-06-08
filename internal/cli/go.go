@@ -61,6 +61,10 @@ Use --tag to filter the picker to repos with specific tags.`,
 					matched = filterReposByName(repos, filter)
 				}
 				if len(matched) == 0 {
+					// Suggest from the post-filter set the user could navigate to.
+					if s := suggestRepoNames(repos, filter); len(s) > 0 {
+						return fmt.Errorf("no repos matching: %s — did you mean: %s?", filter, strings.Join(s, ", "))
+					}
 					return fmt.Errorf("no repos matching: %s", filter)
 				}
 				return goNonInteractive(matched, jsonFlag, w, stderr)

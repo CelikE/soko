@@ -50,7 +50,7 @@ func cdByQuery(cfg *config.Config, query string, jsonOut bool, w, stderr io.Writ
 
 	switch len(matches) {
 	case 0:
-		return fmt.Errorf("no repo matching: %s", query)
+		return notFoundWithSuggestions(query, cfg.Repos)
 	case 1:
 		if jsonOut {
 			return writeCdJSON(w, matches[0])
