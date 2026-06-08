@@ -150,8 +150,8 @@ func TestPathWithinRoot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := pathWithinRoot(tt.path, tt.root); got != tt.want {
-				t.Errorf("pathWithinRoot(%q, %q) = %v, want %v", tt.path, tt.root, got, tt.want)
+			if got := PathWithinRoot(tt.path, tt.root); got != tt.want {
+				t.Errorf("PathWithinRoot(%q, %q) = %v, want %v", tt.path, tt.root, got, tt.want)
 			}
 		})
 	}

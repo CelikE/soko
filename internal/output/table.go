@@ -525,6 +525,69 @@ func RenderGrepSummary(w io.Writer, repoCount, matchCount int, filesOnly bool) {
 	)))
 }
 
+// ApplyRow is one repo's entry in the soko apply diff plan.
+type ApplyRow struct {
+	Name   string
+	Dest   string
+	Action string // create | update | unchanged
+	Diff   string
+	Err    string
+}
+
+// RenderApplyPlan prints one block per repo: an error row in red, a dimmed
+// "· unchanged" line for unchanged repos, or a "(create)"/"(update)" header
+// followed by the colorized unified diff for changed repos.
+func RenderApplyPlan(w io.Writer, rows []ApplyRow) {
+	for _, r := range rows {
+		switch {
+		case r.Err != "":
+			_, _ = fmt.Fprintf(w, "  %s  %s %s\n", r.Name, Red(SymConflict), Red(r.Err))
+		case r.Action == "unchanged":
+			_, _ = fmt.Fprintf(w, "  %s  %s\n", r.Name, Dim("· unchanged"))
+		default:
+			_, _ = fmt.Fprintf(w, "  %s  %s\n", r.Name, Dim("("+r.Action+")"))
+			for _, line := range strings.Split(strings.TrimRight(r.Diff, "\n"), "\n") {
+				_, _ = fmt.Fprintf(w, "    %s\n", colorDiffLine(line))
+			}
+			_, _ = fmt.Fprintln(w)
+		}
+	}
+}
+
+// colorDiffLine colorizes a single unified-diff line, honoring NO_COLOR via the
+// shared color helpers.
+func colorDiffLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"), strings.HasPrefix(line, "@@"):
+		return Dim(line)
+	case strings.HasPrefix(line, "+"):
+		return Green(line)
+	case strings.HasPrefix(line, "-"):
+		return Red(line)
+	default:
+		return line
+	}
+}
+
+// RenderApplySummary prints the trailing apply summary: the dry-run plan
+// ("N to create · N to update · N unchanged · N repos") or, after --write, the
+// outcome ("N written · N unchanged · N repos"). When written is true, create
+// and update are the successfully-written counts.
+func RenderApplySummary(w io.Writer, create, update, unchanged, total int, written bool) {
+	if quiet {
+		return
+	}
+	if written {
+		_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+			"%d written · %d unchanged · %d %s",
+			create+update, unchanged, total, Plural(total, "repo"))))
+		return
+	}
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d to create · %d to update · %d unchanged · %d %s",
+		create, update, unchanged, total, Plural(total, "repo"))))
+}
+
 // Confirm prints a success confirmation message.
 func Confirm(w io.Writer, message string) {
 	_, _ = fmt.Fprintf(w, "  %s %s\n", Green(SymClean), message)
