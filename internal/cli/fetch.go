@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -20,6 +21,7 @@ type fetchResult struct {
 	path    string
 	success bool
 	message string
+	elapsed time.Duration
 }
 
 // newFetchCmd creates the cobra command for soko fetch.
@@ -70,34 +72,25 @@ func newFetchCmd() *cobra.Command {
 			g, ctx := errgroup.WithContext(ctx)
 			g.SetLimit(maxConcurrency)
 
+			wallStart := time.Now()
 			for i, repo := range repos {
 				g.Go(func() error {
+					start := time.Now()
 					r := fetchResult{index: i, name: repo.Name, path: repo.Path}
 
-					if !pathExists(repo.Path) {
+					switch {
+					case !pathExists(repo.Path):
 						r.message = "path not found"
-						mu.Lock()
-						results = append(results, r)
-						mu.Unlock()
-						if prog != nil {
-							prog.Increment()
+					default:
+						if fetchErr := git.Fetch(ctx, repo.Path, pruneFlag); fetchErr != nil {
+							r.message = fetchErr.Error()
+						} else {
+							r.success = true
+							r.message = "fetched"
 						}
-						return nil
 					}
 
-					if fetchErr := git.Fetch(ctx, repo.Path, pruneFlag); fetchErr != nil {
-						r.message = fetchErr.Error()
-						mu.Lock()
-						results = append(results, r)
-						mu.Unlock()
-						if prog != nil {
-							prog.Increment()
-						}
-						return nil
-					}
-
-					r.success = true
-					r.message = "fetched"
+					r.elapsed = time.Since(start)
 					mu.Lock()
 					results = append(results, r)
 					mu.Unlock()
@@ -111,6 +104,7 @@ func newFetchCmd() *cobra.Command {
 			// Goroutines never return errors (captured in results), so Wait only
 			// returns nil or a context cancellation which is safe to ignore.
 			_ = g.Wait()
+			wall := time.Since(wallStart)
 
 			if prog != nil {
 				prog.Done()
@@ -122,8 +116,13 @@ func newFetchCmd() *cobra.Command {
 				ordered[results[idx].index] = results[idx]
 			}
 
+			timingRows := make([]output.TimingRow, len(ordered))
+			for i := range ordered {
+				timingRows[i] = output.TimingRow{Name: ordered[i].name, Duration: ordered[i].elapsed}
+			}
+
 			if jsonFlag {
-				if err := renderFetchJSON(w, ordered); err != nil {
+				if err := renderFetchJSON(w, ordered, timingRows, wall); err != nil {
 					return err
 				}
 				var failed int
@@ -155,6 +154,7 @@ func newFetchCmd() *cobra.Command {
 
 			output.RenderFetchTable(w, rows)
 			output.RenderFetchSummary(w, len(rows), fetched, failed)
+			output.RenderTiming(w, timingRows, wall, maxConcurrency)
 
 			if failed > 0 {
 				return fmt.Errorf("%d %s failed to fetch", failed, output.Plural(failed, "repo"))
@@ -173,13 +173,14 @@ func newFetchCmd() *cobra.Command {
 }
 
 type fetchJSON struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
-func renderFetchJSON(w io.Writer, results []fetchResult) error {
+func renderFetchJSON(w io.Writer, results []fetchResult, rows []output.TimingRow, wall time.Duration) error {
 	entries := make([]fetchJSON, len(results))
 	for i := range results {
 		r := &results[i]
@@ -193,7 +194,13 @@ func renderFetchJSON(w io.Writer, results []fetchResult) error {
 			entries[i].Status = "failed"
 			entries[i].Error = r.message
 		}
+		if output.Perf() {
+			entries[i].DurationMS = r.elapsed.Milliseconds()
+		}
 	}
 
+	if output.Perf() {
+		return output.RenderPerfJSON(w, entries, output.BuildTiming(rows, wall, maxConcurrency))
+	}
 	return output.RenderJSON(w, entries)
 }

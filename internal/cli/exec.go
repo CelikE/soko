@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -24,6 +25,7 @@ type execResult struct {
 	stderr   string
 	exitCode int
 	err      string
+	elapsed  time.Duration
 }
 
 // newExecCmd creates the cobra command for soko exec.
@@ -68,15 +70,22 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				_, _ = fmt.Fprintln(w)
 			}
 
+			wallStart := time.Now()
 			var results []execResult
 			if seqFlag {
 				results = execSequential(cmd, repos, args, w, jsonFlag)
 			} else {
 				results = execParallel(cmd, repos, args)
 			}
+			wall := time.Since(wallStart)
+
+			timingRows := make([]output.TimingRow, len(results))
+			for i := range results {
+				timingRows[i] = output.TimingRow{Name: results[i].name, Duration: results[i].elapsed}
+			}
 
 			if jsonFlag {
-				return renderExecJSON(w, results)
+				return renderExecJSON(w, results, timingRows, wall)
 			}
 
 			// For parallel, print buffered output now.
@@ -96,6 +105,7 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 			}
 
 			output.RenderActionSummary(w, len(results), succeeded, failed)
+			output.RenderTiming(w, timingRows, wall, maxConcurrency)
 
 			if failed > 0 {
 				return fmt.Errorf("%d %s failed", failed, output.Plural(failed, "repo"))
@@ -153,8 +163,13 @@ func execSequential(cmd *cobra.Command, repos []config.RepoEntry, args []string,
 	return results
 }
 
-func execOne(ctx context.Context, index int, repo *config.RepoEntry, args []string) execResult {
-	r := execResult{index: index, name: repo.Name, path: repo.Path}
+func execOne(ctx context.Context, index int, repo *config.RepoEntry, args []string) (r execResult) {
+	start := time.Now()
+	// Named return + defer times every exit path (missing, spawn error, success)
+	// in one place, covering both the parallel and sequential callers.
+	defer func() { r.elapsed = time.Since(start) }()
+
+	r = execResult{index: index, name: repo.Name, path: repo.Path}
 
 	if !pathExists(repo.Path) {
 		r.err = "path not found"
@@ -192,15 +207,16 @@ func printExecResult(w io.Writer, r *execResult) {
 }
 
 type execJSON struct {
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	ExitCode int    `json:"exit_code"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	Error    string `json:"error,omitempty"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	ExitCode   int    `json:"exit_code"`
+	Stdout     string `json:"stdout"`
+	Stderr     string `json:"stderr"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
-func renderExecJSON(w io.Writer, results []execResult) error {
+func renderExecJSON(w io.Writer, results []execResult, rows []output.TimingRow, wall time.Duration) error {
 	entries := make([]execJSON, len(results))
 	for i := range results {
 		r := &results[i]
@@ -212,7 +228,13 @@ func renderExecJSON(w io.Writer, results []execResult) error {
 			Stderr:   r.stderr,
 			Error:    r.err,
 		}
+		if output.Perf() {
+			entries[i].DurationMS = r.elapsed.Milliseconds()
+		}
 	}
 
+	if output.Perf() {
+		return output.RenderPerfJSON(w, entries, output.BuildTiming(rows, wall, maxConcurrency))
+	}
 	return output.RenderJSON(w, entries)
 }

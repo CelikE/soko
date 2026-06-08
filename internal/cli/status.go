@@ -50,7 +50,7 @@ func newStatusCmd() *cobra.Command {
 
 			fetchFlag, _ := cmd.Flags().GetBool("fetch")
 			filteredCfg := &config.Config{Repos: repos}
-			collected := collectAll(cmd, filteredCfg, fetchFlag)
+			collected, wall := collectAll(cmd, filteredCfg, fetchFlag)
 			missingCount := len(findMissingRepos(repos))
 
 			dirtyFlag, _ := cmd.Flags().GetBool("dirty")
@@ -69,7 +69,7 @@ func newStatusCmd() *cobra.Command {
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
-				return renderStatusJSON(w, collected)
+				return renderStatusJSON(w, collected, wall)
 			}
 
 			// Sort by original config order and compute summary.
@@ -103,6 +103,12 @@ func newStatusCmd() *cobra.Command {
 			output.RenderSummary(w, len(collected), dirtyCount, behindCount, totalChanges)
 			renderMissingHint(w, missingCount)
 
+			timingRows := make([]output.TimingRow, len(collected))
+			for i := range collected {
+				timingRows[i] = output.TimingRow{Name: collected[i].row.Name, Duration: collected[i].elapsed}
+			}
+			output.RenderTiming(w, timingRows, wall, maxConcurrency)
+
 			return nil
 		},
 	}
@@ -133,9 +139,13 @@ type statusResult struct {
 	behind     bool
 	changes    int
 	err        string
+	elapsed    time.Duration
 }
 
-func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResult {
+// collectAll gathers the status of every repo in cfg in parallel and returns
+// the per-repo results along with the wall-clock time of the whole batch (used
+// by --perf). Results are in completion order; callers sort by index.
+func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) ([]statusResult, time.Duration) {
 	ctx := cmd.Context()
 	results := make([]statusResult, 0, len(cfg.Repos))
 	var mu sync.Mutex
@@ -143,8 +153,10 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(maxConcurrency)
 
+	wallStart := time.Now()
 	for i, repo := range cfg.Repos {
 		g.Go(func() error {
+			start := time.Now()
 			r := statusResult{
 				index:      i,
 				path:       repo.Path,
@@ -161,6 +173,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 				r.row.State = output.StateConflict
 				r.err = "path not found"
 
+				r.elapsed = time.Since(start)
 				mu.Lock()
 				results = append(results, r)
 				mu.Unlock()
@@ -181,6 +194,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 				r.row.State = output.StateConflict
 				r.err = parseErr.Error()
 
+				r.elapsed = time.Since(start)
 				mu.Lock()
 				results = append(results, r)
 				mu.Unlock()
@@ -199,6 +213,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 			r.behind = status.Behind > 0
 			r.changes = changes
 
+			r.elapsed = time.Since(start)
 			mu.Lock()
 			results = append(results, r)
 			mu.Unlock()
@@ -209,7 +224,7 @@ func collectAll(cmd *cobra.Command, cfg *config.Config, fetch bool) []statusResu
 	// Goroutines never return errors (captured in results), so Wait only
 	// returns nil or a context cancellation which is safe to ignore.
 	_ = g.Wait()
-	return results
+	return results, time.Since(wallStart)
 }
 
 // buildStatusGroups organizes results by tag for grouped rendering.
@@ -294,12 +309,14 @@ type statusJSON struct {
 	LastCommitMessage string `json:"last_commit_message"`
 	WorktreeOf        string `json:"worktree_of,omitempty"`
 	Error             string `json:"error,omitempty"`
+	DurationMS        int64  `json:"duration_ms,omitempty"`
 }
 
-func renderStatusJSON(w io.Writer, results []statusResult) error {
+func renderStatusJSON(w io.Writer, results []statusResult, wall time.Duration) error {
 	sortByIndex(results)
 
 	entries := make([]statusJSON, len(results))
+	rows := make([]output.TimingRow, len(results))
 	for i := range results {
 		r := &results[i]
 		entry := statusJSON{
@@ -324,9 +341,16 @@ func renderStatusJSON(w io.Writer, results []statusResult) error {
 			entry.LastCommitMessage = r.status.LastCommitMessage
 		}
 
+		if output.Perf() {
+			entry.DurationMS = r.elapsed.Milliseconds()
+		}
 		entries[i] = entry
+		rows[i] = output.TimingRow{Name: r.row.Name, Duration: r.elapsed}
 	}
 
+	if output.Perf() {
+		return output.RenderPerfJSON(w, entries, output.BuildTiming(rows, wall, maxConcurrency))
+	}
 	return output.RenderJSON(w, entries)
 }
 

@@ -23,8 +23,8 @@ then run soko status from anywhere to see the state of every tracked repo.`,
   soko list      List all registered repos`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Read --quiet (and the SOKO_QUIET fallback) once for every subcommand
-		// and flip the output gate before any command runs.
+		// Read --quiet/--perf (and their SOKO_QUIET/SOKO_PERF fallbacks) once for
+		// every subcommand and flip the output gates before any command runs.
 		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
 			q, _ := c.Flags().GetBool("quiet")
 			// An explicit --quiet (true or false) always wins; the env fallback
@@ -33,12 +33,21 @@ then run soko status from anywhere to see the state of every tracked repo.`,
 				q = isTruthyEnv(os.Getenv("SOKO_QUIET"))
 			}
 			output.SetQuiet(q)
+
+			p, _ := c.Flags().GetBool("perf")
+			// Same precedence: explicit --perf wins, SOKO_PERF only fills in when
+			// the flag was not provided.
+			if !c.Flags().Changed("perf") {
+				p = isTruthyEnv(os.Getenv("SOKO_PERF"))
+			}
+			output.SetPerf(p)
 			return nil
 		},
 	}
 
 	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
 	cmd.PersistentFlags().BoolP("quiet", "q", false, "suppress hints, progress, and summary lines")
+	cmd.PersistentFlags().Bool("perf", false, "report per-repo and aggregate timing after a parallel command")
 
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newScanCmd())

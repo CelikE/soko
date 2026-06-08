@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -31,6 +32,7 @@ type pullResult struct {
 	path    string
 	status  pullStatus
 	message string
+	elapsed time.Duration
 }
 
 // newPullCmd creates the cobra command for soko pull.
@@ -86,8 +88,10 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 			g, ctx := errgroup.WithContext(ctx)
 			g.SetLimit(maxConcurrency)
 
+			wallStart := time.Now()
 			for i, repo := range repos {
 				g.Go(func() error {
+					start := time.Now()
 					r := pullResult{index: i, name: repo.Name, path: repo.Path}
 
 					switch {
@@ -116,6 +120,7 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 						}
 					}
 
+					r.elapsed = time.Since(start)
 					mu.Lock()
 					results = append(results, r)
 					mu.Unlock()
@@ -129,6 +134,7 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 			// Goroutines never return errors (captured in results), so Wait only
 			// returns nil or a context cancellation which is safe to ignore.
 			_ = g.Wait()
+			wall := time.Since(wallStart)
 
 			if prog != nil {
 				prog.Done()
@@ -140,8 +146,13 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 				ordered[results[idx].index] = results[idx]
 			}
 
+			timingRows := make([]output.TimingRow, len(ordered))
+			for i := range ordered {
+				timingRows[i] = output.TimingRow{Name: ordered[i].name, Duration: ordered[i].elapsed}
+			}
+
 			if jsonFlag {
-				if err := renderPullJSON(w, ordered); err != nil {
+				if err := renderPullJSON(w, ordered, timingRows, wall); err != nil {
 					return err
 				}
 				if failed := countPullFailures(ordered); failed > 0 {
@@ -182,6 +193,7 @@ commit and fails fast on a branch that has diverged from its upstream. Pass
 			output.RenderPullResults(w, rows)
 			output.RenderPullSummary(w, len(rows), updated, upToDate, skipped, failed)
 			renderMissingHint(w, missing)
+			output.RenderTiming(w, timingRows, wall, maxConcurrency)
 
 			if failed > 0 {
 				return fmt.Errorf("%d %s failed to pull", failed, output.Plural(failed, "repo"))
@@ -243,13 +255,14 @@ func countPullFailures(results []pullResult) int {
 }
 
 type pullJSON struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
-func renderPullJSON(w io.Writer, results []pullResult) error {
+func renderPullJSON(w io.Writer, results []pullResult, rows []output.TimingRow, wall time.Duration) error {
 	entries := make([]pullJSON, len(results))
 	for i := range results {
 		r := &results[i]
@@ -268,7 +281,13 @@ func renderPullJSON(w io.Writer, results []pullResult) error {
 			entries[i].Status = "failed"
 			entries[i].Error = r.message
 		}
+		if output.Perf() {
+			entries[i].DurationMS = r.elapsed.Milliseconds()
+		}
 	}
 
+	if output.Perf() {
+		return output.RenderPerfJSON(w, entries, output.BuildTiming(rows, wall, maxConcurrency))
+	}
 	return output.RenderJSON(w, entries)
 }
