@@ -65,7 +65,11 @@ Use --dry-run to preview what would be deleted.`,
 			prune, _ := cmd.Flags().GetBool("prune")
 			force, _ := cmd.Flags().GetBool("force")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
+			selectFlag, _ := cmd.Flags().GetBool("select")
 
+			if jsonFlag && selectFlag {
+				return fmt.Errorf("--select cannot be combined with --json")
+			}
 			if jsonFlag && !force && !dryRun {
 				return fmt.Errorf("--json requires --force or --dry-run")
 			}
@@ -87,6 +91,21 @@ Use --dry-run to preview what would be deleted.`,
 				}
 				output.Info(w, "all clean — no merged branches to delete")
 				return nil
+			}
+
+			// Optional interactive refinement: let the user deselect repos
+			// before anything is deleted. Narrow-only — it can never add a repo.
+			if selectFlag {
+				entries := make([]config.RepoEntry, len(withBranches))
+				for i, r := range withBranches {
+					entries[i] = config.RepoEntry{Name: r.Name, Path: r.Path}
+				}
+				chosen, ok := selectRepos(cmd, "Select repos to clean (space toggles, enter confirms):", entries)
+				if !ok {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  aborted")
+					return nil
+				}
+				withBranches = filterCleanResults(withBranches, chosen)
 			}
 
 			if jsonFlag && dryRun {
@@ -148,8 +167,25 @@ Use --dry-run to preview what would be deleted.`,
 	cmd.Flags().Bool("force", false, "skip confirmation prompt")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
+	addSelectFlag(cmd)
 
 	return cmd
+}
+
+// filterCleanResults keeps only the results whose repo is in the chosen set,
+// matched by path (the picker's stable identity).
+func filterCleanResults(results []cleanResult, chosen []config.RepoEntry) []cleanResult {
+	keep := make(map[string]bool, len(chosen))
+	for _, c := range chosen {
+		keep[c.Path] = true
+	}
+	filtered := make([]cleanResult, 0, len(chosen))
+	for _, r := range results {
+		if keep[r.Path] {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }
 
 // defaultBranch detects the default branch for a repo.
