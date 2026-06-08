@@ -74,6 +74,10 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 	}
 
 	if listFlag {
+		repoFlag, _ := cmd.Flags().GetString("repo")
+		if mutations > 0 || len(args) > 0 || repoFlag != "" {
+			return fmt.Errorf("--list cannot be combined with a repo argument or --set/--unset/--clear")
+		}
 		return runAnnotateList(jsonFlag, w)
 	}
 

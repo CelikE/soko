@@ -101,6 +101,9 @@ func TestFilterByMeta(t *testing.T) {
 		{"value mismatch", map[string]string{"status": "paused"}, nil},
 		{"key normalization", map[string]string{"STATUS": "archived"}, []string{"legacy"}},
 		{"empty constraints returns all", map[string]string{}, []string{"api", "web", "legacy", "scratch"}},
+		// An empty value requires the key to be present, so unannotated repos
+		// (nil Meta) and repos lacking the key do not match.
+		{"empty value requires key present", map[string]string{"status": ""}, nil},
 	}
 
 	for _, tt := range tests {

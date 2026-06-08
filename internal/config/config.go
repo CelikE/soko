@@ -516,7 +516,10 @@ func FilterByMeta(repos []RepoEntry, constraints map[string]string) []RepoEntry 
 	for _, r := range repos {
 		match := true
 		for k, v := range norm {
-			if r.Meta[k] != v {
+			// Require the key to be present, so a constraint with an empty
+			// value matches only repos that set the key to "", not every
+			// unannotated repo (a nil map yields "" for any key).
+			if rv, ok := r.Meta[k]; !ok || rv != v {
 				match = false
 				break
 			}

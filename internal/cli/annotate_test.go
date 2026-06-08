@@ -116,6 +116,29 @@ func TestAnnotateMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestAnnotateListRejectsMutationsAndTarget(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	saveConfig(t, config.RepoEntry{Name: "api", Path: "/x/api", Meta: map[string]string{"owner": "alice"}})
+
+	cases := [][]string{
+		{"annotate", "--list", "--set", "owner=bob"},
+		{"annotate", "--list", "--clear"},
+		{"annotate", "--list", "api"},
+		{"annotate", "--list", "-r", "api"},
+	}
+	for _, args := range cases {
+		if _, err := runRoot(t, args...); err == nil || !strings.Contains(err.Error(), "--list cannot be combined") {
+			t.Errorf("%v err = %v, want --list combination error", args, err)
+		}
+	}
+
+	// The repo must be untouched after a rejected --list --set.
+	cfg, _ := config.Load()
+	if cfg.Repos[0].Meta["owner"] != "alice" {
+		t.Errorf("meta mutated despite rejected --list --set: %v", cfg.Repos[0].Meta)
+	}
+}
+
 func TestAnnotateUnknownRepo(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	saveConfig(t, config.RepoEntry{Name: "api", Path: "/x/api"})
