@@ -176,8 +176,48 @@ func Fetch(ctx context.Context, dir string, prune bool) error {
 // branch configured. It returns false for a detached HEAD or a branch with no
 // tracking information — both cases where git pull has nothing to pull from.
 func HasUpstream(ctx context.Context, dir string) bool {
-	_, err := Run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	_, err := UpstreamBranch(ctx, dir)
 	return err == nil
+}
+
+// UpstreamBranch resolves the current branch's upstream tracking ref and
+// returns its short name (e.g. "origin/main"). It returns an error when there
+// is no upstream — a detached HEAD or a branch never pushed. This is the same
+// ref lookup that backs HasUpstream, kept as a single source of truth.
+func UpstreamBranch(ctx context.Context, dir string) (string, error) {
+	return Run(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+}
+
+// Remotes runs `git remote -v` and returns a map of remote name to fetch URL.
+// Only the (fetch) rows are kept; push and fetch URLs usually match and tracking
+// resolves against the fetch URL. On success a repo with no remotes yields an
+// empty, non-nil map, so callers need no nil guard.
+func Remotes(ctx context.Context, dir string) (map[string]string, error) {
+	out, err := Run(ctx, dir, "remote", "-v")
+	if err != nil {
+		return nil, err
+	}
+
+	remotes := make(map[string]string)
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		// Lines look like: "origin\tgit@github.com:acme/api.git (fetch)". The
+		// name is tab-separated from the rest, and the URL is everything before
+		// the trailing " (fetch)" — split on the tab and trim the suffix rather
+		// than on whitespace, so a URL containing spaces survives intact.
+		name, rest, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		url, ok := strings.CutSuffix(rest, " (fetch)")
+		if !ok {
+			continue // a (push) row or malformed — skip
+		}
+		remotes[name] = url
+	}
+	return remotes, nil
 }
 
 // Pull runs git pull in the given directory and reports whether it advanced the

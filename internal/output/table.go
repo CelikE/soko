@@ -264,6 +264,75 @@ func RenderHealthSummary(w io.Writer, total, crit, warn, ok int) {
 	)))
 }
 
+// RemoteRow holds everything needed to render one row in the remotes table.
+type RemoteRow struct {
+	Name     string
+	Origin   string
+	Upstream string
+	Tracking string
+	State    RowState
+}
+
+// RenderRemotesTable writes a formatted remotes table to w, colored per row by
+// State (green ok, yellow flagged, red errored), following the status table's
+// column-width and colorization pattern.
+func RenderRemotesTable(w io.Writer, rows []RemoteRow) {
+	cName := len("REPO")
+	cOrigin := len("ORIGIN")
+	cUpstream := len("UPSTREAM")
+	for _, r := range rows {
+		if len(r.Name) > cName {
+			cName = len(r.Name)
+		}
+		if len(r.Origin) > cOrigin {
+			cOrigin = len(r.Origin)
+		}
+		if len(r.Upstream) > cUpstream {
+			cUpstream = len(r.Upstream)
+		}
+	}
+	cName += 2
+	cOrigin += 2
+	cUpstream += 2
+
+	header := fmt.Sprintf("  %-*s %-*s %-*s %s",
+		cName, "REPO",
+		cOrigin, "ORIGIN",
+		cUpstream, "UPSTREAM",
+		"TRACKING",
+	)
+	_, _ = fmt.Fprintln(w, Dim(header))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+
+	for _, r := range rows {
+		line := fmt.Sprintf("  %-*s %-*s %-*s %s",
+			cName, r.Name,
+			cOrigin, r.Origin,
+			cUpstream, r.Upstream,
+			r.Tracking,
+		)
+
+		switch r.State {
+		case StateClean:
+			_, _ = fmt.Fprintln(w, Green(line))
+		case StateDirty:
+			_, _ = fmt.Fprintln(w, Yellow(line))
+		case StateConflict:
+			_, _ = fmt.Fprintln(w, Red(line))
+		default:
+			_, _ = fmt.Fprintln(w, line)
+		}
+	}
+}
+
+// RenderRemotesSummary writes the remotes summary line to w.
+func RenderRemotesSummary(w io.Writer, total, ok, flagged int) {
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d %s · %d ok · %d flagged",
+		total, Plural(total, "repo"), ok, flagged,
+	)))
+}
+
 // RenderSummary writes the status summary line to w.
 func RenderSummary(w io.Writer, totalRepos, dirtyCount, behindCount, totalChanges int) {
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
