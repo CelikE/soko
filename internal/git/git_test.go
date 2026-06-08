@@ -281,6 +281,29 @@ func TestRemotes(t *testing.T) {
 			t.Errorf("Remotes()[fork] = %q", got["fork"])
 		}
 	})
+
+	t.Run("url with spaces survives intact", func(t *testing.T) {
+		dir := initTestRepo(t)
+		// A local file remote whose path contains a space is legal and must
+		// not be truncated by whitespace splitting.
+		url := "/tmp/my repo/upstream.git"
+		gitMust(t, dir, "remote", "add", "origin", url)
+
+		got, err := Remotes(ctx, dir)
+		if err != nil {
+			t.Fatalf("Remotes() error = %v", err)
+		}
+		if got["origin"] != url {
+			t.Errorf("Remotes()[origin] = %q, want %q", got["origin"], url)
+		}
+	})
+
+	t.Run("errors on non-repo directory", func(t *testing.T) {
+		dir := t.TempDir() // exists but is not a git repo
+		if _, err := Remotes(ctx, dir); err == nil {
+			t.Error("Remotes() error = nil, want error for non-repo directory")
+		}
+	})
 }
 
 func TestUpstreamBranch(t *testing.T) {

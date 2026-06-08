@@ -136,25 +136,28 @@ func TestCollectRemotes(t *testing.T) {
 	local := initGitRepo(t)
 	// Repo 2: a path that does not exist → error row.
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	// Repo 3: a path that exists but is not a git repo → git.Remotes errors.
+	notRepo := t.TempDir()
 
 	repos := []config.RepoEntry{
 		{Name: "tracking", Path: tracking},
 		{Name: "local", Path: local},
 		{Name: "missing", Path: missing},
+		{Name: "broken", Path: notRepo},
 	}
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	got := collectRemotes(cmd, repos)
 
-	if len(got) != 3 {
-		t.Fatalf("collectRemotes() returned %d, want 3", len(got))
+	if len(got) != 4 {
+		t.Fatalf("collectRemotes() returned %d, want 4", len(got))
 	}
 
 	// Order must follow config order regardless of goroutine completion.
-	if got[0].name != "tracking" || got[1].name != "local" || got[2].name != "missing" {
-		t.Fatalf("collectRemotes() order = [%s %s %s], want [tracking local missing]",
-			got[0].name, got[1].name, got[2].name)
+	if got[0].name != "tracking" || got[1].name != "local" || got[2].name != "missing" || got[3].name != "broken" {
+		t.Fatalf("collectRemotes() order = [%s %s %s %s], want [tracking local missing broken]",
+			got[0].name, got[1].name, got[2].name, got[3].name)
 	}
 
 	if !got[0].trackingOK {
@@ -170,6 +173,12 @@ func TestCollectRemotes(t *testing.T) {
 
 	if got[2].err == "" || got[2].flag != "not found" {
 		t.Errorf("missing repo = {err:%q flag:%q}, want non-empty err and flag=not found", got[2].err, got[2].flag)
+	}
+
+	// An existing path that is not a git repo: git.Remotes errors → "error" flag.
+	if got[3].err == "" || got[3].flag != "error" || got[3].trackingOK {
+		t.Errorf("broken repo = {err:%q flag:%q trackingOK:%v}, want non-empty err, flag=error, trackingOK=false",
+			got[3].err, got[3].flag, got[3].trackingOK)
 	}
 }
 

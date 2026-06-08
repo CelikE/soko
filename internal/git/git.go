@@ -190,8 +190,8 @@ func UpstreamBranch(ctx context.Context, dir string) (string, error) {
 
 // Remotes runs `git remote -v` and returns a map of remote name to fetch URL.
 // Only the (fetch) rows are kept; push and fetch URLs usually match and tracking
-// resolves against the fetch URL. A repo with no remotes yields an empty,
-// non-nil map, so callers need no nil guard.
+// resolves against the fetch URL. On success a repo with no remotes yields an
+// empty, non-nil map, so callers need no nil guard.
 func Remotes(ctx context.Context, dir string) (map[string]string, error) {
 	out, err := Run(ctx, dir, "remote", "-v")
 	if err != nil {
@@ -200,16 +200,22 @@ func Remotes(ctx context.Context, dir string) (map[string]string, error) {
 
 	remotes := make(map[string]string)
 	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		// Lines look like: "origin\tgit@github.com:acme/api.git (fetch)".
-		fields := strings.Fields(line)
-		if len(fields) < 3 || fields[2] != "(fetch)" {
+		// Lines look like: "origin\tgit@github.com:acme/api.git (fetch)". The
+		// name is tab-separated from the rest, and the URL is everything before
+		// the trailing " (fetch)" — split on the tab and trim the suffix rather
+		// than on whitespace, so a URL containing spaces survives intact.
+		name, rest, ok := strings.Cut(line, "\t")
+		if !ok {
 			continue
 		}
-		remotes[fields[0]] = fields[1]
+		url, ok := strings.CutSuffix(rest, " (fetch)")
+		if !ok {
+			continue // a (push) row or malformed — skip
+		}
+		remotes[name] = url
 	}
 	return remotes, nil
 }
