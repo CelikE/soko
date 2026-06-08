@@ -374,6 +374,55 @@ func RenderPullSummary(w io.Writer, total, updated, upToDate, skipped, failed in
 	)))
 }
 
+// GrepMatch is one rendered grep hit. In files-only mode Line is 0 and Text
+// is empty.
+type GrepMatch struct {
+	File string
+	Line int
+	Text string
+}
+
+// GrepGroup holds the matches for a single repo.
+type GrepGroup struct {
+	Repo    string
+	Matches []GrepMatch
+}
+
+// RenderGrepResults writes grep matches grouped by repo to w: a dimmed repo
+// header, then indented rows. In line mode each row is "file:line  text" with
+// the file:line dimmed; in files-only mode each row is just the path. Repos
+// are separated by a blank line.
+func RenderGrepResults(w io.Writer, groups []GrepGroup, filesOnly bool) {
+	for i, g := range groups {
+		if i > 0 {
+			_, _ = fmt.Fprintln(w)
+		}
+		_, _ = fmt.Fprintf(w, "  %s\n", Dim(g.Repo))
+		for _, m := range g.Matches {
+			if filesOnly {
+				_, _ = fmt.Fprintf(w, "    %s\n", m.File)
+				continue
+			}
+			loc := Dim(fmt.Sprintf("%s:%d", m.File, m.Line))
+			_, _ = fmt.Fprintf(w, "    %s  %s\n", loc, strings.TrimSpace(m.Text))
+		}
+	}
+}
+
+// RenderGrepSummary writes the grep summary line to w. The match noun becomes
+// "file" in files-only mode.
+func RenderGrepSummary(w io.Writer, repoCount, matchCount int, filesOnly bool) {
+	noun := "match"
+	if filesOnly {
+		noun = "file"
+	}
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
+		"%d %s · %d %s",
+		repoCount, Plural(repoCount, "repo"),
+		matchCount, Plural(matchCount, noun),
+	)))
+}
+
 // Confirm prints a success confirmation message.
 func Confirm(w io.Writer, message string) {
 	_, _ = fmt.Fprintf(w, "  %s %s\n", Green(SymClean), message)

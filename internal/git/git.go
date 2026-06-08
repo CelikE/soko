@@ -5,9 +5,11 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -43,6 +45,84 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// Match is one git grep hit: a file path, a 1-based line number, and the
+// matched line text. In files-only mode Line is 0 and Text is empty.
+type Match struct {
+	File string
+	Line int
+	Text string
+}
+
+// Grep runs `git grep` for pattern in dir and returns the parsed matches.
+// regex selects -E (POSIX extended regex) over the default -F (fixed string);
+// ignoreCase adds -i; filesOnly adds -l (paths only). Exit code 1 means "no
+// match" and yields (nil, nil) — the basis for graceful degradation across a
+// workspace. Exit codes >= 2 (e.g. a bad regex) return an error.
+//
+// It runs git directly rather than via Run because Run collapses any non-zero
+// exit into an error and discards stdout, whereas Grep must distinguish exit 1
+// from exit >= 2 and keep stdout.
+func Grep(ctx context.Context, dir, pattern string, regex, ignoreCase, filesOnly bool) ([]Match, error) {
+	args := []string{"grep", "--color=never"}
+	if filesOnly {
+		args = append(args, "-l")
+	} else {
+		args = append(args, "--line-number")
+	}
+	if ignoreCase {
+		args = append(args, "-i")
+	}
+	if regex {
+		args = append(args, "-E")
+	} else {
+		args = append(args, "-F")
+	}
+	args = append(args, "-e", pattern)
+
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Dir = dir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil // no matches — not an error
+		}
+		return nil, fmt.Errorf("git grep: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	return parseGrep(stdout.String(), filesOnly), nil
+}
+
+// parseGrep turns `git grep` stdout into matches. Line mode rows are
+// "path:line:text" (split on the first two colons so colons in the text — URLs,
+// timestamps — survive); files-only rows are bare paths.
+func parseGrep(out string, filesOnly bool) []Match {
+	var matches []Match
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		if filesOnly {
+			matches = append(matches, Match{File: line})
+			continue
+		}
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) < 3 {
+			continue // malformed — skip defensively
+		}
+		n, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		matches = append(matches, Match{File: parts[0], Line: n, Text: parts[2]})
+	}
+	return matches
 }
 
 // IsGitRepo returns true if dir is inside a git repository.
