@@ -23,7 +23,8 @@ type Progress struct {
 }
 
 // NewProgress creates a progress indicator that writes to w.
-// If w is not a terminal, the returned Progress is inert (no output).
+// If w is not a terminal, or quiet mode is active, the returned Progress is
+// inert (no output) — Increment and Done already no-op when inactive.
 func NewProgress(w io.Writer, msg string, total int) *Progress {
 	p := &Progress{
 		w:     w,
@@ -31,7 +32,7 @@ func NewProgress(w io.Writer, msg string, total int) *Progress {
 		total: total,
 	}
 
-	if f, ok := w.(*os.File); ok {
+	if f, ok := w.(*os.File); ok && !quiet {
 		p.active = term.IsTerminal(int(f.Fd()))
 	}
 

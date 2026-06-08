@@ -225,6 +225,9 @@ func renderPruneTable(w io.Writer, targets []config.RepoEntry) {
 		_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, pathStr)
 	}
 
+	if output.Quiet() {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
 		"%d missing %s", len(targets), output.Plural(len(targets), "repo"))))
 }

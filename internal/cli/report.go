@@ -230,6 +230,11 @@ func renderReport(w io.Writer, active []reportResult, inactive []string, days, m
 		totalCommits += len(r.Commits)
 	}
 
+	// The summary footer and the inactive addendum are trailing decoration.
+	if output.Quiet() {
+		return
+	}
+
 	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
 		"%d active %s · %d %s · last %d %s",
 		len(active), output.Plural(len(active), "repo"),

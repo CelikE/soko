@@ -258,6 +258,9 @@ func RenderHealthTable(w io.Writer, rows []HealthRow) {
 
 // RenderHealthSummary writes the health summary line to w.
 func RenderHealthSummary(w io.Writer, total, crit, warn, ok int) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
 		"%d %s · %d crit · %d warn · %d ok",
 		total, Plural(total, "repo"), crit, warn, ok,
@@ -327,6 +330,9 @@ func RenderRemotesTable(w io.Writer, rows []RemoteRow) {
 
 // RenderRemotesSummary writes the remotes summary line to w.
 func RenderRemotesSummary(w io.Writer, total, ok, flagged int) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
 		"%d %s · %d ok · %d flagged",
 		total, Plural(total, "repo"), ok, flagged,
@@ -335,6 +341,9 @@ func RenderRemotesSummary(w io.Writer, total, ok, flagged int) {
 
 // RenderSummary writes the status summary line to w.
 func RenderSummary(w io.Writer, totalRepos, dirtyCount, behindCount, totalChanges int) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
 		"%d %s · %d dirty · %d behind · %d %s",
 		totalRepos, Plural(totalRepos, "repo"),
@@ -373,6 +382,9 @@ func RenderActionResults(w io.Writer, rows []ActionRow) {
 
 // RenderActionSummary writes a summary line for action commands to w.
 func RenderActionSummary(w io.Writer, total, ok, failed int) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
 		"%d %s · %d ok · %d failed", total, Plural(total, "repo"), ok, failed)))
 }
@@ -437,6 +449,9 @@ func RenderPullResults(w io.Writer, rows []PullRow) {
 // generic action summary it breaks results into updated, already up-to-date,
 // skipped (no upstream), and failed — the distinctions that matter when pulling.
 func RenderPullSummary(w io.Writer, total, updated, upToDate, skipped, failed int) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(fmt.Sprintf(
 		"%d %s · %d updated · %d up to date · %d skipped · %d failed",
 		total, Plural(total, "repo"), updated, upToDate, skipped, failed,
@@ -481,6 +496,9 @@ func RenderGrepResults(w io.Writer, groups []GrepGroup, filesOnly bool) {
 // RenderGrepSummary writes the grep summary line to w. The match noun becomes
 // "file" in files-only mode.
 func RenderGrepSummary(w io.Writer, repoCount, matchCount int, filesOnly bool) {
+	if quiet {
+		return
+	}
 	noun := "match"
 	if filesOnly {
 		noun = "file"
@@ -497,8 +515,12 @@ func Confirm(w io.Writer, message string) {
 	_, _ = fmt.Fprintf(w, "  %s %s\n", Green(SymClean), message)
 }
 
-// Warn prints a warning message.
+// Warn prints a warning message. Suppressed in quiet mode — warnings here are
+// non-fatal hints (e.g. the prune nudge), not errors; use Fail for errors.
 func Warn(w io.Writer, message string) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "  %s %s\n", Yellow(SymWarning), message)
 }
 
@@ -507,8 +529,11 @@ func Fail(w io.Writer, message string) {
 	_, _ = fmt.Fprintf(w, "  %s %s\n", Red(SymConflict), message)
 }
 
-// Info prints an informational message (dimmed).
+// Info prints an informational message (dimmed). Suppressed in quiet mode.
 func Info(w io.Writer, message string) {
+	if quiet {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "  %s\n", Dim(message))
 }
 

@@ -2,7 +2,12 @@
 package cli
 
 import (
+	"os"
+	"strings"
+
 	"github.com/spf13/cobra"
+
+	"github.com/CelikE/soko/internal/output"
 )
 
 // NewRootCmd creates and returns the root cobra command for soko.
@@ -18,9 +23,22 @@ then run soko status from anywhere to see the state of every tracked repo.`,
   soko list      List all registered repos`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Read --quiet (and the SOKO_QUIET fallback) once for every subcommand
+		// and flip the output gate before any command runs.
+		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
+			q, _ := c.Flags().GetBool("quiet")
+			// An explicit --quiet (true or false) always wins; the env fallback
+			// applies only when the flag was not provided.
+			if !c.Flags().Changed("quiet") {
+				q = isTruthyEnv(os.Getenv("SOKO_QUIET"))
+			}
+			output.SetQuiet(q)
+			return nil
+		},
 	}
 
 	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
+	cmd.PersistentFlags().BoolP("quiet", "q", false, "suppress hints, progress, and summary lines")
 
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newScanCmd())
@@ -52,4 +70,16 @@ then run soko status from anywhere to see the state of every tracked repo.`,
 	cmd.AddCommand(newVersionCmd(version))
 
 	return cmd
+}
+
+// isTruthyEnv reports whether an environment value means "on". It accepts
+// 1/true/yes (case-insensitive); anything else — including a malformed value —
+// is treated as off, so a typo can never crash soko.
+func isTruthyEnv(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }

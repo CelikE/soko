@@ -272,6 +272,9 @@ func renderAnnotateList(w io.Writer, repos []config.RepoEntry) {
 		_, _ = fmt.Fprintln(w, strings.TrimRight(row.String(), " "))
 	}
 
+	if output.Quiet() {
+		return
+	}
 	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
 		"%d %s annotated", len(repos), output.Plural(len(repos), "repo"))))
 }
