@@ -13,7 +13,7 @@ soko (倉庫 — "storehouse") is a fast, lightweight CLI for managing multiple 
 ## Prerequisites
 
 - **Git** — soko shells out to `git` for all repository operations
-- **Go 1.22+** — only needed if installing from source or via `go install`
+- **Go 1.26+** — only needed if installing from source or via `go install`
 
 ## Install
 
@@ -31,7 +31,7 @@ winget install CelikE.soko
 scoop bucket add soko https://github.com/CelikE/homebrew-tap
 scoop install soko
 
-# From source (requires Go 1.22+)
+# From source (requires Go 1.26+)
 go install github.com/CelikE/soko/cmd/soko@latest
 ```
 
@@ -71,6 +71,7 @@ soko status
 | `soko scan` | Discover and register all git repos in a directory |
 | `soko discover` | Auto-register repos as you cd into them (opt-in) |
 | `soko status [repos...]` | Show status of all (or specific) repos |
+| `soko remotes [repos...]` | Show each repo's remotes + upstream tracking, flag misconfig |
 | `soko diff [repos...]` | Show uncommitted file changes across repos |
 | `soko stash [repos...]` | Stash/pop uncommitted changes across repos |
 | `soko clean [repos...]` | Delete merged branches across repos |
@@ -85,11 +86,13 @@ soko status
 | `soko grep <pattern>` | Search file content across repos with git grep |
 | `soko open` | Open a repo in the browser |
 | `soko report [repos...]` | Summarize commit activity across repos |
+| `soko stats` | Show workspace-level statistics and health metrics |
 | `soko health` | Rank repos by an urgency score — most neglected first |
 | `soko tag` | Manage repo tags |
+| `soko annotate [repo]` | Attach metadata (owner/status/priority/note) to a repo |
 | `soko alias` | Manage command aliases |
 | `soko doc` | Check the health of your soko setup |
-| `soko config` | View config path or open in editor |
+| `soko config` | View, get, set, or list configuration (`--json` supported) |
 | `soko shell-init` | Print shell integration hook |
 | `soko version` | Print the soko version |
 
@@ -98,12 +101,15 @@ soko status
 | Flag | Scope | Description |
 |------|-------|-------------|
 | `--json` | Global | Output in JSON format |
+| `--quiet`, `-q` | Global | Suppress hints, progress, and summary lines (also via `SOKO_QUIET`) |
 | `--fetch` | `status` | Fetch from remotes before showing status |
 | `--dirty` | `status` | Show only repos with uncommitted changes |
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
-| `--tag` | `init`, `scan`, `status`, `list`, `fetch`, `pull`, `exec`, `go`, `report`, `clean`, `prune`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--missing-upstream` | `remotes` | Show only repos with no remote or no upstream |
+| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `exec`, `grep`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--meta` | `list`, `status` | Filter by metadata `key=value` (repeatable, combines with AND) |
 | `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |
 | `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
@@ -120,6 +126,11 @@ soko status
 | `--prune` | `fetch`, `clean` | Prune stale remote tracking refs |
 | `--force` | `remove`, `clean`, `prune` | Skip confirmation prompt |
 | `--select` | `clean`, `prune`, `remove --all` | Open the interactive picker to choose exactly which repos the operation touches (requires a TTY) |
+| `--set` | `annotate` | Set a metadata `key=value` (repeatable) |
+| `--unset` | `annotate` | Remove a metadata key (repeatable) |
+| `--clear` | `annotate` | Remove all metadata from a repo |
+| `--list` | `annotate` | List every repo that has metadata |
+| `-r`, `--repo` | `annotate`, `tag add`, `tag remove` | Target repo by name (defaults to the current directory) |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--prs` | `open` | Open pull/merge requests page |
 | `--issues` | `open` | Open issues page |
@@ -149,6 +160,22 @@ soko status --dirty                 # only repos with uncommitted changes
 soko status --tag backend --behind  # only backend repos behind remote
 soko status --json                  # machine-readable output
 ```
+
+### Remotes and upstream tracking
+
+```bash
+soko remotes                        # origin + upstream for every repo
+soko remotes api worker             # only the named repos
+soko remotes --tag backend          # only backend repos
+soko remotes --missing-upstream     # only repos with no remote or no upstream
+soko remotes --json                 # structured output for scripting
+```
+
+`soko remotes` is the read-only sibling of `soko status`: where `status` answers
+"what changed?", `remotes` answers "where does this repo push and pull?". It
+shows each repo's origin URL and upstream tracking branch and flags the two
+problem cases — **no remote** (never pushed) and **no upstream** (a local-only
+branch or detached HEAD) — in yellow. It runs no network operations.
 
 ### Pull updates
 
@@ -180,6 +207,35 @@ soko status --tag backend           # filter any command by tag
 soko fetch --tag frontend           # fetch only frontend repos
 soko exec --tag go -- go mod tidy   # run in tagged repos only
 ```
+
+### Annotate repos with metadata
+
+Tags answer "which group is this in?"; annotations answer "who owns it, is it
+still active, how important is it, and what should I remember about it?" Owner,
+status, priority, and note are well-known keys, but the map is open — any
+`key=value` works.
+
+```bash
+soko annotate api --set owner=alice --set status=active   # set keys (repeatable)
+soko annotate api --set note="migrating to v2"            # quote values with spaces
+soko annotate api                                         # show a repo's metadata
+soko annotate api --json                                  # machine-readable
+soko annotate api --unset priority                        # remove a key
+soko annotate api --clear                                 # remove all metadata
+soko annotate --list                                      # every annotated repo
+```
+
+Then filter `soko list` and `soko status` by it — repeated `--meta` flags
+combine with **AND**:
+
+```bash
+soko list   --meta status=active                          # only active repos
+soko status --meta priority=high --meta status=active     # high priority AND active
+```
+
+Metadata lives in the same `~/.config/soko/config.yaml` registry and survives
+`soko scan` / `soko prune`. A repo with no annotations writes no `meta:` block,
+so existing configs are untouched.
 
 ### Aliases
 
@@ -357,11 +413,17 @@ pipe or CI (no TTY) `--select` is ignored and the command runs on the full set.
 ```bash
 soko doc                            # check paths, git, remotes, shell-init
 soko doc --fix                      # auto-remove stale entries
+soko config list                    # dump the effective config (table)
+soko config list --json             # dump the effective config (JSON)
 soko config path                    # print config file location
 soko config edit                    # open config in $EDITOR
 soko config set git_path /usr/local/bin/git  # use a custom git binary
 soko config get git_path            # check current git binary
+soko config get git_path --json     # {"key":"git_path","value":"..."}
 ```
+
+`config path`, `config get`, `config set`, and `config list` all honour the
+global `--json` flag, so soko's configuration is fully scriptable.
 
 ### Git worktrees
 
@@ -416,6 +478,27 @@ Or use soko's built-in interactive picker, which supports fuzzy search:
 soko go    # pick a repo or worktree, cd into it
 ```
 
+### Quiet mode for scripts and CI
+
+`--quiet` (`-q`) suppresses the human-facing chrome — info lines, the
+missing-repo nudge, progress counters, and the trailing summary footer — while
+leaving tables, errors, exit codes, and `--json` output untouched. It is the
+orthogonal complement to `--json`: `--json` changes *what* soko prints, `--quiet`
+changes *whether* the extras print at all.
+
+```bash
+soko status --quiet                 # table only — no summary, no hints
+soko fetch --quiet                  # per-repo results, no progress, no footer
+soko status --quiet --json          # the JSON document only, nothing before it
+soko clean --quiet --force          # destructive run with no chatter
+SOKO_QUIET=1 soko status            # same, via env for cron/CI without editing args
+```
+
+Errors are never silenced: a failing `soko pull --quiet` still prints its error
+to stderr and exits non-zero. An explicit `--quiet` always wins over
+`SOKO_QUIET`, so a script can export the env globally and you can still get full
+output with `--quiet=false`.
+
 ## Configuration
 
 soko stores registered repos in a single YAML file:
@@ -436,6 +519,9 @@ repos:
     tags:
       - backend
       - go
+    meta:
+      owner: alice
+      status: active
   - name: auth-service/feat-oauth
     path: /home/dev/worktrees/feat-oauth
     worktree_of: auth-service
@@ -447,7 +533,8 @@ repos:
       - frontend
 ```
 
-Tags and `worktree_of` are optional — repos without them work the same as before.
+Tags, `meta`, and `worktree_of` are optional — repos without them work the same
+as before.
 
 ## Building from source
 
