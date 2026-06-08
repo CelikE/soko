@@ -115,7 +115,9 @@ func TestConfigSetJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second set: %v", err)
 	}
-	_ = json.Unmarshal([]byte(out), &got)
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal second set %q: %v", out, err)
+	}
 	if got.Previous != exe {
 		t.Errorf("second set previous = %q, want %q", got.Previous, exe)
 	}
@@ -177,6 +179,58 @@ func TestConfigListJSON_Empty(t *testing.T) {
 	// The discover block must be absent from the raw JSON.
 	if strings.Contains(out, "discover") {
 		t.Errorf("raw JSON should omit discover block:\n%s", out)
+	}
+	// With no aliases, the omitempty map drops out of the JSON entirely.
+	if len(got.Aliases) != 0 {
+		t.Errorf("aliases = %v, want empty", got.Aliases)
+	}
+	if strings.Contains(out, "aliases") {
+		t.Errorf("raw JSON should omit empty aliases block:\n%s", out)
+	}
+}
+
+// TestConfigListJSON_DiscoverDisabled covers the case where discovery was
+// configured then turned off: cfg.Discover is non-nil but Enabled is false, so
+// the block is still present (with enabled:false), unlike the never-configured
+// case where it is omitted entirely.
+func TestConfigListJSON_DiscoverDisabled(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfg := &config.Config{
+		Discover: &config.DiscoverConfig{
+			Enabled: false,
+			Roots:   []string{"/Users/me/work"},
+		},
+	}
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("seeding config: %v", err)
+	}
+
+	out, err := runRoot(t, "config", "list", "--json")
+	if err != nil {
+		t.Fatalf("config list --json: %v", err)
+	}
+	var got configListJSON
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal %q: %v", out, err)
+	}
+	if got.Discover == nil {
+		t.Fatal("discover = nil, want present-but-disabled block")
+	}
+	if got.Discover.Enabled {
+		t.Error("discover.enabled = true, want false")
+	}
+	if len(got.Discover.Roots) != 1 || got.Discover.Roots[0] != "/Users/me/work" {
+		t.Errorf("discover roots = %v, want [/Users/me/work]", got.Discover.Roots)
+	}
+
+	// Text view shows discover off even though the block is configured.
+	text, err := runRoot(t, "config", "list")
+	if err != nil {
+		t.Fatalf("config list text: %v", err)
+	}
+	if !strings.Contains(text, "off") {
+		t.Errorf("text discover line should show off:\n%s", text)
 	}
 }
 
