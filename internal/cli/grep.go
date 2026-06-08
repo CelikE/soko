@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -75,6 +76,8 @@ Read-only and parallel — a repo with no match simply contributes nothing.`,
 			regex, _ := cmd.Flags().GetBool("regexp")
 			filesOnly, _ := cmd.Flags().GetBool("files-only")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
+
+			highlighter := grepHighlighter(pattern, regex, ignoreCase)
 
 			var prog *output.Progress
 			if !jsonFlag {
@@ -154,7 +157,7 @@ Read-only and parallel — a repo with no match simply contributes nothing.`,
 				if len(r.matches) == 0 {
 					continue
 				}
-				groups = append(groups, output.GrepGroup{Repo: r.name, Matches: toGrepMatches(r.matches)})
+				groups = append(groups, output.GrepGroup{Repo: r.name, Matches: toGrepMatches(r.matches, highlighter)})
 				repoCount++
 				matchCount += len(r.matches)
 			}
@@ -191,10 +194,40 @@ Read-only and parallel — a repo with no match simply contributes nothing.`,
 	return cmd
 }
 
-func toGrepMatches(matches []git.Match) []output.GrepMatch {
+// grepHighlighter compiles a regexp used to locate the matched span within
+// each result line for colorizing. For a fixed-string search the pattern is
+// quoted so metacharacters match literally; ignoreCase adds the (?i) flag.
+// Returns nil when the pattern cannot be compiled as a Go (RE2) regexp — for
+// example a POSIX ERE construct git accepts but RE2 rejects — in which case
+// matches are rendered without highlighting (best-effort, never fatal).
+func grepHighlighter(pattern string, regex, ignoreCase bool) *regexp.Regexp {
+	pat := pattern
+	if !regex {
+		pat = regexp.QuoteMeta(pattern)
+	}
+	if ignoreCase {
+		pat = "(?i)" + pat
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return nil
+	}
+	return re
+}
+
+// toGrepMatches converts git matches to renderable matches, locating the
+// highlight span via hl. In files-only mode Text is empty so no span is set.
+func toGrepMatches(matches []git.Match, hl *regexp.Regexp) []output.GrepMatch {
 	out := make([]output.GrepMatch, len(matches))
 	for i, m := range matches {
-		out[i] = output.GrepMatch{File: m.File, Line: m.Line, Text: m.Text}
+		gm := output.GrepMatch{File: m.File, Line: m.Line, Text: m.Text}
+		if hl != nil && m.Text != "" {
+			if loc := hl.FindStringIndex(m.Text); len(loc) == 2 && loc[1] > loc[0] {
+				gm.Col = loc[0]
+				gm.Length = loc[1] - loc[0]
+			}
+		}
+		out[i] = gm
 	}
 	return out
 }

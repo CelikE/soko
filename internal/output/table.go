@@ -459,11 +459,15 @@ func RenderPullSummary(w io.Writer, total, updated, upToDate, skipped, failed in
 }
 
 // GrepMatch is one rendered grep hit. In files-only mode Line is 0 and Text
-// is empty.
+// is empty. Col and Length locate the matched substring within Text (byte
+// offsets) so the renderer can highlight it; Length 0 means no span to
+// highlight (files-only mode, or a pattern the highlighter could not locate).
 type GrepMatch struct {
-	File string
-	Line int
-	Text string
+	File   string
+	Line   int
+	Text   string
+	Col    int
+	Length int
 }
 
 // GrepGroup holds the matches for a single repo.
@@ -488,9 +492,20 @@ func RenderGrepResults(w io.Writer, groups []GrepGroup, filesOnly bool) {
 				continue
 			}
 			loc := Dim(fmt.Sprintf("%s:%d", m.File, m.Line))
-			_, _ = fmt.Fprintf(w, "    %s  %s\n", loc, strings.TrimSpace(m.Text))
+			_, _ = fmt.Fprintf(w, "    %s  %s\n", loc, strings.TrimSpace(highlightMatch(m)))
 		}
 	}
+}
+
+// highlightMatch recolors the matched span [Col, Col+Length) within m.Text
+// using Yellow, leaving the rest untouched. When there is no span (Length 0)
+// or the offsets fall outside the text it returns Text unchanged. Respects
+// NO_COLOR automatically via the Yellow helper.
+func highlightMatch(m GrepMatch) string {
+	if m.Length <= 0 || m.Col < 0 || m.Col+m.Length > len(m.Text) {
+		return m.Text
+	}
+	return m.Text[:m.Col] + Yellow(m.Text[m.Col:m.Col+m.Length]) + m.Text[m.Col+m.Length:]
 }
 
 // RenderGrepSummary writes the grep summary line to w. The match noun becomes
