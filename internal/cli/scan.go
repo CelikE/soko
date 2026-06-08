@@ -168,7 +168,7 @@ func classifyRepo(cfg *config.Config, name, path, worktreeOf string, tags []stri
 	}
 
 	entry := config.RepoEntry{Name: name, Path: path, Tags: tags, WorktreeOf: worktreeOf}
-	_, addErr := config.AddRepo(cfg, entry)
+	_, addErr := config.AddRepo(cfg, &entry)
 	if addErr != nil {
 		if errors.Is(addErr, config.ErrRepoAlreadyExists) {
 			r.AlreadyRegistered = true

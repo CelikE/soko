@@ -93,7 +93,7 @@ Use --tag to filter the picker to repos with specific tags.`,
 			selected := repos[idx]
 
 			if jsonFlag {
-				return writeGoJSON(w, selected)
+				return writeGoJSON(w, &selected)
 			}
 
 			// Write the nav file so the shell hook can cd.
@@ -118,7 +118,7 @@ Use --tag to filter the picker to repos with specific tags.`,
 func goNonInteractive(repos []config.RepoEntry, jsonOut bool, w, stderr io.Writer) error {
 	if len(repos) == 1 {
 		if jsonOut {
-			return writeGoJSON(w, repos[0])
+			return writeGoJSON(w, &repos[0])
 		}
 		if err := writeNavFile(repos[0].Path); err != nil {
 			_, _ = fmt.Fprintln(w, repos[0].Path)
@@ -138,7 +138,7 @@ type goJSON struct {
 	Path string `json:"path"`
 }
 
-func writeGoJSON(w io.Writer, entry config.RepoEntry) error {
+func writeGoJSON(w io.Writer, entry *config.RepoEntry) error {
 	return output.RenderJSON(w, goJSON{Name: entry.Name, Path: entry.Path})
 }
 

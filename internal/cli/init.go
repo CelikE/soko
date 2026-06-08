@@ -78,7 +78,7 @@ func newInitCmd() *cobra.Command {
 
 				// Auto-register parent if not already registered.
 				parentEntry := config.RepoEntry{Name: parentName, Path: mainPath, Tags: tags}
-				if _, addErr := config.AddRepo(cfg, parentEntry); addErr == nil {
+				if _, addErr := config.AddRepo(cfg, &parentEntry); addErr == nil {
 					output.Confirm(w, fmt.Sprintf("registered %s (%s)", parentName, mainPath))
 				}
 			}
@@ -90,7 +90,7 @@ func newInitCmd() *cobra.Command {
 				WorktreeOf: worktreeOf,
 			}
 
-			cfg, err = config.AddRepo(cfg, entry)
+			cfg, err = config.AddRepo(cfg, &entry)
 			if err != nil {
 				if errors.Is(err, config.ErrRepoAlreadyExists) {
 					output.Warn(w, fmt.Sprintf("already registered %s (%s)", name, dir))

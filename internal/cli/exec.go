@@ -122,7 +122,7 @@ func execParallel(cmd *cobra.Command, repos []config.RepoEntry, args []string) [
 
 	for i, repo := range repos {
 		g.Go(func() error {
-			r := execOne(ctx, i, repo, args)
+			r := execOne(ctx, i, &repo, args)
 			mu.Lock()
 			results[i] = r
 			mu.Unlock()
@@ -141,7 +141,7 @@ func execSequential(cmd *cobra.Command, repos []config.RepoEntry, args []string,
 	results := make([]execResult, 0, len(repos))
 
 	for i, repo := range repos {
-		r := execOne(ctx, i, repo, args)
+		r := execOne(ctx, i, &repo, args)
 		results = append(results, r)
 
 		// Print immediately for sequential non-JSON.
@@ -153,7 +153,7 @@ func execSequential(cmd *cobra.Command, repos []config.RepoEntry, args []string,
 	return results
 }
 
-func execOne(ctx context.Context, index int, repo config.RepoEntry, args []string) execResult {
+func execOne(ctx context.Context, index int, repo *config.RepoEntry, args []string) execResult {
 	r := execResult{index: index, name: repo.Name, path: repo.Path}
 
 	if !pathExists(repo.Path) {

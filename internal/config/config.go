@@ -28,10 +28,11 @@ var (
 
 // RepoEntry represents a single registered git repository or worktree.
 type RepoEntry struct {
-	Name       string   `yaml:"name"`
-	Path       string   `yaml:"path"`
-	Tags       []string `yaml:"tags,omitempty"`
-	WorktreeOf string   `yaml:"worktree_of,omitempty"`
+	Name       string            `yaml:"name"`
+	Path       string            `yaml:"path"`
+	Tags       []string          `yaml:"tags,omitempty"`
+	WorktreeOf string            `yaml:"worktree_of,omitempty"`
+	Meta       map[string]string `yaml:"meta,omitempty"`
 }
 
 // IsWorktreeEntry returns true if this entry is a linked worktree.
@@ -316,14 +317,14 @@ func SaveTo(cfg *Config, path string) error {
 
 // AddRepo appends a repo entry to the config if no entry with the same path
 // already exists. It returns ErrRepoAlreadyExists if the path is a duplicate.
-func AddRepo(cfg *Config, entry RepoEntry) (*Config, error) {
+func AddRepo(cfg *Config, entry *RepoEntry) (*Config, error) {
 	for _, r := range cfg.Repos {
 		if r.Path == entry.Path {
 			return cfg, ErrRepoAlreadyExists
 		}
 	}
 
-	cfg.Repos = append(cfg.Repos, entry)
+	cfg.Repos = append(cfg.Repos, *entry)
 	return cfg, nil
 }
 
@@ -446,6 +447,85 @@ func TagCount(cfg *Config) map[string]int {
 
 func normalizeTag(tag string) string {
 	return strings.ToLower(strings.TrimSpace(tag))
+}
+
+// normalizeMetaKey lowercases and trims a metadata key, the same discipline
+// used for tags, so "Owner" and "owner" refer to the same key.
+func normalizeMetaKey(key string) string {
+	return strings.ToLower(strings.TrimSpace(key))
+}
+
+// SetMeta upserts a metadata key/value on a repo, allocating the map lazily and
+// normalizing the key. Returns ErrRepoNotFound for an unknown repo. Values are
+// stored verbatim.
+func SetMeta(cfg *Config, repoName, key, value string) (*Config, error) {
+	key = normalizeMetaKey(key)
+	for i := range cfg.Repos {
+		if cfg.Repos[i].Name == repoName {
+			if cfg.Repos[i].Meta == nil {
+				cfg.Repos[i].Meta = make(map[string]string)
+			}
+			cfg.Repos[i].Meta[key] = value
+			return cfg, nil
+		}
+	}
+	return cfg, ErrRepoNotFound
+}
+
+// UnsetMeta removes a metadata key from a repo. Returns ErrRepoNotFound for an
+// unknown repo. Removing the last key sets the map back to nil so the meta block
+// disappears from YAML. Removing an absent key is a no-op.
+func UnsetMeta(cfg *Config, repoName, key string) (*Config, error) {
+	key = normalizeMetaKey(key)
+	for i := range cfg.Repos {
+		if cfg.Repos[i].Name == repoName {
+			delete(cfg.Repos[i].Meta, key)
+			if len(cfg.Repos[i].Meta) == 0 {
+				cfg.Repos[i].Meta = nil
+			}
+			return cfg, nil
+		}
+	}
+	return cfg, ErrRepoNotFound
+}
+
+// ClearMeta removes all metadata from a repo. Returns ErrRepoNotFound for an
+// unknown repo. It touches only the named repo's metadata.
+func ClearMeta(cfg *Config, repoName string) (*Config, error) {
+	for i := range cfg.Repos {
+		if cfg.Repos[i].Name == repoName {
+			cfg.Repos[i].Meta = nil
+			return cfg, nil
+		}
+	}
+	return cfg, ErrRepoNotFound
+}
+
+// FilterByMeta returns repos whose metadata contains every key=value in
+// constraints (AND). Constraint keys are normalized to match how SetMeta stores
+// them. An empty constraint map returns repos unchanged.
+func FilterByMeta(repos []RepoEntry, constraints map[string]string) []RepoEntry {
+	if len(constraints) == 0 {
+		return repos
+	}
+	norm := make(map[string]string, len(constraints))
+	for k, v := range constraints {
+		norm[normalizeMetaKey(k)] = v
+	}
+	var filtered []RepoEntry
+	for _, r := range repos {
+		match := true
+		for k, v := range norm {
+			if r.Meta[k] != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }
 
 // FindRepoByPath returns the repo entry whose path matches, or ErrRepoNotFound.

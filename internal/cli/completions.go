@@ -203,7 +203,9 @@ func boundedLevenshtein(a, b string, limit int) int {
 	return prev[lb]
 }
 
-// loadReposWithTagFilter loads the config and applies --tag filtering if set.
+// loadReposWithTagFilter loads the config and applies the --tag filter, and the
+// --meta filter on commands that define it (list, status). Commands without a
+// --meta flag are unaffected — the lookup yields no constraints.
 func loadReposWithTagFilter(cmd *cobra.Command) (*config.Config, []config.RepoEntry, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -214,6 +216,15 @@ func loadReposWithTagFilter(cmd *cobra.Command) (*config.Config, []config.RepoEn
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 	if len(tags) > 0 {
 		repos = config.FilterByTags(repos, tags)
+	}
+
+	meta, _ := cmd.Flags().GetStringSlice("meta")
+	if len(meta) > 0 {
+		constraints, err := parseMetaConstraints(meta)
+		if err != nil {
+			return nil, nil, err
+		}
+		repos = config.FilterByMeta(repos, constraints)
 	}
 
 	return cfg, repos, nil

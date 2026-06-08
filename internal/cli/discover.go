@@ -323,7 +323,7 @@ func discoverHook(cmd *cobra.Command, dir string) {
 	if _, findErr := config.FindRepoByPath(fresh, top); findErr == nil {
 		return
 	}
-	if _, addErr := config.AddRepo(fresh, entry); addErr != nil {
+	if _, addErr := config.AddRepo(fresh, &entry); addErr != nil {
 		return
 	}
 	if saveErr := config.Save(fresh); saveErr != nil {
