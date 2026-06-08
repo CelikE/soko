@@ -4,6 +4,25 @@
 
 ### Features
 
+- Add a persistent `--quiet`/`-q` flag (and `SOKO_QUIET` env) that suppresses info lines, hints, progress, and summary footers while leaving tables, errors, exit codes, and `--json` untouched
+- Add `soko annotate` to attach freeform metadata (owner, status, priority, note, or any key) to a repo, and filter `soko list` / `soko status` by it with `--meta key=value`
+- Suggest the closest registered repo name when `cd`, `go`, `open`, or `remove` is given a name that matches nothing — `no repo matching: autth — did you mean: auth?`
+- Give `config path`, `config get`, and `config set` a `--json` contract, and add `config list` to dump the effective configuration as a table or JSON
+- Add `soko remotes` to show each repo's origin URL and upstream tracking, flagging repos with no remote or no upstream; supports `--tag`, `--missing-upstream`, and `--json`
+- Add `soko grep` to run `git grep` across all (or tag/repo-filtered) repos in parallel, grouped by repo, with `-i`/`--regexp`/`--files-only`/`--no-worktrees` and `--json`
+- Add `--select` to `clean`, `prune`, and `remove --all` to interactively pick which repos the destructive operation touches before confirming (narrow-only, TTY-gated)
+- Add soko health to rank repos by an urgency score, most neglected first
+- Add `soko pull` to pull all (or specific) registered repos in parallel — fast-forward only by default, with `--rebase`, `--tag`, and `--no-worktrees` flags. Branches with no upstream are skipped rather than reported as failures.
+
+### Chores
+
+- Document the remotes, annotate, and stats commands, the `--quiet`/`SOKO_QUIET`, `--meta`, `--missing-upstream`, and annotate flags, and `config list`/`--json`; correct the source-build Go version to 1.26+
+- Git-ignore the local assessment and improvement-proposal docs (`docs/ASSESSMENT.md`, `docs/improvements/`), matching the existing `docs/features/` planning-doc convention
+
+## v0.19.0
+
+### Features
+
 - Accept an optional filter argument on soko go to pre-narrow the picker by name
 - Automatic repo discovery with `soko discover` — opt in with `soko discover on` and repos register themselves the first time you cd into them, no `soko scan` needed. Driven by the shell hook (fires on directory change); scope it with `--root`, apply `--tag`s, and skip paths with `--ignore`. Skips submodules, the home directory, `node_modules`/`vendor`, and non-interactive shells. `soko doc` reports discovery status
 - Prune deleted repos with `soko prune` — remove registry entries whose directories no longer exist on disk (cascading to their linked worktrees), with `--dry-run`/`--force`/`--json` and `--tag` filtering. `status` and `list` now warn when registered repos have gone missing
