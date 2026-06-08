@@ -68,6 +68,9 @@ func removeByName(cfg *config.Config, name string, jsonOut bool, w io.Writer) er
 	cfg, removed, err := config.RemoveRepo(cfg, name)
 	if err != nil {
 		if errors.Is(err, config.ErrRepoNotFound) {
+			if s := suggestRepoNames(cfg.Repos, name); len(s) > 0 {
+				return fmt.Errorf("not found: %s — did you mean: %s?", name, strings.Join(s, ", "))
+			}
 			return fmt.Errorf("not found: %s", name)
 		}
 		return fmt.Errorf("removing repo: %w", err)
