@@ -30,9 +30,14 @@ func newRemoveCmd() *cobra.Command {
 			forceFlag, _ := cmd.Flags().GetBool("force")
 			pathFlag, _ := cmd.Flags().GetString("path")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
+			selectFlag, _ := cmd.Flags().GetBool("select")
+
+			if jsonFlag && selectFlag {
+				return fmt.Errorf("--select cannot be combined with --json")
+			}
 
 			if allFlag {
-				return removeAll(cmd, cfg, forceFlag, jsonFlag, w)
+				return removeAll(cmd, cfg, forceFlag, jsonFlag, selectFlag, w)
 			}
 
 			if pathFlag != "" {
@@ -50,6 +55,7 @@ func newRemoveCmd() *cobra.Command {
 	cmd.Flags().String("path", "", "remove by absolute path instead of name")
 	cmd.Flags().Bool("all", false, "remove all registered repos")
 	cmd.Flags().Bool("force", false, "skip confirmation prompt")
+	addSelectFlag(cmd)
 	cmd.ValidArgsFunction = repoNameCompletionFunc()
 
 	return cmd
@@ -113,15 +119,31 @@ func removeByPath(cfg *config.Config, path string, jsonOut bool, w io.Writer) er
 	return nil
 }
 
-func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut bool, w io.Writer) error {
+func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut, selectFlag bool, w io.Writer) error {
 	count := len(cfg.Repos)
 	if count == 0 {
 		output.Info(w, "no repos registered")
 		return nil
 	}
 
+	// Optional interactive refinement: pick exactly which repos to unregister.
+	// Narrow-only — the picker can never add a repo that was not registered.
+	targets := cfg.Repos
+	if selectFlag {
+		chosen, ok := selectRepos(cmd, "Select repos to remove from the registry:", cfg.Repos)
+		if !ok {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "aborted")
+			return nil
+		}
+		targets = chosen
+	}
+
 	if !force {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "remove all %d repos? [y/N] ", count)
+		prompt := fmt.Sprintf("remove all %d %s? [y/N] ", count, output.Plural(count, "repo"))
+		if len(targets) != count {
+			prompt = fmt.Sprintf("remove %d selected %s? [y/N] ", len(targets), output.Plural(len(targets), "repo"))
+		}
+		_, _ = fmt.Fprint(cmd.ErrOrStderr(), prompt)
 
 		scanner := bufio.NewScanner(cmd.InOrStdin())
 		if !scanner.Scan() {
@@ -135,10 +157,17 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut bool, w io
 		}
 	}
 
-	removed := make([]config.RepoEntry, len(cfg.Repos))
-	copy(removed, cfg.Repos)
+	removed := make([]config.RepoEntry, len(targets))
+	copy(removed, targets)
 
-	cfg = config.Clear(cfg)
+	if len(targets) == count {
+		cfg = config.Clear(cfg)
+	} else {
+		// Remove only the chosen entries, by path, leaving the rest registered.
+		for _, t := range targets {
+			cfg, _, _ = config.RemoveRepoByPath(cfg, t.Path)
+		}
+	}
 
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
@@ -148,7 +177,11 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut bool, w io
 		return writeRemovedJSON(w, removed)
 	}
 
-	output.Confirm(w, fmt.Sprintf("removed all %d %s", count, output.Plural(count, "repo")))
+	if len(removed) == count {
+		output.Confirm(w, fmt.Sprintf("removed all %d %s", count, output.Plural(count, "repo")))
+	} else {
+		output.Confirm(w, fmt.Sprintf("removed %d %s", len(removed), output.Plural(len(removed), "repo")))
+	}
 	return nil
 }
 

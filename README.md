@@ -114,6 +114,7 @@ soko status
 | `--all` | `status` | Show all repos without truncation |
 | `--prune` | `fetch`, `clean` | Prune stale remote tracking refs |
 | `--force` | `remove`, `clean`, `prune` | Skip confirmation prompt |
+| `--select` | `clean`, `prune`, `remove --all` | Open the interactive picker to choose exactly which repos the operation touches (requires a TTY) |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--prs` | `open` | Open pull/merge requests page |
 | `--issues` | `open` | Open issues page |
@@ -285,9 +286,11 @@ soko list --tag infra               # filter by tag
 soko remove old-project             # unregister by name
 soko remove --path /old/path        # unregister by path
 soko remove --all --force           # clear everything
+soko remove --all --select          # pick which repos to unregister
 soko prune --dry-run                # preview repos whose dirs were deleted
 soko prune                          # drop deleted repos (with confirmation)
 soko prune --force                  # skip confirmation
+soko prune --select                 # pick which missing repos to drop
 soko prune --dry-run --json         # machine-readable preview (--json needs --force or --dry-run)
 ```
 
@@ -297,10 +300,17 @@ soko prune --dry-run --json         # machine-readable preview (--json needs --f
 soko clean --dry-run               # preview merged branches
 soko clean                         # delete with confirmation
 soko clean --force                 # skip confirmation
+soko clean --select                # pick which repos to clean before deleting
 soko clean --prune                 # also prune stale remote refs
 soko clean --tag backend           # only backend repos
 soko clean auth                    # specific repo
 ```
+
+`--select` opens the interactive picker (the one `soko go` uses) with every
+matched repo pre-checked; deselect the repos you want to spare with space, press
+enter, and only the chosen subset is touched. It can only ever *narrow* the set,
+never widen it, so it is strictly safer than the all-or-nothing default. In a
+pipe or CI (no TTY) `--select` is ignored and the command runs on the full set.
 
 ### Health check and config
 

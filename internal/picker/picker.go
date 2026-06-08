@@ -44,6 +44,34 @@ type state struct {
 	offset     int // scroll offset — first visible item index
 	labelWidth int
 	lastLines  int // lines rendered on last draw, for clearing
+
+	// multi-select mode (RunMulti). checked is keyed by original item index
+	// so it survives filtering, which copies Items.
+	multi   bool
+	checked map[int]bool
+}
+
+// toggleCurrent flips the checked state of the item under the cursor. No-op
+// outside multi mode or when the filtered list is empty.
+func (s *state) toggleCurrent() {
+	if !s.multi || len(s.filtered) == 0 {
+		return
+	}
+	idx := s.filtered[s.cursor].index
+	s.checked[idx] = !s.checked[idx]
+}
+
+// checkedIndices returns the original indices of all checked items, in the
+// original list order. It always returns a non-nil slice so the caller can
+// distinguish "confirmed nothing" (empty, non-nil) from "cancelled" (nil).
+func (s *state) checkedIndices() []int {
+	out := make([]int, 0, len(s.checked))
+	for _, it := range s.allItems {
+		if s.checked[it.index] {
+			out = append(out, it.index)
+		}
+	}
+	return out
 }
 
 // visibleCount returns how many items to show in the viewport.
@@ -167,6 +195,126 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 	}
 }
 
+// RunMulti displays an interactive multi-select picker. Every item starts
+// checked; space toggles the item under the cursor, enter confirms. It returns
+// the original indices of the checked items (a non-nil, possibly empty slice),
+// or nil if the user cancelled with esc/Ctrl+C. The picker can only ever
+// narrow the set — it never adds an item that was not passed in.
+func RunMulti(in *os.File, w io.Writer, opts Options) []int {
+	// Force colors on — same rationale as Run (we render to stderr).
+	wasNoColor := color.NoColor
+	color.NoColor = false
+	defer func() { color.NoColor = wasNoColor }()
+
+	oldState, err := term.MakeRaw(int(in.Fd()))
+	if err != nil {
+		return nil
+	}
+
+	for i := range opts.Items {
+		opts.Items[i].index = i
+	}
+
+	s := &state{
+		allItems:   opts.Items,
+		query:      opts.InitialQuery,
+		labelWidth: computeLabelWidth(opts.Items),
+		multi:      true,
+		checked:    make(map[int]bool, len(opts.Items)),
+	}
+	for _, it := range opts.Items {
+		s.checked[it.index] = true // start with everything checked
+	}
+	s.filtered = filterItems(opts.Items, s.query)
+
+	defer func() {
+		_ = term.Restore(int(in.Fd()), oldState)
+		clearLines(w, s.lastLines)
+	}()
+
+	render(w, opts.Title, s)
+
+	buf := make([]byte, 3)
+	for {
+		n, readErr := in.Read(buf)
+		if readErr != nil {
+			return nil
+		}
+
+		switch {
+		// Enter — confirm the checked set.
+		case n == 1 && (buf[0] == '\r' || buf[0] == '\n'):
+			return s.checkedIndices()
+
+		// Ctrl+C — cancel.
+		case n == 1 && buf[0] == 3:
+			return nil
+
+		// Escape — clear filter if active, otherwise cancel.
+		case n == 1 && buf[0] == 27:
+			if s.query != "" {
+				clearLines(w, s.lastLines)
+				s.query = ""
+				s.filtered = s.allItems
+				s.cursor = 0
+				s.offset = 0
+				render(w, opts.Title, s)
+			} else {
+				return nil
+			}
+
+		// Space — toggle the item under the cursor. Handled before the
+		// printable-character branch so space never becomes a search term.
+		case n == 1 && buf[0] == ' ':
+			s.toggleCurrent()
+			clearLines(w, s.lastLines)
+			render(w, opts.Title, s)
+
+		// Backspace.
+		case n == 1 && (buf[0] == 127 || buf[0] == 8):
+			if s.query != "" {
+				clearLines(w, s.lastLines)
+				s.query = s.query[:len(s.query)-1]
+				s.filtered = filterItems(s.allItems, s.query)
+				s.cursor = 0
+				s.offset = 0
+				render(w, opts.Title, s)
+			}
+
+		// Up arrow.
+		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'A':
+			if s.cursor > 0 {
+				s.cursor--
+				if s.cursor < s.offset {
+					s.offset = s.cursor
+				}
+				clearLines(w, s.lastLines)
+				render(w, opts.Title, s)
+			}
+
+		// Down arrow.
+		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'B':
+			if s.cursor < len(s.filtered)-1 {
+				s.cursor++
+				if s.cursor >= s.offset+s.visibleCount() {
+					s.offset = s.cursor - s.visibleCount() + 1
+				}
+				clearLines(w, s.lastLines)
+				render(w, opts.Title, s)
+			}
+
+		// Printable character — add to search query (space excluded above).
+		case n == 1 && buf[0] > 32 && buf[0] < 127:
+			clearLines(w, s.lastLines)
+			s.query += string(buf[0])
+			s.filtered = filterItems(s.allItems, s.query)
+			s.cursor = 0
+			s.offset = 0
+			render(w, opts.Title, s)
+		}
+	}
+}
+
 func filterItems(items []Item, query string) []Item {
 	if query == "" {
 		return items
@@ -237,11 +385,20 @@ func render(w io.Writer, title string, s *state) {
 		for i := s.offset; i < end; i++ {
 			item := s.filtered[i]
 			paddedLabel := padRight(item.Label, s.labelWidth)
+			checkbox := ""
+			if s.multi {
+				if s.checked[item.index] {
+					checkbox = "[x] "
+				} else {
+					checkbox = "[ ] "
+				}
+			}
 			if i == s.cursor {
-				line := fmt.Sprintf("  › %s %s", paddedLabel, item.Desc)
+				line := fmt.Sprintf("  › %s%s %s", checkbox, paddedLabel, item.Desc)
 				_, _ = fmt.Fprintf(w, "%s\r\n", output.Green(line))
 			} else {
-				_, _ = fmt.Fprintf(w, "    %s %s\r\n",
+				_, _ = fmt.Fprintf(w, "    %s%s %s\r\n",
+					checkbox,
 					paddedLabel,
 					output.Dim(item.Desc))
 			}
@@ -255,8 +412,9 @@ func render(w io.Writer, title string, s *state) {
 			lines++
 		}
 
-		// Position indicator when scrolling.
-		if len(s.filtered) > maxVisible {
+		// Position indicator when scrolling (single-select only; multi shows
+		// a selected-count on the help line instead).
+		if !s.multi && len(s.filtered) > maxVisible {
 			_, _ = fmt.Fprintf(w, "  %s\r\n",
 				output.Dim(fmt.Sprintf("  %d of %d", s.cursor+1, len(s.filtered))))
 			lines++
@@ -266,9 +424,14 @@ func render(w io.Writer, title string, s *state) {
 	// Help line.
 	_, _ = fmt.Fprint(w, "\r\n")
 	lines++
-	if s.query != "" {
+	switch {
+	case s.multi:
+		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(fmt.Sprintf(
+			"↑↓ navigate · space toggle · enter confirm · esc cancel · %d of %d selected",
+			len(s.checkedIndices()), len(s.allItems))))
+	case s.query != "":
 		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · esc clear · backspace delete"))
-	} else {
+	default:
 		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · type to search · esc quit"))
 	}
 	lines++

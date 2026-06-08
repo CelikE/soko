@@ -42,7 +42,11 @@ Use --dry-run to preview what would be pruned.`,
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			force, _ := cmd.Flags().GetBool("force")
 			jsonFlag, _ := cmd.Flags().GetBool("json")
+			selectFlag, _ := cmd.Flags().GetBool("select")
 
+			if jsonFlag && selectFlag {
+				return fmt.Errorf("--select cannot be combined with --json")
+			}
 			// Without --force or --dry-run, prune prompts interactively, which
 			// would corrupt JSON output for machine consumers.
 			if jsonFlag && !force && !dryRun {
@@ -73,6 +77,16 @@ Use --dry-run to preview what would be pruned.`,
 					output.Info(w, "all registered repos exist — nothing to prune")
 				}
 				return nil
+			}
+
+			// Optional interactive refinement before removing anything.
+			if selectFlag {
+				chosen, ok := selectRepos(cmd, "Select repos to prune (space toggles, enter confirms):", targets)
+				if !ok {
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  aborted")
+					return nil
+				}
+				targets = chosen
 			}
 
 			if !jsonFlag {
@@ -124,6 +138,7 @@ Use --dry-run to preview what would be pruned.`,
 	cmd.Flags().Bool("force", false, "skip confirmation prompt")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
+	addSelectFlag(cmd)
 
 	return cmd
 }
