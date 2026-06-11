@@ -80,6 +80,7 @@ soko status
 | `soko prune` | Remove repos whose directories no longer exist |
 | `soko fetch [repos...]` | Fetch all (or specific) registered repos in parallel |
 | `soko pull [repos...]` | Pull all (or specific) registered repos in parallel |
+| `soko sync [repos...]` | Fetch all repos, fast-forward the safe ones, report the rest |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
@@ -108,13 +109,14 @@ soko status
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--missing-upstream` | `remotes` | Show only repos with no remote or no upstream |
-| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `exec`, `grep`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `sync`, `exec`, `grep`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `discover on` | Filter by tag (repeatable, combines with OR) |
 | `--meta` | `list`, `status` | Filter by metadata `key=value` (repeatable, combines with AND) |
 | `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |
 | `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
-| `--no-worktrees` | `fetch`, `pull`, `exec`, `grep` | Skip worktree entries, only operate on parent repos |
+| `--no-worktrees` | `fetch`, `pull`, `sync`, `exec`, `grep` | Skip worktree entries, only operate on parent repos |
+| `--fetch-only` | `sync` | Fetch every repo but never pull |
 | `--ignore-case`, `-i` | `grep` | Case-insensitive match |
 | `--regexp`, `-e` | `grep` | Treat the pattern as a POSIX extended regex (default: fixed string) |
 | `--files-only` | `grep` | List matching file paths only, not lines |
@@ -193,6 +195,33 @@ commit and reports a clear failure on any repo that has diverged from its
 upstream. Use `--rebase` when you want your local commits replayed on top.
 Repos whose current branch has no upstream (local-only branches, detached HEAD)
 are skipped rather than counted as failures.
+
+### Sync everything
+
+```bash
+soko sync                           # fetch all, fast-forward what's safe
+soko sync --tag backend             # only backend repos
+soko sync --fetch-only              # fetch but never pull
+soko sync --json                    # machine-readable output
+```
+
+`soko sync` is the one-command morning routine: it fetches every repo, then
+fast-forwards only the repos where that is provably safe — clean working tree,
+an upstream, and no divergence. Everything else is *reported, never touched*:
+dirty repos show as `dirty (skipped pull)`, diverged branches as
+`diverged (needs rebase)`. sync never creates merge commits, never rebases,
+and never risks your uncommitted work.
+
+```
+    REPO            ACTION         RESULT
+  ────────────────────────────────────────────────────
+  ✓ auth-service    fetch + pull   3 new commits
+  · backend-api     fetch          up to date
+  ⚠ frontend        fetch only     dirty (skipped pull)
+  ✓ shared-lib      fetch + pull   12 new commits
+
+  4 repos · 2 pulled · 1 up to date · 1 need attention · 0 skipped · 0 failed · 15 new commits
+```
 
 ### Tags
 

@@ -458,6 +458,89 @@ func RenderPullSummary(w io.Writer, total, updated, upToDate, skipped, failed in
 	)))
 }
 
+// SyncOutcome classifies a sync result row for colorization.
+type SyncOutcome int
+
+const (
+	// SyncOK marks a repo that pulled new commits (green).
+	SyncOK SyncOutcome = iota
+	// SyncNeutral marks a repo that was already up to date (dimmed).
+	SyncNeutral
+	// SyncWarn marks a repo that needs a human: dirty, diverged, or behind
+	// in fetch-only mode (yellow).
+	SyncWarn
+	// SyncSkip marks a repo sync could not act on, e.g. no upstream (dimmed).
+	SyncSkip
+	// SyncFail marks a repo whose fetch or pull failed (red).
+	SyncFail
+)
+
+// SyncRow holds the result of syncing one repo.
+type SyncRow struct {
+	Name    string
+	Action  string
+	Outcome SyncOutcome
+	Result  string
+}
+
+// RenderSyncResults writes sync results to w under a header row. The ACTION
+// column records what sync did (fetch, fetch only, fetch + pull) so a user can
+// audit exactly which repos were mutated; RESULT records how it went.
+func RenderSyncResults(w io.Writer, rows []SyncRow) {
+	if len(rows) == 0 {
+		return
+	}
+
+	nameWidth := len("REPO")
+	actionWidth := len("ACTION")
+	for _, r := range rows {
+		if len(r.Name) > nameWidth {
+			nameWidth = len(r.Name)
+		}
+		if len(r.Action) > actionWidth {
+			actionWidth = len(r.Action)
+		}
+	}
+	nameWidth += 2
+	actionWidth += 2
+
+	// Four-space indent lines REPO up under the repo names: two base spaces
+	// plus the one-glyph status column and its trailing space in each row.
+	header := fmt.Sprintf("    %-*s %-*s %s", nameWidth, "REPO", actionWidth, "ACTION", "RESULT")
+	_, _ = fmt.Fprintln(w, Dim(header))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+
+	for _, r := range rows {
+		line := fmt.Sprintf("%-*s %-*s %s", nameWidth, r.Name, actionWidth, r.Action, r.Result)
+		switch r.Outcome {
+		case SyncOK:
+			_, _ = fmt.Fprintln(w, Green("  "+SymClean+" "+line))
+		case SyncNeutral, SyncSkip:
+			_, _ = fmt.Fprintln(w, Dim("  "+SymInSync+" "+line))
+		case SyncWarn:
+			_, _ = fmt.Fprintln(w, Yellow("  "+SymWarning+" "+line))
+		case SyncFail:
+			_, _ = fmt.Fprintln(w, Red("  "+SymConflict+" "+line))
+		}
+	}
+}
+
+// RenderSyncSummary writes a summary line for the sync command to w. "need
+// attention" covers the states sync deliberately refuses to touch — dirty,
+// diverged, or behind under --fetch-only — so the count is the user's to-do
+// list, not an error tally.
+func RenderSyncSummary(w io.Writer, total, pulled, upToDate, attention, skipped, failed, newCommits int) {
+	if quiet {
+		return
+	}
+	s := fmt.Sprintf("%d %s · %d pulled · %d up to date · %d need attention · %d skipped · %d failed",
+		total, Plural(total, "repo"), pulled, upToDate, attention, skipped, failed)
+	if newCommits > 0 {
+		s += fmt.Sprintf(" · %d new %s", newCommits, Plural(newCommits, "commit"))
+	}
+	_, _ = fmt.Fprintf(w, "\n  %s\n", Dim(s))
+}
+
 // GrepMatch is one rendered grep hit. In files-only mode Line is 0 and Text
 // is empty. Col and Length locate the matched substring within Text (byte
 // offsets) so the renderer can highlight it; Length 0 means no span to
