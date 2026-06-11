@@ -82,6 +82,7 @@ soko status
 | `soko pull [repos...]` | Pull all (or specific) registered repos in parallel |
 | `soko sync [repos...]` | Fetch all repos, fast-forward the safe ones, report the rest |
 | `soko ctx` | Save and restore workspace contexts (branches + stashes) |
+| `soko worktree` | Create, list, and remove git worktrees with registry bookkeeping |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
@@ -514,6 +515,25 @@ soko exec --no-worktrees -- git pull
 ```
 
 Without `--worktrees`, soko detects when you're in a worktree and registers the main repo instead — no duplicates.
+
+Beyond tracking, `soko worktree` manages the lifecycle — create, inspect, and
+tear down worktrees without leaving the registry stale:
+
+```bash
+soko worktree add api feat-x        # create ../api-feat-x + register, print path
+soko worktree add api feat-x -b     # create the branch in the same step
+soko worktree add api fix --path ~/tmp/hotfix --tag wip
+soko worktree list                  # WORKTREE · PARENT · BRANCH · STATUS · PATH
+soko worktree rm api/feat-x         # remove the dir + unregister
+soko worktree rm api/feat-x --force # even with uncommitted changes
+cd "$(soko worktree add api feat-x -q)"   # create and jump in one line
+```
+
+`add` places the worktree next to the main repo as `<repo>-<branch>` unless
+`--path` says otherwise, names the entry `parent/branch` so `cd`, `go`, and
+`status` work unchanged, and prints the new path last for command
+substitution. `rm` refuses a dirty worktree without `--force` and never
+touches branches — deleting merged branches stays `soko clean`'s job.
 
 ### tmux-sessionizer integration
 
