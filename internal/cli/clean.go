@@ -7,12 +7,14 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
+	"github.com/CelikE/soko/internal/journal"
 	"github.com/CelikE/soko/internal/output"
 )
 
@@ -143,7 +145,23 @@ Use --dry-run to preview what would be deleted.`,
 				}
 			}
 
-			deleted, failed := deleteBranches(ctx, withBranches)
+			refs, deleted, failed := deleteBranches(ctx, withBranches)
+
+			// Record the deletion so soko undo can recreate the branches. Journal
+			// failure must never fail the clean itself — warn and move on.
+			if len(refs) > 0 {
+				entry := journal.Entry{
+					Op:   journal.OpClean,
+					Time: time.Now(),
+					Summary: fmt.Sprintf("deleted %d %s across %d %s",
+						deleted, output.Plural(deleted, "branch"),
+						len(withBranches), output.Plural(len(withBranches), "repo")),
+					Branches: refs,
+				}
+				if err := journal.Append(&entry); err != nil {
+					output.Warn(cmd.ErrOrStderr(), fmt.Sprintf("could not record undo journal: %v", err))
+				}
+			}
 
 			if jsonFlag {
 				return output.RenderJSON(w, withBranches)
@@ -322,8 +340,11 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 		len(results), output.Plural(len(results), "repo"))))
 }
 
-// deleteBranches deletes stale branches in parallel and returns deleted/failed counts.
-func deleteBranches(ctx context.Context, results []cleanResult) (deleted, failed int) {
+// deleteBranches deletes stale branches in parallel and returns the journal
+// refs for every branch it actually deleted (repo, path, branch, pre-delete
+// SHA) plus deleted/failed counts. The SHAs let soko undo recreate the
+// branches exactly where they were.
+func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.BranchRef, deleted, failed int) {
 	var mu sync.Mutex
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(maxConcurrency)
@@ -334,12 +355,22 @@ func deleteBranches(ctx context.Context, results []cleanResult) (deleted, failed
 		}
 		for _, branch := range r.Branches {
 			g.Go(func() error {
+				// Capture the tip SHA before deleting so undo can restore it.
+				sha, _ := git.Run(ctx, r.Path, "rev-parse", branch)
 				_, err := git.Run(ctx, r.Path, "branch", "-d", branch)
 				mu.Lock()
 				if err != nil {
 					failed++
 				} else {
 					deleted++
+					if sha != "" {
+						refs = append(refs, journal.BranchRef{
+							Repo:   r.Name,
+							Path:   r.Path,
+							Branch: branch,
+							SHA:    sha,
+						})
+					}
 				}
 				mu.Unlock()
 				return nil
@@ -348,5 +379,5 @@ func deleteBranches(ctx context.Context, results []cleanResult) (deleted, failed
 	}
 
 	_ = g.Wait()
-	return deleted, failed
+	return refs, deleted, failed
 }

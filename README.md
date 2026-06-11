@@ -75,6 +75,7 @@ soko status
 | `soko diff [repos...]` | Show uncommitted file changes across repos |
 | `soko stash [repos...]` | Stash/pop uncommitted changes across repos |
 | `soko clean [repos...]` | Delete merged branches across repos |
+| `soko undo` | Revert the last destructive soko operation (e.g. clean) |
 | `soko list` | List all registered repos |
 | `soko remove` | Remove a repo from the registry |
 | `soko prune` | Remove repos whose directories no longer exist |
