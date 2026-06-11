@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 
@@ -24,6 +25,10 @@ var (
 	// ErrRepoNotFound is returned when attempting to remove a repo that is not
 	// registered in the config.
 	ErrRepoNotFound = errors.New("repo not found")
+
+	// ErrInheritedTag is returned when attempting to remove a tag from a
+	// worktree that the worktree only holds by inheritance from its parent.
+	ErrInheritedTag = errors.New("tag is inherited from the parent repo; retag the parent to change it")
 )
 
 // RepoEntry represents a single registered git repository or worktree.
@@ -384,17 +389,25 @@ func AddTag(cfg *Config, repoName, tag string) (*Config, error) {
 // doesn't exist. No-op if the tag doesn't exist on the repo.
 func RemoveTag(cfg *Config, repoName, tag string) (*Config, error) {
 	tag = normalizeTag(tag)
-	for i, r := range cfg.Repos {
-		if r.Name == repoName {
-			tags := make([]string, 0, len(r.Tags))
-			for _, t := range r.Tags {
-				if t != tag {
-					tags = append(tags, t)
-				}
-			}
-			cfg.Repos[i].Tags = tags
-			return cfg, nil
+	for i := range cfg.Repos {
+		r := &cfg.Repos[i]
+		if r.Name != repoName {
+			continue
 		}
+		owns := slices.Contains(r.Tags, tag)
+		// On a worktree, a tag the entry doesn't own but matches via
+		// inheritance can only be removed by retagging the parent.
+		if !owns && r.WorktreeOf != "" && slices.Contains(EffectiveTags(cfg, r), tag) {
+			return cfg, ErrInheritedTag
+		}
+		tags := make([]string, 0, len(r.Tags))
+		for _, t := range r.Tags {
+			if t != tag {
+				tags = append(tags, t)
+			}
+		}
+		r.Tags = tags
+		return cfg, nil
 	}
 	return cfg, ErrRepoNotFound
 }
@@ -416,17 +429,49 @@ func ListTags(cfg *Config) []string {
 	return tags
 }
 
+// EffectiveTags returns a repo's effective tag set: its own tags plus, for a
+// worktree entry, the tags of its parent repo (resolved at call time via
+// worktree_of). Inheritance is dynamic — retagging the parent instantly
+// re-scopes the worktree. A worktree whose parent is unregistered falls back to
+// its own tags only. Non-worktree entries return their own tags unchanged.
+func EffectiveTags(cfg *Config, r *RepoEntry) []string {
+	if r.WorktreeOf == "" {
+		return r.Tags
+	}
+	var parentTags []string
+	for i := range cfg.Repos {
+		if cfg.Repos[i].Name == r.WorktreeOf {
+			parentTags = cfg.Repos[i].Tags
+			break
+		}
+	}
+	if len(parentTags) == 0 {
+		return r.Tags
+	}
+	seen := make(map[string]bool, len(r.Tags)+len(parentTags))
+	tags := make([]string, 0, len(r.Tags)+len(parentTags))
+	for _, t := range append(append([]string{}, r.Tags...), parentTags...) {
+		if !seen[t] {
+			seen[t] = true
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
 // FilterByTags returns repos that have at least one of the given tags.
-// Multiple tags combine with OR.
-func FilterByTags(repos []RepoEntry, tags []string) []RepoEntry {
+// Multiple tags combine with OR. Worktree entries also match their parent's
+// tags via EffectiveTags, so cfg is needed to resolve parents.
+func FilterByTags(cfg *Config, repos []RepoEntry, tags []string) []RepoEntry {
 	tagSet := make(map[string]bool, len(tags))
 	for _, t := range tags {
 		tagSet[normalizeTag(t)] = true
 	}
 
 	var filtered []RepoEntry
-	for _, r := range repos {
-		for _, t := range r.Tags {
+	for i := range repos {
+		r := repos[i]
+		for _, t := range EffectiveTags(cfg, &r) {
 			if tagSet[t] {
 				filtered = append(filtered, r)
 				break
@@ -439,8 +484,8 @@ func FilterByTags(repos []RepoEntry, tags []string) []RepoEntry {
 // TagCount returns a map of tag name to the number of repos that have it.
 func TagCount(cfg *Config) map[string]int {
 	counts := make(map[string]int)
-	for _, r := range cfg.Repos {
-		for _, t := range r.Tags {
+	for i := range cfg.Repos {
+		for _, t := range EffectiveTags(cfg, &cfg.Repos[i]) {
 			counts[t]++
 		}
 	}

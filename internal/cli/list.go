@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -38,7 +39,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			if groupFlag {
-				renderListTree(w, repos)
+				renderListTree(w, cfg, repos)
 				renderMissingHint(w, len(findMissingRepos(repos)))
 				return nil
 			}
@@ -126,16 +127,18 @@ func renderListTable(w io.Writer, repos []config.RepoEntry) {
 	}
 }
 
-func renderListTree(w io.Writer, repos []config.RepoEntry) {
+func renderListTree(w io.Writer, cfg *config.Config, repos []config.RepoEntry) {
 	groups := make(map[string][]config.RepoEntry)
 	var untagged []config.RepoEntry
 
-	for _, r := range repos {
-		if len(r.Tags) == 0 {
+	for i := range repos {
+		r := repos[i]
+		effective := config.EffectiveTags(cfg, &r)
+		if len(effective) == 0 {
 			untagged = append(untagged, r)
 			continue
 		}
-		for _, tag := range r.Tags {
+		for _, tag := range effective {
 			groups[tag] = append(groups[tag], r)
 		}
 	}
@@ -164,7 +167,7 @@ func renderListTree(w io.Writer, repos []config.RepoEntry) {
 			_, _ = fmt.Fprintln(w)
 		}
 		_, _ = fmt.Fprintln(w, "  "+output.Dim(tag))
-		renderTreeEntries(w, groups[tag], nameWidth)
+		renderTreeEntries(w, tag, groups[tag], nameWidth)
 	}
 
 	if len(untagged) > 0 {
@@ -172,17 +175,23 @@ func renderListTree(w io.Writer, repos []config.RepoEntry) {
 			_, _ = fmt.Fprintln(w)
 		}
 		_, _ = fmt.Fprintln(w, "  "+output.Dim("untagged"))
-		renderTreeEntries(w, untagged, nameWidth)
+		renderTreeEntries(w, "", untagged, nameWidth)
 	}
 }
 
-func renderTreeEntries(w io.Writer, repos []config.RepoEntry, nameWidth int) {
+// ownsTag reports whether the entry carries the tag on itself, as opposed to
+// matching it only through inheritance from its parent.
+func renderTreeEntries(w io.Writer, tag string, repos []config.RepoEntry, nameWidth int) {
 	for i, r := range repos {
 		connector := "├──"
 		if i == len(repos)-1 {
 			connector = "└──"
 		}
+		pathStr := output.Dim(r.Path)
+		if tag != "" && !slices.Contains(r.Tags, tag) {
+			pathStr += output.Dim("  (inherited)")
+		}
 		_, _ = fmt.Fprintf(w, "  %s %-*s %s\n",
-			output.Dim(connector), nameWidth, r.Name, output.Dim(r.Path))
+			output.Dim(connector), nameWidth, r.Name, pathStr)
 	}
 }

@@ -215,7 +215,7 @@ func loadReposWithTagFilter(cmd *cobra.Command) (*config.Config, []config.RepoEn
 	repos := cfg.Repos
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 	if len(tags) > 0 {
-		repos = config.FilterByTags(repos, tags)
+		repos = config.FilterByTags(cfg, repos, tags)
 	}
 
 	meta, _ := cmd.Flags().GetStringSlice("meta")

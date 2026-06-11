@@ -40,7 +40,7 @@ pages like pull requests, issues, or CI/CD.`,
 				if err != nil {
 					return fmt.Errorf("loading config: %w", err)
 				}
-				repos = config.FilterByTags(cfg.Repos, tags)
+				repos = config.FilterByTags(cfg, cfg.Repos, tags)
 				if len(repos) == 0 {
 					output.Info(w, noReposMessage(len(cfg.Repos)))
 					return nil
