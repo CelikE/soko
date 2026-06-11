@@ -582,7 +582,7 @@ func TestFilterByTags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := FilterByTags(repos, tt.tags)
+			got := FilterByTags(&Config{Repos: repos}, repos, tt.tags)
 			if len(got) != len(tt.wantNames) {
 				t.Fatalf("FilterByTags(%v) = %d results, want %d", tt.tags, len(got), len(tt.wantNames))
 			}
@@ -618,5 +618,82 @@ func TestSaveAndLoadRoundTripWithTags(t *testing.T) {
 	}
 	if len(loaded.Repos[1].Tags) != 0 {
 		t.Errorf("round-trip empty tags = %v, want []", loaded.Repos[1].Tags)
+	}
+}
+
+func TestEffectiveTagsAndInheritance(t *testing.T) {
+	cfg := &Config{Repos: []RepoEntry{
+		{Name: "api", Path: "/api", Tags: []string{"backend", "go"}},
+		{Name: "api-feat", Path: "/api-feat", WorktreeOf: "api", Tags: []string{"wip"}},
+		{Name: "api-bare", Path: "/api-bare", WorktreeOf: "api"},
+		{Name: "orphan-wt", Path: "/orphan", WorktreeOf: "gone", Tags: []string{"own"}},
+		{Name: "web", Path: "/web", Tags: []string{"frontend"}},
+	}}
+
+	// worktree with no own tags inherits parent tags
+	if got := EffectiveTags(cfg, &cfg.Repos[2]); len(got) != 2 || got[0] != "backend" || got[1] != "go" {
+		t.Errorf("bare worktree EffectiveTags = %v, want [backend go]", got)
+	}
+	// own + inherited, own first, deduped
+	got := EffectiveTags(cfg, &cfg.Repos[1])
+	if len(got) != 3 || got[0] != "wip" {
+		t.Errorf("worktree EffectiveTags = %v, want [wip backend go]", got)
+	}
+	// unregistered parent falls back to own tags only
+	if got := EffectiveTags(cfg, &cfg.Repos[3]); len(got) != 1 || got[0] != "own" {
+		t.Errorf("orphan worktree EffectiveTags = %v, want [own]", got)
+	}
+
+	// FilterByTags: worktree matches inherited parent tag and own tag
+	byBackend := FilterByTags(cfg, cfg.Repos, []string{"backend"})
+	names := make([]string, len(byBackend))
+	for i, r := range byBackend {
+		names[i] = r.Name
+	}
+	want := []string{"api", "api-feat", "api-bare"}
+	if len(names) != len(want) {
+		t.Fatalf("FilterByTags(backend) = %v, want %v", names, want)
+	}
+	for i, w := range want {
+		if names[i] != w {
+			t.Errorf("FilterByTags(backend)[%d] = %q, want %q", i, names[i], w)
+		}
+	}
+	if wip := FilterByTags(cfg, cfg.Repos, []string{"wip"}); len(wip) != 1 || wip[0].Name != "api-feat" {
+		t.Errorf("FilterByTags(wip) = %v, want [api-feat]", wip)
+	}
+
+	// parent retag instantly re-scopes worktrees
+	cfg, err := AddTag(cfg, "api", "platform")
+	if err != nil {
+		t.Fatalf("AddTag: %v", err)
+	}
+	if p := FilterByTags(cfg, cfg.Repos, []string{"platform"}); len(p) != 3 {
+		t.Errorf("after retag FilterByTags(platform) = %d repos, want 3", len(p))
+	}
+
+	// TagCount includes inherited membership
+	if c := TagCount(cfg)["backend"]; c != 3 {
+		t.Errorf("TagCount[backend] = %d, want 3", c)
+	}
+}
+
+func TestRemoveTagInherited(t *testing.T) {
+	cfg := &Config{Repos: []RepoEntry{
+		{Name: "api", Path: "/api", Tags: []string{"backend"}},
+		{Name: "wt", Path: "/wt", WorktreeOf: "api", Tags: []string{"wip"}},
+	}}
+
+	// removing an inherited tag errors
+	if _, err := RemoveTag(cfg, "wt", "backend"); !errors.Is(err, ErrInheritedTag) {
+		t.Errorf("RemoveTag inherited = %v, want ErrInheritedTag", err)
+	}
+	// removing an own tag works
+	cfg, err := RemoveTag(cfg, "wt", "wip")
+	if err != nil {
+		t.Fatalf("RemoveTag own: %v", err)
+	}
+	if len(cfg.Repos[1].Tags) != 0 {
+		t.Errorf("after remove own tags = %v, want []", cfg.Repos[1].Tags)
 	}
 }
