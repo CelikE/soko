@@ -31,8 +31,9 @@ badge. Local state refreshes every 5s — cheap, no network. Meant to live in a
 tmux pane all day.
 
 Keys: j/k move · enter cd (needs shell integration, see soko shell-init) ·
-s cycle sort · f filter dirty · t cycle tag filter · o open in browser ·
-g re-fetch now · q quit.
+/ search by name · s cycle sort · f cycle filter · t cycle tag filter ·
+G group by tag · o open home (p/i/a for PRs/issues/actions) · g re-fetch now ·
+? help · q quit.
 
 Read-only: the dashboard never pulls, stashes, or cleans. Use --fetch to fetch
 from remotes in the background on an interval (e.g. --fetch 5m).`,
@@ -104,7 +105,7 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 			hasRemote: true, // not known from status cheaply; assume true
 			changes:   r.changes,
 		}
-		var ahead, behind int
+		var ahead, behind, conflicts int
 		var lastCommit time.Time
 		if r.status != nil {
 			st.behind = r.status.Behind
@@ -112,6 +113,7 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 			st.detached = r.status.Branch == detachedBranch
 			ahead = r.status.Ahead
 			behind = r.status.Behind
+			conflicts = r.status.Conflicts
 			lastCommit = r.status.LastCommitTime
 		}
 		score, severity, _ := scoreRepo(&st)
@@ -125,6 +127,7 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 			Changes:    r.changes,
 			Ahead:      ahead,
 			Behind:     behind,
+			Conflicts:  conflicts,
 			LastCommit: lastCommit,
 			StatusText: r.row.StatusText,
 			Health:     score,
@@ -135,14 +138,31 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 	return rows
 }
 
-// openRepoInBrowser returns a callback that opens a repo's origin homepage,
-// bound to the given context. Mirrors soko open's home-page path.
-func openRepoInBrowser(ctx context.Context) func(path string) error {
-	return func(path string) error {
+// openRepoInBrowser returns a callback that opens a repo's origin URL at a
+// named page (home/prs/issues/actions), bound to the given context. Mirrors
+// soko open's URL construction.
+func openRepoInBrowser(ctx context.Context) func(path, page string) error {
+	return func(path, page string) error {
 		remote, err := git.Run(ctx, path, "remote", "get-url", "origin")
 		if err != nil {
 			return fmt.Errorf("no remote origin configured")
 		}
-		return browser.Open(browser.RemoteToHTTPS(remote))
+		baseURL := browser.RemoteToHTTPS(remote)
+		fullURL := baseURL + browser.SubPagePath(baseURL, uiBrowserPage(page))
+		return browser.Open(fullURL)
+	}
+}
+
+// uiBrowserPage maps the ui's page token to a browser.Page.
+func uiBrowserPage(page string) browser.Page {
+	switch page {
+	case "prs":
+		return browser.PagePRs
+	case "issues":
+		return browser.PageIssues
+	case "actions":
+		return browser.PageActions
+	default:
+		return browser.PageHome
 	}
 }
