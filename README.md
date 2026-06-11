@@ -86,6 +86,7 @@ soko status
 | `soko branch [name]` | Current branch per repo, or where a branch exists; `switch`/`stale` subcommands |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
+| `soko ui` | Live full-screen dashboard of local workspace state |
 | `soko exec` | Run a command in all registered repos |
 | `soko grep <pattern>` | Search file content across repos with git grep |
 | `soko open` | Open a repo in the browser |
