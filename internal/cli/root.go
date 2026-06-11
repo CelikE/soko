@@ -75,6 +75,7 @@ then run soko status from anywhere to see the state of every tracked repo.`,
 	cmd.AddCommand(newReportCmd())
 	cmd.AddCommand(newStatsCmd())
 	cmd.AddCommand(newHealthCmd())
+	cmd.AddCommand(newUICmd())
 	cmd.AddCommand(newTagCmd())
 	cmd.AddCommand(newAnnotateCmd())
 	cmd.AddCommand(newDocCmd())
