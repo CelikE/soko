@@ -1,7 +1,8 @@
 // Package ui implements `soko ui` — a live, full-screen dashboard of local
 // workspace state (dirt, ahead/behind, branch, last-commit age, health). It is
-// read-only: navigation (enter) and open-in-browser (o) are the only actions,
-// both delegated to injected callbacks so this package owns no git or shell I/O.
+// read-only: navigation (enter) and open-in-browser (o/p/i/a) are the only
+// actions, both delegated to injected callbacks so this package owns no git or
+// shell I/O.
 //
 // The model is a standard bubbletea Elm loop. Refresh of local state is driven
 // by a cheap timer tick; an optional, slower timer triggers a background fetch.
@@ -13,7 +14,9 @@ import (
 	"context"
 	"slices"
 	"sort"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -29,11 +32,21 @@ type Row struct {
 	Changes    int
 	Ahead      int
 	Behind     int
+	Conflicts  int
 	LastCommit time.Time
 	StatusText string // pre-formatted dirty marker (output.FormatStatus)
 	Health     int    // urgency score, higher = more neglected
 	Severity   string // "ok" | "warn" | "crit"
 	Missing    bool
+}
+
+// firstTag is the tag a row is grouped under in grouped view; "" means the row
+// is untagged (rendered last, under an "untagged" header).
+func (r *Row) firstTag() string {
+	if len(r.Tags) == 0 {
+		return ""
+	}
+	return r.Tags[0]
 }
 
 // Collector returns the current local state of every tracked repo. When fetch
@@ -46,10 +59,10 @@ type Collector func(ctx context.Context, fetch bool) []Row
 type Config struct {
 	Ctx          context.Context
 	Collect      Collector
-	OnSelect     func(path string) error // enter — write the shell nav file
-	OnOpen       func(path string) error // o — open the repo in a browser
-	RefreshEvery time.Duration           // local state refresh cadence
-	FetchEvery   time.Duration           // background fetch cadence; 0 disables
+	OnSelect     func(path string) error       // enter — write the shell nav file
+	OnOpen       func(path, page string) error // o/p/i/a — open a repo page in a browser
+	RefreshEvery time.Duration                 // local state refresh cadence
+	FetchEvery   time.Duration                 // background fetch cadence; 0 disables
 }
 
 // sortMode is the row ordering cycled with `s`.
@@ -60,6 +73,7 @@ const (
 	sortDirty
 	sortBehind
 	sortHealth
+	numSortModes
 )
 
 func (s sortMode) String() string {
@@ -75,6 +89,57 @@ func (s sortMode) String() string {
 	}
 }
 
+// filterMode is the row filter cycled with `f`.
+type filterMode int
+
+const (
+	filterAll filterMode = iota
+	filterDirty
+	filterBehind
+	filterAhead
+	filterConflicts
+	numFilterModes
+)
+
+func (f filterMode) String() string {
+	switch f {
+	case filterDirty:
+		return "dirty"
+	case filterBehind:
+		return "behind"
+	case filterAhead:
+		return "ahead"
+	case filterConflicts:
+		return "conflicts"
+	default:
+		return "all"
+	}
+}
+
+// match reports whether a row passes the filter.
+func (f filterMode) match(r *Row) bool {
+	switch f {
+	case filterDirty:
+		return r.Dirty
+	case filterBehind:
+		return r.Behind > 0
+	case filterAhead:
+		return r.Ahead > 0
+	case filterConflicts:
+		return r.Conflicts > 0
+	default:
+		return true
+	}
+}
+
+// Browser page targets passed to OnOpen.
+const (
+	pageHome    = "home"
+	pagePRs     = "prs"
+	pageIssues  = "issues"
+	pageActions = "actions"
+)
+
 // defaultRefresh is used when Config.RefreshEvery is unset. The feature contract
 // is "local state every 5s (cheap, no network)".
 const defaultRefresh = 5 * time.Second
@@ -88,16 +153,22 @@ type Model struct {
 	ctx      context.Context
 	collect  Collector
 	onSelect func(path string) error
-	onOpen   func(path string) error
+	onOpen   func(path, page string) error
 
 	all  []Row // last collected, in config order
-	view []Row // all after filter + sort
+	view []Row // all after filter + search + sort (+ group ordering)
 
-	cursor      int
-	sort        sortMode
-	filterDirty bool
-	tagFilter   string // "" = all tags
-	allTags     []string
+	cursor    int
+	sort      sortMode
+	filter    filterMode
+	tagFilter string // "" = all tags
+	allTags   []string
+	grouped   bool
+
+	searching bool
+	query     string
+
+	showHelp bool
 
 	width, height int
 	refreshEvery  time.Duration
@@ -204,33 +275,56 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey applies a single keystroke and returns the next model plus any
-// command. Split out from Update so tests can drive it by key name.
+// handleKey applies a single keystroke. Help overlay and search capture input
+// first; otherwise the normal-mode bindings run.
 func (m *Model) handleKey(key string) (tea.Model, tea.Cmd) {
+	if m.showHelp {
+		// Any key dismisses help; quit keys still quit.
+		if key == "q" || key == "ctrl+c" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		m.showHelp = false
+		return m, nil
+	}
+
+	if m.searching {
+		return m.handleSearchKey(key)
+	}
+
+	return m.handleNormalKey(key)
+}
+
+// handleNormalKey handles the default (non-search, non-help) bindings.
+func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q", "ctrl+c", "esc":
 		m.quitting = true
 		return m, tea.Quit
 
+	case "?":
+		m.showHelp = true
+		return m, nil
+
+	case "/":
+		m.searching = true
+		return m, nil
+
 	case "j", "down":
-		if m.cursor < len(m.view)-1 {
-			m.cursor++
-		}
+		m.moveCursor(1)
 		return m, nil
 
 	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-		}
+		m.moveCursor(-1)
 		return m, nil
 
 	case "s":
-		m.sort = (m.sort + 1) % 4
+		m.sort = (m.sort + 1) % numSortModes
 		m.rebuild()
 		return m, nil
 
 	case "f":
-		m.filterDirty = !m.filterDirty
+		m.filter = (m.filter + 1) % numFilterModes
 		m.rebuild()
 		return m, nil
 
@@ -239,36 +333,113 @@ func (m *Model) handleKey(key string) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
+	case "G":
+		m.grouped = !m.grouped
+		m.rebuild()
+		return m, nil
+
 	case "g":
-		// Re-fetch now.
 		m.fetching = true
 		cmd := m.refreshCmd(true)
 		return m, cmd
 
 	case "o":
-		if r, ok := m.current(); ok && m.onOpen != nil {
-			if err := m.onOpen(r.Path); err != nil {
-				m.lastErr = err
-			}
-		}
+		return m.openCurrent(pageHome)
+	case "p":
+		return m.openCurrent(pagePRs)
+	case "i":
+		return m.openCurrent(pageIssues)
+	case "a":
+		return m.openCurrent(pageActions)
+
+	case "enter":
+		return m.selectCurrent()
+	}
+	return m, nil
+}
+
+// handleSearchKey handles input while the live name filter is active.
+func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+
+	case "esc":
+		m.searching = false
+		m.query = ""
+		m.rebuild()
 		return m, nil
 
 	case "enter":
-		r, ok := m.current()
-		if !ok {
-			return m, nil
+		// Confirm the current match (and exit the program via cd).
+		return m.selectCurrent()
+
+	case "backspace":
+		if m.query != "" {
+			_, size := utf8.DecodeLastRuneInString(m.query)
+			m.query = m.query[:len(m.query)-size]
+			m.cursor = 0
+			m.rebuild()
 		}
-		if m.onSelect != nil {
-			if err := m.onSelect(r.Path); err != nil {
-				m.lastErr = err
-				return m, nil
-			}
+		return m, nil
+
+	case "up":
+		m.moveCursor(-1)
+		return m, nil
+	case "down":
+		m.moveCursor(1)
+		return m, nil
+
+	default:
+		// A single printable rune extends the query; everything else is ignored
+		// so search mode never swallows control sequences as text.
+		if utf8.RuneCountInString(key) == 1 && key >= " " {
+			m.query += key
+			m.cursor = 0
+			m.rebuild()
 		}
-		m.selected = r.Path
-		m.quitting = true
-		return m, tea.Quit
+		return m, nil
+	}
+}
+
+// openCurrent opens the cursor's repo at the given browser page.
+func (m *Model) openCurrent(page string) (tea.Model, tea.Cmd) {
+	if r, ok := m.current(); ok && m.onOpen != nil {
+		if err := m.onOpen(r.Path, page); err != nil {
+			m.lastErr = err
+		}
 	}
 	return m, nil
+}
+
+// selectCurrent writes the nav file for the cursor's repo and quits. On a nav
+// write error it keeps the dashboard open and surfaces the error.
+func (m *Model) selectCurrent() (tea.Model, tea.Cmd) {
+	r, ok := m.current()
+	if !ok {
+		return m, nil
+	}
+	if m.onSelect != nil {
+		if err := m.onSelect(r.Path); err != nil {
+			m.lastErr = err
+			return m, nil
+		}
+	}
+	m.selected = r.Path
+	m.quitting = true
+	return m, tea.Quit
+}
+
+// moveCursor shifts the cursor by delta, clamped to the view bounds.
+func (m *Model) moveCursor(delta int) {
+	m.cursor += delta
+	if m.cursor > len(m.view)-1 {
+		m.cursor = len(m.view) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
 }
 
 // current returns the row under the cursor, or false when the view is empty.
@@ -296,21 +467,29 @@ func (m *Model) cycleTag() {
 	m.tagFilter = options[(idx+1)%len(options)]
 }
 
-// rebuild recomputes the visible rows from m.all by applying the active filters
-// and sort, then clamps the cursor.
+// rebuild recomputes the visible rows from m.all by applying filter, search,
+// and tag constraints, then sorting and (optionally) grouping. Finally it
+// clamps the cursor.
 func (m *Model) rebuild() {
+	query := strings.ToLower(m.query)
 	rows := make([]Row, 0, len(m.all))
 	for i := range m.all {
 		r := &m.all[i]
-		if m.filterDirty && !r.Dirty {
+		if !m.filter.match(r) {
 			continue
 		}
 		if m.tagFilter != "" && !slices.Contains(r.Tags, m.tagFilter) {
 			continue
 		}
+		if query != "" && !strings.Contains(strings.ToLower(r.Name), query) {
+			continue
+		}
 		rows = append(rows, *r)
 	}
 	sortRows(rows, m.sort)
+	if m.grouped {
+		groupRows(rows)
+	}
 	m.view = rows
 
 	if m.cursor >= len(m.view) {
@@ -341,6 +520,25 @@ func sortRows(rows []Row, mode sortMode) {
 			}
 		}
 		return a.Name < b.Name
+	})
+}
+
+// groupRows stably reorders already-sorted rows so repos cluster by their first
+// tag (alphabetical), with untagged repos last. Intra-group order — the active
+// sort — is preserved because the sort is stable.
+func groupRows(rows []Row) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		gi, gj := rows[i].firstTag(), rows[j].firstTag()
+		if gi == gj {
+			return false
+		}
+		if gi == "" { // untagged sorts last
+			return false
+		}
+		if gj == "" {
+			return true
+		}
+		return gi < gj
 	})
 }
 

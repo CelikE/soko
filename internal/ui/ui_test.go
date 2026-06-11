@@ -18,8 +18,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// sampleRows returns three repos chosen so every sort/filter mode produces a
-// distinct, checkable order.
+// sampleRows returns three repos chosen so every sort/filter/group mode produces
+// a distinct, checkable order.
 func sampleRows() []Row {
 	return []Row{
 		{Name: "alpha", Path: "/a", Branch: "main", Tags: []string{"backend"},
@@ -27,14 +27,14 @@ func sampleRows() []Row {
 		{Name: "bravo", Path: "/b", Branch: "main", Tags: []string{"frontend"},
 			Dirty: true, Changes: 2, Behind: 3, Health: 12, Severity: "warn", StatusText: "✎ 2M"},
 		{Name: "charlie", Path: "/c", Branch: "dev", Tags: []string{"backend"},
-			Changes: 0, Behind: 10, Health: 80, Severity: "crit", StatusText: "✗ 1C"},
+			Changes: 0, Behind: 10, Conflicts: 1, Health: 80, Severity: "crit", StatusText: "✗ 1C"},
 	}
 }
 
 // loadedModel returns a model already populated with sampleRows. The model uses
 // pointer receivers, so handleKey/Update mutate it in place — tests read the
 // fields directly after each keystroke.
-func loadedModel(t *testing.T, onSelect, onOpen func(string) error) *Model {
+func loadedModel(t *testing.T, onSelect func(string) error, onOpen func(string, string) error) *Model {
 	t.Helper()
 	m := New(Config{OnSelect: onSelect, OnOpen: onOpen})
 	m.Update(rowsMsg{rows: sampleRows()})
@@ -61,8 +61,6 @@ func eq(a, b []string) bool {
 	return true
 }
 
-// TestRefreshPopulates verifies the collector → rowsMsg path fills the model and
-// derives the tag set, leaving the cursor at the top.
 func TestRefreshPopulates(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 	if !m.loaded {
@@ -79,12 +77,10 @@ func TestRefreshPopulates(t *testing.T) {
 	}
 }
 
-// TestSortCycle checks `s` rotates name → dirty → behind → health → name and
-// that each mode reorders the view as expected.
+// TestSortCycle checks `s` rotates name → dirty → behind → health → name.
 func TestSortCycle(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 
-	// Default is name order.
 	if got := viewNames(m.view); !eq(got, []string{"alpha", "bravo", "charlie"}) {
 		t.Fatalf("name order = %v", got)
 	}
@@ -93,7 +89,7 @@ func TestSortCycle(t *testing.T) {
 		mode  string
 		names []string
 	}{
-		{"dirty", []string{"bravo", "alpha", "charlie"}}, // by changes desc, tie by name
+		{"dirty", []string{"bravo", "alpha", "charlie"}},
 		{"behind", []string{"charlie", "bravo", "alpha"}},
 		{"health", []string{"charlie", "bravo", "alpha"}},
 		{"name", []string{"alpha", "bravo", "charlie"}},
@@ -109,22 +105,31 @@ func TestSortCycle(t *testing.T) {
 	}
 }
 
-// TestFilterDirty toggles the dirty filter on and off.
-func TestFilterDirty(t *testing.T) {
+// TestFilterCycle checks `f` rotates all → dirty → behind → ahead → conflicts.
+func TestFilterCycle(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 
-	m.handleKey("f")
-	if got := viewNames(m.view); !eq(got, []string{"bravo"}) {
-		t.Errorf("dirty filter = %v, want [bravo]", got)
+	steps := []struct {
+		mode  string
+		names []string
+	}{
+		{"dirty", []string{"bravo"}},
+		{"behind", []string{"bravo", "charlie"}},
+		{"ahead", []string{}},
+		{"conflicts", []string{"charlie"}},
+		{"all", []string{"alpha", "bravo", "charlie"}},
 	}
-
-	m.handleKey("f")
-	if len(m.view) != 3 {
-		t.Errorf("after toggle off = %d rows, want 3", len(m.view))
+	for _, s := range steps {
+		m.handleKey("f")
+		if m.filter.String() != s.mode {
+			t.Fatalf("filter = %q, want %q", m.filter.String(), s.mode)
+		}
+		if got := viewNames(m.view); !eq(got, s.names) {
+			t.Errorf("filter %q view = %v, want %v", s.mode, got, s.names)
+		}
 	}
 }
 
-// TestTagCycle walks the tag filter through "" → backend → frontend → "".
 func TestTagCycle(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 
@@ -147,33 +152,81 @@ func TestTagCycle(t *testing.T) {
 	}
 }
 
-// TestNavigationClamp checks j/k movement and that the cursor never escapes the
-// view bounds.
+// TestGroupByTag clusters rows under their first tag, untagged last, preserving
+// the active sort within each group.
+func TestGroupByTag(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.handleKey("G")
+	if !m.grouped {
+		t.Fatal("G did not enable grouping")
+	}
+	// backend (alpha, charlie) then frontend (bravo).
+	if got := viewNames(m.view); !eq(got, []string{"alpha", "charlie", "bravo"}) {
+		t.Errorf("grouped order = %v, want [alpha charlie bravo]", got)
+	}
+
+	m.width = 100
+	out := m.View()
+	if !strings.Contains(out, "backend (2)") || !strings.Contains(out, "frontend (1)") {
+		t.Errorf("grouped View missing tag headers\n%s", out)
+	}
+
+	m.handleKey("G")
+	if m.grouped {
+		t.Error("second G did not disable grouping")
+	}
+}
+
+// TestSearch narrows the view by typed substring and restores it on esc.
+func TestSearch(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+
+	m.handleKey("/")
+	if !m.searching {
+		t.Fatal("/ did not enter search mode")
+	}
+	m.handleKey("c")
+	m.handleKey("h")
+	if m.query != "ch" {
+		t.Fatalf("query = %q, want ch", m.query)
+	}
+	if got := viewNames(m.view); !eq(got, []string{"charlie"}) {
+		t.Errorf("search view = %v, want [charlie]", got)
+	}
+
+	m.handleKey("backspace")
+	if m.query != "c" {
+		t.Errorf("query after backspace = %q, want c", m.query)
+	}
+
+	m.handleKey("esc")
+	if m.searching || m.query != "" {
+		t.Errorf("esc did not exit search: searching=%v query=%q", m.searching, m.query)
+	}
+	if len(m.view) != 3 {
+		t.Errorf("view after esc = %d rows, want 3", len(m.view))
+	}
+}
+
 func TestNavigationClamp(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 
-	// Up at the top is a no-op.
 	m.handleKey("k")
 	if m.cursor != 0 {
 		t.Errorf("k at top moved cursor to %d", m.cursor)
 	}
-
-	// Walk to the bottom and past it.
 	for range 5 {
 		m.handleKey("j")
 	}
 	if m.cursor != 2 {
 		t.Errorf("cursor = %d after walking down, want 2 (clamped)", m.cursor)
 	}
-
 	m.handleKey("k")
 	if m.cursor != 1 {
 		t.Errorf("cursor = %d after k, want 1", m.cursor)
 	}
 }
 
-// TestEnterSelects confirms enter invokes onSelect with the cursor's path,
-// records the selection, and asks the program to quit.
 func TestEnterSelects(t *testing.T) {
 	var gotPath string
 	onSelect := func(p string) error { gotPath = p; return nil }
@@ -193,7 +246,6 @@ func TestEnterSelects(t *testing.T) {
 	}
 }
 
-// TestEnterSelectError leaves the dashboard open when the nav write fails.
 func TestEnterSelectError(t *testing.T) {
 	onSelect := func(string) error { return context.Canceled }
 	m := loadedModel(t, onSelect, nil)
@@ -211,21 +263,22 @@ func TestEnterSelectError(t *testing.T) {
 	}
 }
 
-// TestOpenInvokesCallback checks `o` opens the cursor's repo.
-func TestOpenInvokesCallback(t *testing.T) {
-	var opened string
-	onOpen := func(p string) error { opened = p; return nil }
+// TestOpenPages maps o/p/i/a to the right browser page for the cursor's repo.
+func TestOpenPages(t *testing.T) {
+	var gotPath, gotPage string
+	onOpen := func(p, page string) error { gotPath, gotPage = p, page; return nil }
 
-	m := loadedModel(t, nil, onOpen)
-	m.handleKey("j")
-	m.handleKey("j")
-	m.handleKey("o")
-	if opened != "/c" {
-		t.Errorf("onOpen path = %q, want /c", opened)
+	cases := map[string]string{"o": "home", "p": "prs", "i": "issues", "a": "actions"}
+	for key, wantPage := range cases {
+		m := loadedModel(t, nil, onOpen)
+		m.handleKey("j") // bravo
+		m.handleKey(key)
+		if gotPath != "/b" || gotPage != wantPage {
+			t.Errorf("%q opened (%q,%q), want (/b,%q)", key, gotPath, gotPage, wantPage)
+		}
 	}
 }
 
-// TestQuitKeys confirms q, esc, and ctrl+c all request quit.
 func TestQuitKeys(t *testing.T) {
 	for _, key := range []string{"q", "esc", "ctrl+c"} {
 		m := loadedModel(t, nil, nil)
@@ -239,8 +292,6 @@ func TestQuitKeys(t *testing.T) {
 	}
 }
 
-// TestFetchKeyMarksFetching checks `g` flips the fetching flag and issues a
-// refresh command.
 func TestFetchKeyMarksFetching(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 	m.collect = func(context.Context, bool) []Row { return sampleRows() }
@@ -254,39 +305,67 @@ func TestFetchKeyMarksFetching(t *testing.T) {
 	}
 }
 
-// TestViewRendersRows is a light snapshot: with color stripped, the rendered
-// dashboard contains the title, every repo, the cursor marker, and the footer
-// totals. Last-commit times are zero so the AGE column is stable ("-").
+// TestHelpOverlay toggles the full help panel and confirms a stray key closes
+// it while quit keys still quit.
+func TestHelpOverlay(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.width = 100
+
+	m.handleKey("?")
+	if !m.showHelp {
+		t.Fatal("? did not open help")
+	}
+	if out := m.View(); !strings.Contains(out, "soko ui — keys") {
+		t.Errorf("help View missing title\n%s", out)
+	}
+
+	m.handleKey("j") // any non-quit key closes
+	if m.showHelp {
+		t.Error("stray key did not close help")
+	}
+
+	m.handleKey("?")
+	_, cmd := m.handleKey("q")
+	if !isQuit(cmd) {
+		t.Error("q in help overlay did not quit")
+	}
+}
+
+// TestViewRendersRows is a light snapshot: with color stripped, the dashboard
+// contains the title, every repo, the tag legend, and footer totals.
 func TestViewRendersRows(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 	m.width, m.height = 100, 30
 
 	out := m.View()
 
-	for _, want := range []string{"soko ui", "alpha", "bravo", "charlie", "3 repos", "1 dirty", "2 behind"} {
+	for _, want := range []string{
+		"soko ui", "alpha", "bravo", "charlie",
+		"tags:", "backend(2)", "frontend(1)",
+		"3 repos", "1 dirty", "2 behind",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View() missing %q\n---\n%s", want, out)
 		}
 	}
-	// Cursor marker sits on the first row.
 	if !strings.Contains(out, "› ") {
 		t.Errorf("View() missing cursor marker\n---\n%s", out)
 	}
 }
 
-// TestViewEmptyFilter renders the empty-state when a filter excludes every repo.
+// TestViewEmptyFilter renders the explanatory empty-state when a filter excludes
+// every repo.
 func TestViewEmptyFilter(t *testing.T) {
 	m := loadedModel(t, nil, nil)
-	m.filterDirty = true
-	m.all = []Row{{Name: "x", Severity: "ok"}} // clean only
+	m.width = 100
+	m.filter = filterAhead // no repo is ahead
 	m.rebuild()
 
-	if got := m.View(); !strings.Contains(got, "no repos match") {
+	if got := m.View(); !strings.Contains(got, "no repos match filter: ahead") {
 		t.Errorf("empty View() = %q", got)
 	}
 }
 
-// isQuit reports whether cmd is bubbletea's Quit command.
 func isQuit(cmd tea.Cmd) bool {
 	if cmd == nil {
 		return false
