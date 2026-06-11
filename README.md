@@ -83,6 +83,7 @@ soko status
 | `soko sync [repos...]` | Fetch all repos, fast-forward the safe ones, report the rest |
 | `soko ctx` | Save and restore workspace contexts (branches + stashes) |
 | `soko worktree` | Create, list, and remove git worktrees with registry bookkeeping |
+| `soko branch [name]` | Current branch per repo, or where a branch exists; `switch`/`stale` subcommands |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
@@ -111,7 +112,7 @@ soko status
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--missing-upstream` | `remotes` | Show only repos with no remote or no upstream |
-| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `sync`, `exec`, `grep`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `sync`, `branch`, `exec`, `grep`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `discover on` | Filter by tag (repeatable, combines with OR) |
 | `--meta` | `list`, `status` | Filter by metadata `key=value` (repeatable, combines with AND) |
 | `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |
 | `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
@@ -119,6 +120,8 @@ soko status
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
 | `--no-worktrees` | `fetch`, `pull`, `sync`, `exec`, `grep` | Skip worktree entries, only operate on parent repos |
 | `--fetch-only` | `sync` | Fetch every repo but never pull |
+| `--create`, `-b` | `branch switch` | Create the branch from the default branch where missing |
+| `--days` | `branch stale` | Staleness threshold in days (default: 90) |
 | `--ignore-case`, `-i` | `grep` | Case-insensitive match |
 | `--regexp`, `-e` | `grep` | Treat the pattern as a POSIX extended regex (default: fixed string) |
 | `--files-only` | `grep` | List matching file paths only, not lines |
@@ -534,6 +537,34 @@ cd "$(soko worktree add api feat-x -q)"   # create and jump in one line
 `status` work unchanged, and prints the new path last for command
 substitution. `rm` refuses a dirty worktree without `--force` and never
 touches branches — deleting merged branches stays `soko clean`'s job.
+
+### Branches across repos
+
+Polyrepo feature work means the same branch name in N repos. `soko branch`
+shows where every repo stands and drives them together:
+
+```bash
+soko branch                         # current branch per repo
+soko branch feat/sso                # which repos have feat/sso
+#  REPO        BRANCH        feat/sso?
+#  ──────────────────────────────────────
+#  api         feat/sso      ✓ current
+#  frontend    main          ✓ local
+#  shared      main          ○ remote only
+#  infra       fix/tf        — missing
+
+soko branch switch feat/sso         # check it out wherever it exists
+soko branch switch feat/sso -b      # create from the default branch where missing
+soko branch switch feat/sso --tag backend
+soko branch stale                   # unmerged branches untouched > 90 days
+soko branch stale --days 30
+```
+
+`switch` checks out local branches directly and creates tracking branches for
+remote-only ones. A dirty repo is refused and left untouched while the others
+continue — commit, stash, or `soko ctx save` first. `stale` surfaces the
+branches `soko clean` cannot touch: started, never merged, and quietly
+abandoned.
 
 ### tmux-sessionizer integration
 
