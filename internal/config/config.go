@@ -58,10 +58,11 @@ type DiscoverConfig struct {
 
 // Config is the top-level structure of the soko config file.
 type Config struct {
-	GitPath  string            `yaml:"git_path,omitempty"`
-	Aliases  map[string]string `yaml:"aliases,omitempty"`
-	Discover *DiscoverConfig   `yaml:"discover,omitempty"`
-	Repos    []RepoEntry       `yaml:"repos"`
+	GitPath  string                   `yaml:"git_path,omitempty"`
+	Aliases  map[string]string        `yaml:"aliases,omitempty"`
+	Discover *DiscoverConfig          `yaml:"discover,omitempty"`
+	Contexts map[string]*ContextEntry `yaml:"contexts,omitempty"`
+	Repos    []RepoEntry              `yaml:"repos"`
 }
 
 // builtinDiscoverIgnores are path segments never auto-discovered. These are
