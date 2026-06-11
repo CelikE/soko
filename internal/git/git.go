@@ -180,6 +180,21 @@ func HasUpstream(ctx context.Context, dir string) bool {
 	return err == nil
 }
 
+// CurrentBranch returns the short name of the checked-out branch. On a
+// detached HEAD it returns the commit SHA with detached=true, so callers can
+// restore the exact position later via `checkout --detach`.
+func CurrentBranch(ctx context.Context, dir string) (name string, detached bool, err error) {
+	name, err = Run(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
+	if err == nil && name != "" {
+		return name, false, nil
+	}
+	sha, shaErr := Run(ctx, dir, "rev-parse", "HEAD")
+	if shaErr != nil {
+		return "", false, fmt.Errorf("resolving HEAD: %w", shaErr)
+	}
+	return sha, true, nil
+}
+
 // UpstreamBranch resolves the current branch's upstream tracking ref and
 // returns its short name (e.g. "origin/main"). It returns an error when there
 // is no upstream — a detached HEAD or a branch never pushed. This is the same

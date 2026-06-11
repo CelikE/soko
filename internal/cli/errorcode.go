@@ -9,6 +9,7 @@ import "github.com/CelikE/soko/internal/git"
 const (
 	codePathMissing   = "path_missing"
 	codeNoUpstream    = "no_upstream"
+	codeDirtyTree     = "dirty_tree"
 	codeNotFastFwd    = "not_fast_forward"
 	codeMergeConflict = "merge_conflict"
 	codeAuthFailed    = "auth_failed"

@@ -81,6 +81,7 @@ soko status
 | `soko fetch [repos...]` | Fetch all (or specific) registered repos in parallel |
 | `soko pull [repos...]` | Pull all (or specific) registered repos in parallel |
 | `soko sync [repos...]` | Fetch all repos, fast-forward the safe ones, report the rest |
+| `soko ctx` | Save and restore workspace contexts (branches + stashes) |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko exec` | Run a command in all registered repos |
@@ -222,6 +223,31 @@ and never risks your uncommitted work.
 
   4 repos · 2 pulled · 1 up to date · 1 need attention · 0 skipped · 0 failed · 15 new commits
 ```
+
+### Workspace contexts
+
+Polyrepo feature work spans several repos, each on its own branch with local
+changes. When an interrupt arrives — oncall, another client, an urgent review —
+`soko ctx` saves the whole arrangement and brings it back later:
+
+```bash
+soko ctx save client-a              # record branch per repo, stash dirty trees
+soko ctx save client-a api front    # only these repos
+soko ctx save client-a --tag work   # only tagged repos
+
+# ... handle the interrupt on other branches ...
+
+soko ctx switch client-a            # restore branches, pop the stashes
+soko ctx list                       # saved contexts with age and stash counts
+soko ctx show client-a              # per-repo branch + stash detail
+soko ctx drop client-a              # forget it (stashes stay in their repos)
+```
+
+`save` stashes only dirty repos (including untracked files) under a
+per-context stash message, so unrelated stashes are never touched. `switch`
+refuses to touch any repo that is dirty *right now* — save the current state
+under another name first. A stash that was popped manually degrades to a
+note, never an error. Contexts live in the same config file as the registry.
 
 ### Tags
 
