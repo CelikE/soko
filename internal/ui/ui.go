@@ -59,11 +59,20 @@ type Collector func(ctx context.Context, fetch bool) []Row
 type Config struct {
 	Ctx          context.Context
 	Collect      Collector
-	OnSelect     func(path string) error       // enter — write the shell nav file
-	OnOpen       func(path, page string) error // o/p/i/a — open a repo page in a browser
-	RefreshEvery time.Duration                 // local state refresh cadence
-	FetchEvery   time.Duration                 // background fetch cadence; 0 disables
+	OnSelect     func(path string) error                 // enter — write the shell nav file
+	OnOpen       func(path, page string) error           // o/p/i/a — open a repo page in a browser
+	OnPull       func(name, path string) (string, error) // P — fast-forward pull the selected repo
+	RefreshEvery time.Duration                           // local state refresh cadence
+	FetchEvery   time.Duration                           // background fetch cadence; 0 disables
 }
+
+// pendingKind is a mutating action awaiting y/n confirmation.
+type pendingKind int
+
+const (
+	pendingNone pendingKind = iota
+	pendingPull
+)
 
 // sortMode is the row ordering cycled with `s`.
 type sortMode int
@@ -154,6 +163,7 @@ type Model struct {
 	collect  Collector
 	onSelect func(path string) error
 	onOpen   func(path, page string) error
+	onPull   func(name, path string) (string, error)
 
 	all  []Row // last collected, in config order
 	view []Row // all after filter + search + sort (+ group ordering)
@@ -167,6 +177,10 @@ type Model struct {
 
 	searching bool
 	query     string
+
+	pending   pendingKind // mutation awaiting confirmation
+	busy      bool        // a mutation is running
+	statusMsg string      // transient result line (e.g. "repo: pulled")
 
 	showHelp bool
 
@@ -197,6 +211,7 @@ func New(cfg Config) Model {
 		collect:      cfg.Collect,
 		onSelect:     cfg.OnSelect,
 		onOpen:       cfg.OnOpen,
+		onPull:       cfg.OnPull,
 		refreshEvery: refresh,
 		fetchEvery:   cfg.FetchEvery,
 		width:        defaultWidth,
@@ -212,6 +227,11 @@ func (m *Model) Selected() string { return m.selected }
 type tickMsg time.Time
 type fetchTickMsg time.Time
 type rowsMsg struct{ rows []Row }
+type pullDoneMsg struct {
+	name string
+	msg  string
+	err  error
+}
 
 // --- commands ---
 
@@ -269,6 +289,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetching = true
 		return m, tea.Batch(m.refreshCmd(true), fetchTickCmd(m.fetchEvery))
 
+	case pullDoneMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.lastErr = msg.err
+		} else {
+			m.statusMsg = msg.name + ": " + msg.msg
+		}
+		// Reflect the new local state right away.
+		cmd := m.refreshCmd(false)
+		return m, cmd
+
 	case tea.KeyMsg:
 		return m.handleKey(msg.String())
 	}
@@ -288,11 +319,53 @@ func (m *Model) handleKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.pending != pendingNone {
+		return m.handleConfirmKey(key)
+	}
+
 	if m.searching {
 		return m.handleSearchKey(key)
 	}
 
 	return m.handleNormalKey(key)
+}
+
+// handleConfirmKey resolves a pending mutation: y/enter runs it, anything else
+// (n, esc, …) cancels. ctrl+c always quits.
+func (m *Model) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "Y", "enter":
+		return m.runPending()
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	default:
+		m.pending = pendingNone
+		return m, nil
+	}
+}
+
+// runPending executes the confirmed mutation as an async command.
+func (m *Model) runPending() (tea.Model, tea.Cmd) {
+	kind := m.pending
+	m.pending = pendingNone
+
+	if kind == pendingPull {
+		r, ok := m.current()
+		if !ok || m.onPull == nil {
+			return m, nil
+		}
+		m.busy = true
+		m.statusMsg = ""
+		m.lastErr = nil
+		name, path := r.Name, r.Path
+		onPull := m.onPull
+		return m, func() tea.Msg {
+			msg, err := onPull(name, path)
+			return pullDoneMsg{name: name, msg: msg, err: err}
+		}
+	}
+	return m, nil
 }
 
 // handleNormalKey handles the default (non-search, non-help) bindings.
@@ -342,6 +415,13 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		m.fetching = true
 		cmd := m.refreshCmd(true)
 		return m, cmd
+
+	case "P":
+		// Ask before mutating; the pull runs only after confirmation.
+		if _, ok := m.current(); ok && m.onPull != nil && !m.busy {
+			m.pending = pendingPull
+		}
+		return m, nil
 
 	case "o":
 		return m.openCurrent(pageHome)

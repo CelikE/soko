@@ -39,6 +39,13 @@ func (m *Model) View() string {
 
 	// Title bar.
 	b.WriteString("  " + styleTitle.Render("soko ui") + "  " + styleDim.Render(m.statusLine()) + "\n")
+	if m.pending == pendingPull {
+		name := ""
+		if r, ok := m.current(); ok {
+			name = r.Name
+		}
+		b.WriteString("  " + styleWarn.Render(fmt.Sprintf("pull %s? [y/N]", name)) + "\n")
+	}
 	if m.searching {
 		b.WriteString("  " + styleDim.Render("/") + m.query + styleDim.Render("▏") + "\n")
 	}
@@ -85,6 +92,12 @@ func (m *Model) statusLine() string {
 	line := strings.Join(parts, " · ")
 	if m.fetching {
 		line += "  " + styleFetching.Render("fetching…")
+	}
+	if m.busy {
+		line += "  " + styleFetching.Render("pulling…")
+	}
+	if m.statusMsg != "" && m.lastErr == nil {
+		line += "  " + styleOK.Render(m.statusMsg)
 	}
 	if m.lastErr != nil {
 		line += "  " + styleErr.Render("error: "+m.lastErr.Error())
@@ -264,7 +277,7 @@ func (m *Model) footer() string {
 
 // helpLine is the bottom keybinding cheatsheet (the short form; ? opens full).
 func (m *Model) helpLine() string {
-	help := "  j/k move · enter cd · / search · s sort · f filter · t tag · G group · o open · g fetch · ? help · q quit"
+	help := "  j/k move · enter cd · / search · s sort · f filter · t tag · G group · o open · P pull · g fetch · ? help · q quit"
 	return styleDim.Render(help)
 }
 
@@ -281,6 +294,7 @@ func (m *Model) helpOverlay() string {
 		{"G", "toggle group-by-tag view"},
 		{"o", "open the repo home page in a browser"},
 		{"p / i / a", "open pull requests / issues / actions"},
+		{"P", "pull the selected repo (fast-forward, confirmed, undoable)"},
 		{"g", "re-fetch from remotes now"},
 		{"?", "toggle this help"},
 		{"q / esc", "quit"},

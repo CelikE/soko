@@ -366,6 +366,101 @@ func TestViewEmptyFilter(t *testing.T) {
 	}
 }
 
+// TestPullConfirmAndRun covers the full mutate path: P asks, the banner shows,
+// y runs the injected pull, and the done message lands a status line.
+func TestPullConfirmAndRun(t *testing.T) {
+	var gotName, gotPath string
+	onPull := func(name, path string) (string, error) {
+		gotName, gotPath = name, path
+		return "pulled", nil
+	}
+
+	m := New(Config{OnPull: onPull})
+	m.Update(rowsMsg{rows: sampleRows()})
+	m.width = 100
+
+	m.handleKey("j") // select bravo
+	m.handleKey("P")
+	if m.pending != pendingPull {
+		t.Fatal("P did not arm a pending pull")
+	}
+	if out := m.View(); !strings.Contains(out, "pull bravo? [y/N]") {
+		t.Errorf("View missing confirm banner\n%s", out)
+	}
+
+	_, cmd := m.handleConfirmKey("y")
+	if m.pending != pendingNone || !m.busy {
+		t.Fatalf("y did not start the pull: pending=%v busy=%v", m.pending, m.busy)
+	}
+	if cmd == nil {
+		t.Fatal("confirmed pull returned no command")
+	}
+
+	// The command runs the injected callback and yields a pullDoneMsg.
+	msg := cmd()
+	done, ok := msg.(pullDoneMsg)
+	if !ok {
+		t.Fatalf("pull command returned %T, want pullDoneMsg", msg)
+	}
+	if gotName != "bravo" || gotPath != "/b" {
+		t.Errorf("onPull called with (%q,%q), want (bravo,/b)", gotName, gotPath)
+	}
+
+	m.Update(done)
+	if m.busy {
+		t.Error("busy not cleared after pullDoneMsg")
+	}
+	if m.statusMsg != "bravo: pulled" {
+		t.Errorf("statusMsg = %q, want 'bravo: pulled'", m.statusMsg)
+	}
+}
+
+// TestPullCancel confirms n/esc dismiss the prompt without pulling.
+func TestPullCancel(t *testing.T) {
+	called := false
+	onPull := func(string, string) (string, error) { called = true; return "", nil }
+
+	for _, key := range []string{"n", "esc"} {
+		m := New(Config{OnPull: onPull})
+		m.Update(rowsMsg{rows: sampleRows()})
+		m.handleKey("P")
+		m.handleConfirmKey(key)
+		if m.pending != pendingNone {
+			t.Errorf("%q did not cancel pending", key)
+		}
+	}
+	if called {
+		t.Error("onPull ran despite cancel")
+	}
+}
+
+// TestPullError surfaces a failed pull as an error, not a status line.
+func TestPullError(t *testing.T) {
+	onPull := func(string, string) (string, error) { return "", context.DeadlineExceeded }
+	m := New(Config{OnPull: onPull})
+	m.Update(rowsMsg{rows: sampleRows()})
+
+	m.handleKey("P")
+	_, cmd := m.handleConfirmKey("y")
+	m.Update(cmd())
+
+	if m.lastErr == nil {
+		t.Error("failed pull did not set lastErr")
+	}
+	if m.statusMsg != "" {
+		t.Errorf("statusMsg = %q, want empty on error", m.statusMsg)
+	}
+}
+
+// TestPullNoCallback makes P a no-op when no pull callback is wired.
+func TestPullNoCallback(t *testing.T) {
+	m := loadedModel(t, nil, nil) // OnPull is nil
+	m.handleKey("P")
+	if m.pending != pendingNone {
+		t.Error("P armed a pull with no callback wired")
+	}
+}
+
 func isQuit(cmd tea.Cmd) bool {
 	if cmd == nil {
 		return false
