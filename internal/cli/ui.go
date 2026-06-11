@@ -11,6 +11,7 @@ import (
 	"github.com/CelikE/soko/internal/browser"
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
+	"github.com/CelikE/soko/internal/journal"
 	"github.com/CelikE/soko/internal/output"
 	"github.com/CelikE/soko/internal/picker"
 	"github.com/CelikE/soko/internal/ui"
@@ -32,10 +33,11 @@ tmux pane all day.
 
 Keys: j/k move · enter cd (needs shell integration, see soko shell-init) ·
 / search by name · s cycle sort · f cycle filter · t cycle tag filter ·
-G group by tag · o open home (p/i/a for PRs/issues/actions) · g re-fetch now ·
-? help · q quit.
+G group by tag · o open home (p/i/a for PRs/issues/actions) · P pull (confirmed,
+undoable) · g re-fetch now · ? help · q quit.
 
-Read-only: the dashboard never pulls, stashes, or cleans. Use --fetch to fetch
+The only mutating key is P: a fast-forward pull of the selected repo, after a
+confirmation prompt and recorded so soko undo can reset it. Use --fetch to fetch
 from remotes in the background on an interval (e.g. --fetch 5m).`,
 		Example: `  soko ui
   soko ui --tag backend
@@ -66,6 +68,7 @@ from remotes in the background on an interval (e.g. --fetch 5m).`,
 				Collect:      func(_ context.Context, fetch bool) []ui.Row { return collectUIRows(cmd, repos, fetch) },
 				OnSelect:     writeNavFile,
 				OnOpen:       openRepoInBrowser(cmd.Context()),
+				OnPull:       pullRepoForUI(cmd.Context()),
 				RefreshEvery: uiRefreshInterval,
 				FetchEvery:   fetchEvery,
 			})
@@ -150,6 +153,39 @@ func openRepoInBrowser(ctx context.Context) func(path, page string) error {
 		baseURL := browser.RemoteToHTTPS(remote)
 		fullURL := baseURL + browser.SubPagePath(baseURL, uiBrowserPage(page))
 		return browser.Open(fullURL)
+	}
+}
+
+// pullRepoForUI returns the ui's pull callback: a fast-forward-only pull of one
+// repo that records a journal entry so soko undo can reset it. It returns a
+// short human status ("pulled" / "already up to date") for the dashboard.
+func pullRepoForUI(ctx context.Context) func(name, path string) (string, error) {
+	return func(name, path string) (string, error) {
+		preSHA, err := git.Run(ctx, path, "rev-parse", "HEAD")
+		if err != nil {
+			return "", fmt.Errorf("not a git repo")
+		}
+
+		advanced, err := git.Pull(ctx, path, false)
+		if err != nil {
+			return "", fmt.Errorf("pull failed (needs a clean fast-forward)")
+		}
+		if !advanced {
+			return "already up to date", nil
+		}
+
+		// Record the pre-pull SHA so undo can rewind the fast-forward.
+		entry := journal.Entry{
+			Op:      journal.OpPull,
+			Time:    time.Now(),
+			Summary: "pulled " + name,
+			Pulls:   []journal.PullRef{{Repo: name, Path: path, SHA: preSHA}},
+		}
+		if jerr := journal.Append(&entry); jerr != nil {
+			// The pull succeeded; surface the journal miss without failing it.
+			return "pulled (undo unavailable: " + jerr.Error() + ")", nil
+		}
+		return "pulled", nil
 	}
 }
 

@@ -21,7 +21,8 @@ func newUndoCmd() *cobra.Command {
 capped journal of pre-images (refs, registry entries) that soko records as it
 works. Undo is for "oops, just now" — it reverts the latest entry, not history.
 
-Currently reverses: soko clean (recreates deleted branches at their SHAs).`,
+Currently reverses: soko clean (recreates deleted branches at their SHAs) and
+fast-forward pulls from soko ui (resets the branch to its pre-pull SHA).`,
 		Example: `  soko undo            # revert the last operation
   soko undo --list     # show the journal without changing anything`,
 		Args: cobra.NoArgs,
@@ -68,9 +69,41 @@ func revertEntry(ctx context.Context, w io.Writer, e *journal.Entry) error {
 	switch e.Op {
 	case journal.OpClean:
 		return undoClean(ctx, w, e)
+	case journal.OpPull:
+		return undoPull(ctx, w, e)
 	default:
 		return fmt.Errorf("don't know how to undo operation %q", e.Op)
 	}
+}
+
+// undoPull resets each fast-forwarded repo back to its pre-pull SHA. Because the
+// pull was fast-forward only, the recorded SHA is an ancestor of HEAD, so the
+// reset cleanly rewinds the just-pulled commits.
+func undoPull(ctx context.Context, w io.Writer, e *journal.Entry) error {
+	var reset, failed int
+	for _, p := range e.Pulls {
+		if !pathExists(p.Path) {
+			output.Fail(w, fmt.Sprintf("%s: path not found, cannot reset", p.Repo))
+			failed++
+			continue
+		}
+		if _, err := git.Run(ctx, p.Path, "reset", "--hard", p.SHA); err != nil {
+			output.Fail(w, fmt.Sprintf("%s: failed to reset to %s: %v", p.Repo, shortSHA(p.SHA), err))
+			failed++
+			continue
+		}
+		output.Confirm(w, fmt.Sprintf("%s: reset to %s", p.Repo, shortSHA(p.SHA)))
+		reset++
+	}
+
+	if failed > 0 {
+		return fmt.Errorf("undo pull: reset %d %s, %d failed",
+			reset, output.Plural(reset, "repo"), failed)
+	}
+	if reset == 0 {
+		output.Info(w, "nothing to reset")
+	}
+	return nil
 }
 
 // undoClean recreates each deleted branch at its recorded SHA. A branch that

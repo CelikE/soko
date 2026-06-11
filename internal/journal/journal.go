@@ -27,6 +27,9 @@ const (
 	// OpClean reverses `soko clean` — recreate the deleted branches at their
 	// recorded SHAs.
 	OpClean Op = "clean"
+	// OpPull reverses a fast-forward pull (e.g. from `soko ui`) — reset the
+	// branch back to the pre-pull SHA.
+	OpPull Op = "pull"
 )
 
 // BranchRef is a deleted branch that undo can recreate.
@@ -37,12 +40,20 @@ type BranchRef struct {
 	SHA    string `yaml:"sha"`
 }
 
+// PullRef is a fast-forwarded repo that undo can reset to its pre-pull SHA.
+type PullRef struct {
+	Repo string `yaml:"repo"`
+	Path string `yaml:"path"`
+	SHA  string `yaml:"sha"`
+}
+
 // Entry is one reversible operation.
 type Entry struct {
 	Op       Op          `yaml:"op"`
 	Time     time.Time   `yaml:"time"`
 	Summary  string      `yaml:"summary"`
 	Branches []BranchRef `yaml:"branches,omitempty"`
+	Pulls    []PullRef   `yaml:"pulls,omitempty"`
 }
 
 // Journal is the on-disk log, oldest first.
