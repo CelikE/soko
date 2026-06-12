@@ -462,6 +462,74 @@ func TestPullNoCallback(t *testing.T) {
 	}
 }
 
+// TestCursorFollowsRepoAcrossRefresh keeps the cursor on the same repo when a
+// background refresh changes the sort order.
+func TestCursorFollowsRepoAcrossRefresh(t *testing.T) {
+	m := loadedModel(t, nil, nil) // cursor on alpha (name sort)
+
+	// Changing the sort keeps the cursor on alpha at its new position.
+	m.handleKey("s") // dirty sort → bravo, alpha, charlie
+	if r, _ := m.current(); r.Name != "alpha" || m.cursor != 1 {
+		t.Fatalf("cursor on %q at %d after sort, want alpha at 1", r.Name, m.cursor)
+	}
+
+	// Refresh: charlie becomes the dirtiest → order charlie, bravo, alpha.
+	rows := sampleRows()
+	rows[2].Dirty, rows[2].Changes = true, 9
+	m.Update(rowsMsg{rows: rows})
+
+	if r, _ := m.current(); r.Name != "alpha" {
+		t.Errorf("cursor jumped to %q after refresh, want alpha", r.Name)
+	}
+	if m.cursor != 2 {
+		t.Errorf("cursor index = %d, want 2 (alpha's new position)", m.cursor)
+	}
+}
+
+// TestCursorFallsBackWhenRepoLeaves clamps the cursor when the repo under it
+// disappears from the view.
+func TestCursorFallsBackWhenRepoLeaves(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.handleKey("G")                          // charlie
+	m.Update(rowsMsg{rows: sampleRows()[:2]}) // charlie removed
+
+	if r, ok := m.current(); !ok || r.Name != "bravo" {
+		t.Errorf("cursor = %v, want clamp to bravo", r.Name)
+	}
+}
+
+// TestPendingPullPinned proves the armed pull targets the repo shown in the
+// banner even if a refresh re-sorts the view before confirmation.
+func TestPendingPullPinned(t *testing.T) {
+	var gotName string
+	onPull := func(name, _ string) (string, error) { gotName = name; return "pulled", nil }
+
+	m := New(Config{OnPull: onPull})
+	m.Update(rowsMsg{rows: sampleRows()})
+	m.width = 100
+
+	m.handleKey("j") // bravo
+	m.handleKey("P")
+
+	// Refresh re-sorts so a different repo sits under the cursor index.
+	rows := sampleRows()
+	rows[0].Name, rows[0].Path = "aaa-new", "/new" // displaces bravo's position
+	m.Update(rowsMsg{rows: rows})
+
+	if out := m.View(); !strings.Contains(out, "pull bravo? [y/N]") {
+		t.Errorf("banner lost pinned target\n%s", out)
+	}
+
+	_, cmd := m.handleConfirmKey("y")
+	if cmd == nil {
+		t.Fatal("confirmed pull returned no command")
+	}
+	cmd()
+	if gotName != "bravo" {
+		t.Errorf("pull ran against %q, want bravo", gotName)
+	}
+}
+
 // manyRows builds n distinct repos for viewport tests.
 func manyRows(n int) []Row {
 	rows := make([]Row, n)
