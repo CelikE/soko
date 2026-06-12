@@ -57,16 +57,25 @@ func (r *Row) firstTag() string {
 // the background fetch tick or an explicit `g` keypress.
 type Collector func(ctx context.Context, fetch bool) []Row
 
+// PullTarget identifies one repo a pull acts on.
+type PullTarget struct {
+	Name string
+	Path string
+}
+
 // Config wires the model to its side effects. Everything I/O-bound is injected
 // so the model stays a pure state machine for tests.
 type Config struct {
 	Ctx          context.Context
 	Collect      Collector
-	OnSelect     func(path string) error                 // enter — write the shell nav file
-	OnOpen       func(path, page string) error           // o/p/i/a — open a repo page in a browser
-	OnPull       func(name, path string) (string, error) // P — fast-forward pull the selected repo
-	RefreshEvery time.Duration                           // local state refresh cadence
-	FetchEvery   time.Duration                           // background fetch cadence; 0 disables
+	OnSelect     func(path string) error                  // enter — write the shell nav file
+	OnOpen       func(path, page string) error            // o/p/i/a — open a repo page in a browser
+	OnPull       func(repos []PullTarget) (string, error) // P — fast-forward pull (cursor or marked repos)
+	OnUndo       func() (string, error)                   // u — undo the last recorded pull
+	OnFetchRepo  func(path string) error                  // R — fetch one repo from its remotes
+	OnCopy       func(text string) error                  // y — copy the repo path to the clipboard
+	RefreshEvery time.Duration                            // local state refresh cadence
+	FetchEvery   time.Duration                            // background fetch cadence; 0 disables
 }
 
 // pendingKind is a mutating action awaiting y/n confirmation.
@@ -75,6 +84,7 @@ type pendingKind int
 const (
 	pendingNone pendingKind = iota
 	pendingPull
+	pendingUndo
 )
 
 // sortMode is the row ordering cycled with `s`.
@@ -169,11 +179,14 @@ const statusTTL = 8 * time.Second
 
 // Model is the bubbletea model for the dashboard.
 type Model struct {
-	ctx      context.Context
-	collect  Collector
-	onSelect func(path string) error
-	onOpen   func(path, page string) error
-	onPull   func(name, path string) (string, error)
+	ctx         context.Context
+	collect     Collector
+	onSelect    func(path string) error
+	onOpen      func(path, page string) error
+	onPull      func(repos []PullTarget) (string, error)
+	onUndo      func() (string, error)
+	onFetchRepo func(path string) error
+	onCopy      func(text string) error
 
 	all  []Row // last collected, in config order
 	view []Row // all after filter + search + sort (+ group ordering)
@@ -191,12 +204,15 @@ type Model struct {
 	searching bool
 	query     string
 
-	pending     pendingKind // mutation awaiting confirmation
-	pendingName string      // repo the pending mutation targets, pinned at
-	pendingPath string      // arm time so a background refresh can't retarget it
-	busy        bool        // a mutation is running
-	statusMsg   string      // transient result line (e.g. "repo: pulled")
-	msgSetAt    time.Time   // when statusMsg/lastErr was set; expires after statusTTL
+	marked map[string]bool // paths marked with space for batch actions
+
+	pending      pendingKind  // mutation awaiting confirmation
+	pendingPulls []PullTarget // pull targets pinned at arm time so a background
+	// refresh can't retarget the confirmed action
+	busy      bool      // a mutation is running
+	quitArmed bool      // q pressed once while busy; next q quits anyway
+	statusMsg string    // transient result line (e.g. "repo: pulled")
+	msgSetAt  time.Time // when statusMsg/lastErr was set; expires after statusTTL
 
 	showHelp bool
 
@@ -214,7 +230,7 @@ type Model struct {
 }
 
 // New builds a Model from cfg, applying defaults.
-func New(cfg Config) Model {
+func New(cfg *Config) Model {
 	ctx := cfg.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -229,6 +245,10 @@ func New(cfg Config) Model {
 		onSelect:     cfg.OnSelect,
 		onOpen:       cfg.OnOpen,
 		onPull:       cfg.OnPull,
+		onUndo:       cfg.OnUndo,
+		onFetchRepo:  cfg.OnFetchRepo,
+		onCopy:       cfg.OnCopy,
+		marked:       map[string]bool{},
 		refreshEvery: refresh,
 		fetchEvery:   cfg.FetchEvery,
 		width:        defaultWidth,
@@ -250,9 +270,17 @@ type rowsMsg struct {
 	rows    []Row
 	fetched bool
 }
-type pullDoneMsg struct {
+
+// actionDoneMsg reports the outcome of an async mutation (pull, undo): a
+// human status line on success, an error otherwise.
+type actionDoneMsg struct {
+	msg string
+	err error
+}
+
+// fetchRepoDoneMsg reports a single-repo fetch (R key).
+type fetchRepoDoneMsg struct {
 	name string
-	msg  string
 	err  error
 }
 
@@ -305,6 +333,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fetching = false
 			m.lastFetch = time.Now()
 		}
+		// Drop marks for repos that left the workspace.
+		if len(m.marked) > 0 {
+			live := make(map[string]bool, len(msg.rows))
+			for i := range msg.rows {
+				live[msg.rows[i].Path] = true
+			}
+			for p := range m.marked {
+				if !live[p] {
+					delete(m.marked, p)
+				}
+			}
+		}
 		m.loaded = true
 		m.rebuild()
 		return m, nil
@@ -322,14 +362,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetching = true
 		return m, tea.Batch(m.refreshCmd(true), fetchTickCmd(m.fetchEvery))
 
-	case pullDoneMsg:
+	case actionDoneMsg:
 		m.busy = false
 		if msg.err != nil {
 			m.setError(msg.err)
 		} else {
-			m.setStatus(msg.name + ": " + msg.msg)
+			m.setStatus(msg.msg)
 		}
 		// Reflect the new local state right away.
+		cmd := m.refreshCmd(false)
+		return m, cmd
+
+	case fetchRepoDoneMsg:
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		m.setStatus(msg.name + ": fetched")
 		cmd := m.refreshCmd(false)
 		return m, cmd
 
@@ -401,32 +450,49 @@ func (m *Model) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // runPending executes the confirmed mutation as an async command, against the
-// target pinned when the confirmation was armed.
+// targets pinned when the confirmation was armed.
 func (m *Model) runPending() (tea.Model, tea.Cmd) {
 	kind := m.pending
-	name, path := m.pendingName, m.pendingPath
+	targets := m.pendingPulls
 	m.clearPending()
 
-	if kind == pendingPull {
-		if path == "" || m.onPull == nil {
+	switch kind {
+	case pendingPull:
+		if len(targets) == 0 || m.onPull == nil {
 			return m, nil
 		}
 		m.busy = true
 		m.statusMsg = ""
 		m.lastErr = nil
+		for _, t := range targets {
+			delete(m.marked, t.Path)
+		}
 		onPull := m.onPull
 		return m, func() tea.Msg {
-			msg, err := onPull(name, path)
-			return pullDoneMsg{name: name, msg: msg, err: err}
+			msg, err := onPull(targets)
+			return actionDoneMsg{msg: msg, err: err}
+		}
+
+	case pendingUndo:
+		if m.onUndo == nil {
+			return m, nil
+		}
+		m.busy = true
+		m.statusMsg = ""
+		m.lastErr = nil
+		onUndo := m.onUndo
+		return m, func() tea.Msg {
+			msg, err := onUndo()
+			return actionDoneMsg{msg: msg, err: err}
 		}
 	}
 	return m, nil
 }
 
-// clearPending resets a pending confirmation and its pinned target.
+// clearPending resets a pending confirmation and its pinned targets.
 func (m *Model) clearPending() {
 	m.pending = pendingNone
-	m.pendingName, m.pendingPath = "", ""
+	m.pendingPulls = nil
 }
 
 // setStatus shows a transient success line; it replaces any visible error.
@@ -455,10 +521,19 @@ func (m *Model) expireStatus() {
 
 // handleNormalKey handles the default (non-search, non-help) bindings.
 func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
+	if key != "q" && key != "esc" {
+		m.quitArmed = false
+	}
 	switch key {
-	case "q", "ctrl+c":
+	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+
+	case "q":
+		if cmd, quit := m.tryQuit(); quit {
+			return m, cmd
+		}
+		return m, nil
 
 	case "esc":
 		// Unwind state one level before quitting: a committed search first,
@@ -472,8 +547,9 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 			m.tagFilter = ""
 			m.rebuild()
 		default:
-			m.quitting = true
-			return m, tea.Quit
+			if cmd, quit := m.tryQuit(); quit {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -557,16 +633,84 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		cmd := m.refreshCmd(true)
 		return m, cmd
 
+	case " ":
+		// Mark/unmark the cursor row for batch actions, then advance.
+		if r, ok := m.current(); ok && !r.Missing {
+			if m.marked[r.Path] {
+				delete(m.marked, r.Path)
+			} else {
+				m.marked[r.Path] = true
+			}
+			m.moveCursor(1)
+		}
+		return m, nil
+
+	case "*":
+		// Mark every visible repo; if all are already marked, unmark them.
+		all := true
+		for i := range m.view {
+			if !m.view[i].Missing && !m.marked[m.view[i].Path] {
+				all = false
+				break
+			}
+		}
+		for i := range m.view {
+			if m.view[i].Missing {
+				continue
+			}
+			if all {
+				delete(m.marked, m.view[i].Path)
+			} else {
+				m.marked[m.view[i].Path] = true
+			}
+		}
+		return m, nil
+
 	case "P":
-		// Ask before mutating. The target is pinned now so a background
-		// refresh that re-sorts the view can't silently retarget the pull.
-		if r, ok := m.current(); ok && m.onPull != nil && !m.busy {
+		// Ask before mutating. Targets — the marked repos, or the cursor's —
+		// are pinned now so a background refresh can't retarget the pull.
+		if m.onPull == nil || m.busy {
+			return m, nil
+		}
+		targets := m.pullTargets()
+		if len(targets) == 0 {
+			return m, nil
+		}
+		m.pending = pendingPull
+		m.pendingPulls = targets
+		return m, nil
+
+	case "u":
+		// Undo the last recorded pull, after confirmation.
+		if m.onUndo != nil && !m.busy {
+			m.pending = pendingUndo
+		}
+		return m, nil
+
+	case "R":
+		// Fetch just the cursor's repo from its remotes.
+		if r, ok := m.current(); ok && m.onFetchRepo != nil && !m.fetching {
 			if r.Missing {
 				m.setError(errMissing(&r))
 				return m, nil
 			}
-			m.pending = pendingPull
-			m.pendingName, m.pendingPath = r.Name, r.Path
+			onFetch := m.onFetchRepo
+			name, path := r.Name, r.Path
+			m.setStatus(name + ": fetching…")
+			return m, func() tea.Msg {
+				return fetchRepoDoneMsg{name: name, err: onFetch(path)}
+			}
+		}
+		return m, nil
+
+	case "y":
+		// Copy the cursor repo's path to the clipboard.
+		if r, ok := m.current(); ok && m.onCopy != nil {
+			if err := m.onCopy(r.Path); err != nil {
+				m.setError(err)
+			} else {
+				m.setStatus("copied " + r.Path)
+			}
 		}
 		return m, nil
 
@@ -644,6 +788,42 @@ func (m *Model) openCurrent(page string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// tryQuit quits unless a mutation is mid-flight, in which case the first
+// press warns and the second quits anyway (ctrl+c always quits directly).
+func (m *Model) tryQuit() (tea.Cmd, bool) {
+	if m.busy && !m.quitArmed {
+		m.quitArmed = true
+		m.setStatus("pull in progress — press again to quit")
+		return nil, false
+	}
+	m.quitting = true
+	return tea.Quit, true
+}
+
+// pullTargets resolves what P acts on: the marked repos (in workspace order,
+// missing ones skipped) or, with no marks, the repo under the cursor.
+func (m *Model) pullTargets() []PullTarget {
+	if len(m.marked) > 0 {
+		targets := make([]PullTarget, 0, len(m.marked))
+		for i := range m.all {
+			r := &m.all[i]
+			if m.marked[r.Path] && !r.Missing {
+				targets = append(targets, PullTarget{Name: r.Name, Path: r.Path})
+			}
+		}
+		return targets
+	}
+	r, ok := m.current()
+	if !ok {
+		return nil
+	}
+	if r.Missing {
+		m.setError(errMissing(&r))
+		return nil
+	}
+	return []PullTarget{{Name: r.Name, Path: r.Path}}
 }
 
 // errMissing explains why an action on a missing repo was refused.

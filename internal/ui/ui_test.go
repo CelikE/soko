@@ -38,7 +38,7 @@ func sampleRows() []Row {
 // fields directly after each keystroke.
 func loadedModel(t *testing.T, onSelect func(string) error, onOpen func(string, string) error) *Model {
 	t.Helper()
-	m := New(Config{OnSelect: onSelect, OnOpen: onOpen})
+	m := New(&Config{OnSelect: onSelect, OnOpen: onOpen})
 	m.Update(rowsMsg{rows: sampleRows()})
 	return &m
 }
@@ -371,13 +371,13 @@ func TestViewEmptyFilter(t *testing.T) {
 // TestPullConfirmAndRun covers the full mutate path: P asks, the banner shows,
 // y runs the injected pull, and the done message lands a status line.
 func TestPullConfirmAndRun(t *testing.T) {
-	var gotName, gotPath string
-	onPull := func(name, path string) (string, error) {
-		gotName, gotPath = name, path
-		return "pulled", nil
+	var gotTargets []PullTarget
+	onPull := func(targets []PullTarget) (string, error) {
+		gotTargets = targets
+		return "bravo: pulled", nil
 	}
 
-	m := New(Config{OnPull: onPull})
+	m := New(&Config{OnPull: onPull})
 	m.Update(rowsMsg{rows: sampleRows()})
 	m.width = 100
 
@@ -398,19 +398,19 @@ func TestPullConfirmAndRun(t *testing.T) {
 		t.Fatal("confirmed pull returned no command")
 	}
 
-	// The command runs the injected callback and yields a pullDoneMsg.
+	// The command runs the injected callback and yields an actionDoneMsg.
 	msg := cmd()
-	done, ok := msg.(pullDoneMsg)
+	done, ok := msg.(actionDoneMsg)
 	if !ok {
-		t.Fatalf("pull command returned %T, want pullDoneMsg", msg)
+		t.Fatalf("pull command returned %T, want actionDoneMsg", msg)
 	}
-	if gotName != "bravo" || gotPath != "/b" {
-		t.Errorf("onPull called with (%q,%q), want (bravo,/b)", gotName, gotPath)
+	if len(gotTargets) != 1 || gotTargets[0].Name != "bravo" || gotTargets[0].Path != "/b" {
+		t.Errorf("onPull called with %v, want [bravo //b]", gotTargets)
 	}
 
 	m.Update(done)
 	if m.busy {
-		t.Error("busy not cleared after pullDoneMsg")
+		t.Error("busy not cleared after actionDoneMsg")
 	}
 	if m.statusMsg != "bravo: pulled" {
 		t.Errorf("statusMsg = %q, want 'bravo: pulled'", m.statusMsg)
@@ -420,10 +420,10 @@ func TestPullConfirmAndRun(t *testing.T) {
 // TestPullCancel confirms n/esc dismiss the prompt without pulling.
 func TestPullCancel(t *testing.T) {
 	called := false
-	onPull := func(string, string) (string, error) { called = true; return "", nil }
+	onPull := func([]PullTarget) (string, error) { called = true; return "", nil }
 
 	for _, key := range []string{"n", "esc"} {
-		m := New(Config{OnPull: onPull})
+		m := New(&Config{OnPull: onPull})
 		m.Update(rowsMsg{rows: sampleRows()})
 		m.handleKey("P")
 		m.handleConfirmKey(key)
@@ -438,8 +438,8 @@ func TestPullCancel(t *testing.T) {
 
 // TestPullError surfaces a failed pull as an error, not a status line.
 func TestPullError(t *testing.T) {
-	onPull := func(string, string) (string, error) { return "", context.DeadlineExceeded }
-	m := New(Config{OnPull: onPull})
+	onPull := func([]PullTarget) (string, error) { return "", context.DeadlineExceeded }
+	m := New(&Config{OnPull: onPull})
 	m.Update(rowsMsg{rows: sampleRows()})
 
 	m.handleKey("P")
@@ -503,9 +503,14 @@ func TestCursorFallsBackWhenRepoLeaves(t *testing.T) {
 // banner even if a refresh re-sorts the view before confirmation.
 func TestPendingPullPinned(t *testing.T) {
 	var gotName string
-	onPull := func(name, _ string) (string, error) { gotName = name; return "pulled", nil }
+	onPull := func(targets []PullTarget) (string, error) {
+		if len(targets) > 0 {
+			gotName = targets[0].Name
+		}
+		return "pulled", nil
+	}
 
-	m := New(Config{OnPull: onPull})
+	m := New(&Config{OnPull: onPull})
 	m.Update(rowsMsg{rows: sampleRows()})
 	m.width = 100
 
@@ -562,7 +567,7 @@ func TestFetchIndicatorSurvivesCheapRefresh(t *testing.T) {
 // TestTickSkipsCollectWhileFetching re-arms only the timer during a fetch so
 // slow fetches don't pile up concurrent collectors.
 func TestTickSkipsCollectWhileFetching(t *testing.T) {
-	m := New(Config{RefreshEvery: time.Millisecond})
+	m := New(&Config{RefreshEvery: time.Millisecond})
 	m.Update(rowsMsg{rows: sampleRows()})
 
 	m.fetching = true
@@ -597,8 +602,8 @@ func TestStatusExpires(t *testing.T) {
 // TestSuccessReplacesError lets a later success clear a stale error so status
 // lines never get stuck behind one failed action.
 func TestSuccessReplacesError(t *testing.T) {
-	onPull := func(string, string) (string, error) { return "pulled", nil }
-	m := New(Config{OnPull: onPull})
+	onPull := func([]PullTarget) (string, error) { return "pulled", nil }
+	m := New(&Config{OnPull: onPull})
 	m.Update(rowsMsg{rows: sampleRows()})
 
 	m.setError(context.DeadlineExceeded)
@@ -619,10 +624,10 @@ func TestSuccessReplacesError(t *testing.T) {
 // error instead of acting on a nonexistent path.
 func TestMissingRepoGuards(t *testing.T) {
 	selected, opened, pulled := false, false, false
-	m := New(Config{
+	m := New(&Config{
 		OnSelect: func(string) error { selected = true; return nil },
 		OnOpen:   func(string, string) error { opened = true; return nil },
-		OnPull:   func(string, string) (string, error) { pulled = true; return "", nil },
+		OnPull:   func([]PullTarget) (string, error) { pulled = true; return "", nil },
 	})
 	rows := sampleRows()
 	rows[0].Missing = true
@@ -829,6 +834,148 @@ func TestSearchMatchesBranchAndTags(t *testing.T) {
 	}
 }
 
+// TestMarkAndBatchPull marks repos with space, shows the count, and pulls all
+// marked repos with one confirmed P.
+func TestMarkAndBatchPull(t *testing.T) {
+	var gotTargets []PullTarget
+	onPull := func(targets []PullTarget) (string, error) {
+		gotTargets = targets
+		return "pulled 2 · up to date 0", nil
+	}
+	m := New(&Config{OnPull: onPull})
+	m.Update(rowsMsg{rows: sampleRows()})
+	m.width = 100
+
+	m.handleKey(" ") // mark alpha, cursor advances to bravo
+	m.handleKey(" ") // mark bravo
+	if len(m.marked) != 2 {
+		t.Fatalf("marked = %d, want 2", len(m.marked))
+	}
+	if out := m.View(); !strings.Contains(out, "2 marked") {
+		t.Errorf("footer missing marked count\n%s", out)
+	}
+
+	m.handleKey("P")
+	if out := m.View(); !strings.Contains(out, "pull 2 repos (alpha, bravo)? [y/N]") {
+		t.Errorf("batch banner wrong\n%s", out)
+	}
+
+	_, cmd := m.handleConfirmKey("y")
+	cmd()
+	if len(gotTargets) != 2 || gotTargets[0].Name != "alpha" || gotTargets[1].Name != "bravo" {
+		t.Errorf("batch targets = %v, want alpha+bravo in workspace order", gotTargets)
+	}
+	if len(m.marked) != 0 {
+		t.Errorf("marks not cleared after pull: %v", m.marked)
+	}
+}
+
+// TestMarkAllToggle marks every visible repo with * and clears them on repeat.
+func TestMarkAllToggle(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+
+	m.handleKey("*")
+	if len(m.marked) != 3 {
+		t.Fatalf("* marked %d, want 3", len(m.marked))
+	}
+	m.handleKey("*")
+	if len(m.marked) != 0 {
+		t.Errorf("second * left %d marks", len(m.marked))
+	}
+
+	// Space toggles a single row off again.
+	m.handleKey(" ")
+	if !m.marked["/a"] {
+		t.Error("space did not mark alpha")
+	}
+}
+
+// TestUndoKey arms a confirmation and runs the undo callback.
+func TestUndoKey(t *testing.T) {
+	ran := false
+	m := New(&Config{OnUndo: func() (string, error) { ran = true; return "undid pull (1 repo reset)", nil }})
+	m.Update(rowsMsg{rows: sampleRows()})
+	m.width = 100
+
+	m.handleKey("u")
+	if m.pending != pendingUndo {
+		t.Fatal("u did not arm an undo")
+	}
+	if out := m.View(); !strings.Contains(out, "undo last pull? [y/N]") {
+		t.Errorf("undo banner missing\n%s", out)
+	}
+
+	_, cmd := m.handleConfirmKey("y")
+	m.Update(cmd())
+	if !ran {
+		t.Error("undo callback never ran")
+	}
+	if m.statusMsg != "undid pull (1 repo reset)" {
+		t.Errorf("statusMsg = %q", m.statusMsg)
+	}
+}
+
+// TestFetchOneRepo fetches just the cursor's repo with R.
+func TestFetchOneRepo(t *testing.T) {
+	var gotPath string
+	m := New(&Config{OnFetchRepo: func(p string) error { gotPath = p; return nil }})
+	m.Update(rowsMsg{rows: sampleRows()})
+
+	m.handleKey("j") // bravo
+	_, cmd := m.handleKey("R")
+	if cmd == nil {
+		t.Fatal("R issued no command")
+	}
+	m.Update(cmd())
+	if gotPath != "/b" {
+		t.Errorf("fetched %q, want /b", gotPath)
+	}
+	if m.statusMsg != "bravo: fetched" {
+		t.Errorf("statusMsg = %q", m.statusMsg)
+	}
+}
+
+// TestCopyPath copies the cursor repo's path with y.
+func TestCopyPath(t *testing.T) {
+	var copied string
+	m := New(&Config{OnCopy: func(s string) error { copied = s; return nil }})
+	m.Update(rowsMsg{rows: sampleRows()})
+
+	m.handleKey("y")
+	if copied != "/a" {
+		t.Errorf("copied %q, want /a", copied)
+	}
+	if !strings.Contains(m.statusMsg, "copied /a") {
+		t.Errorf("statusMsg = %q", m.statusMsg)
+	}
+}
+
+// TestQuitGuardWhileBusy requires a second q while a mutation runs.
+func TestQuitGuardWhileBusy(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.busy = true
+
+	_, cmd := m.handleKey("q")
+	if isQuit(cmd) || m.quitting {
+		t.Fatal("first q quit during a running pull")
+	}
+	if m.statusMsg == "" {
+		t.Error("first q showed no warning")
+	}
+
+	_, cmd = m.handleKey("q")
+	if !isQuit(cmd) {
+		t.Error("second q did not quit")
+	}
+
+	// ctrl+c always quits directly.
+	m2 := loadedModel(t, nil, nil)
+	m2.busy = true
+	if _, cmd := m2.handleKey("ctrl+c"); !isQuit(cmd) {
+		t.Error("ctrl+c blocked while busy")
+	}
+}
+
 // manyRows builds n distinct repos for viewport tests.
 func manyRows(n int) []Row {
 	rows := make([]Row, n)
@@ -843,7 +990,7 @@ func manyRows(n int) []Row {
 
 // TestJumpAndPagingKeys covers g/G/home/end and the paging keys.
 func TestJumpAndPagingKeys(t *testing.T) {
-	m := New(Config{})
+	m := New(&Config{})
 	m.Update(rowsMsg{rows: manyRows(40)})
 	m.height = 20 // pageSize derives from the viewport
 
@@ -878,7 +1025,7 @@ func TestJumpAndPagingKeys(t *testing.T) {
 // TestViewportClampsToHeight keeps the frame within the terminal height and the
 // cursor row visible while walking a long list.
 func TestViewportClampsToHeight(t *testing.T) {
-	m := New(Config{})
+	m := New(&Config{})
 	m.Update(rowsMsg{rows: manyRows(40)})
 	m.width, m.height = 100, 16
 
@@ -907,7 +1054,7 @@ func TestViewportClampsToHeight(t *testing.T) {
 // TestViewportUnclampedWithoutHeight renders everything when no WindowSizeMsg
 // has arrived (height 0), preserving the old behavior for tests and dumps.
 func TestViewportUnclampedWithoutHeight(t *testing.T) {
-	m := New(Config{})
+	m := New(&Config{})
 	m.Update(rowsMsg{rows: manyRows(40)})
 
 	out := m.View()
@@ -919,7 +1066,7 @@ func TestViewportUnclampedWithoutHeight(t *testing.T) {
 // TestClampWidth truncates over-wide lines ANSI-aware instead of letting the
 // terminal wrap them.
 func TestClampWidth(t *testing.T) {
-	m := New(Config{})
+	m := New(&Config{})
 	m.Update(rowsMsg{rows: manyRows(5)})
 	m.width = 30
 
@@ -932,7 +1079,7 @@ func TestClampWidth(t *testing.T) {
 
 // TestMouse maps wheel ticks to cursor movement and a click to row selection.
 func TestMouse(t *testing.T) {
-	m := New(Config{})
+	m := New(&Config{})
 	m.Update(rowsMsg{rows: manyRows(10)})
 	m.height = 30
 

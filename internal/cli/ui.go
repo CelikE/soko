@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -21,6 +25,10 @@ import (
 // (status only, no network, no disk walk) so it can run all day in a tmux pane.
 const uiRefreshInterval = 5 * time.Second
 
+// minFetchInterval floors --fetch so a typo (e.g. 5s) can't hammer every
+// remote with a full workspace fetch in a tight loop.
+const minFetchInterval = 30 * time.Second
+
 // newUICmd creates the cobra command for soko ui.
 func newUICmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -34,13 +42,16 @@ tmux pane all day.
 Keys: j/k move · g/G top/bottom · ctrl+d/u half page · enter cd (needs shell
 integration, see soko shell-init) · / search across name, branch, and tags
 (enter keeps the filter) · s/S cycle sort · f/F cycle filter · t/T cycle tag
-filter · b group by tag · o open home (p/i/a for PRs/issues/actions) · P pull
-(confirmed, undoable) · r re-fetch now · esc clear search/filters · ? help ·
-q quit. The mouse works too: wheel scrolls, click selects.
+filter · b group by tag · space mark (* marks all visible) · o open home
+(p/i/a for PRs/issues/actions) · P pull the marked or selected repos ·
+u undo the last pull · r re-fetch all (R just the selected repo) · y copy the
+repo path · esc clear search/filters · ? help · q quit. The mouse works too:
+wheel scrolls, click selects.
 
-The only mutating key is P: a fast-forward pull of the selected repo, after a
-confirmation prompt and recorded so soko undo can reset it. Use --fetch to fetch
-from remotes in the background on an interval (e.g. --fetch 5m).`,
+Mutations are confirmed and undoable: P fast-forward pulls the marked repos
+(or the one under the cursor) after a y/N prompt and records one journal
+entry, so u — or soko undo — resets the whole batch. Use --fetch to fetch
+from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 		Example: `  soko ui
   soko ui --tag backend
   soko ui --fetch 5m`,
@@ -64,13 +75,19 @@ from remotes in the background on an interval (e.g. --fetch 5m).`,
 			}
 
 			fetchEvery, _ := cmd.Flags().GetDuration("fetch")
+			if fetchEvery > 0 && fetchEvery < minFetchInterval {
+				return fmt.Errorf("--fetch interval must be at least %s (got %s)", minFetchInterval, fetchEvery)
+			}
 
-			model := ui.New(ui.Config{
+			model := ui.New(&ui.Config{
 				Ctx:          cmd.Context(),
 				Collect:      func(_ context.Context, fetch bool) []ui.Row { return collectUIRows(cmd, repos, fetch) },
 				OnSelect:     writeNavFile,
 				OnOpen:       openRepoInBrowser(cmd.Context()),
-				OnPull:       pullRepoForUI(cmd.Context()),
+				OnPull:       pullReposForUI(cmd.Context()),
+				OnUndo:       undoLastPullForUI(cmd.Context()),
+				OnFetchRepo:  fetchRepoForUI(cmd.Context()),
+				OnCopy:       copyToClipboard,
 				RefreshEvery: uiRefreshInterval,
 				FetchEvery:   fetchEvery,
 			})
@@ -160,37 +177,150 @@ func openRepoInBrowser(ctx context.Context) func(path, page string) error {
 	}
 }
 
-// pullRepoForUI returns the ui's pull callback: a fast-forward-only pull of one
-// repo that records a journal entry so soko undo can reset it. It returns a
-// short human status ("pulled" / "already up to date") for the dashboard.
-func pullRepoForUI(ctx context.Context) func(name, path string) (string, error) {
-	return func(name, path string) (string, error) {
-		preSHA, err := git.Run(ctx, path, "rev-parse", "HEAD")
-		if err != nil {
-			return "", fmt.Errorf("not a git repo")
+// pullReposForUI returns the ui's pull callback: fast-forward-only pulls of
+// one or more repos, recorded as a single journal entry so soko undo (or the
+// dashboard's u key) can rewind the whole batch. It returns a short human
+// status for the dashboard's status line.
+func pullReposForUI(ctx context.Context) func([]ui.PullTarget) (string, error) {
+	return func(targets []ui.PullTarget) (string, error) {
+		var pulled, upToDate int
+		var refs []journal.PullRef
+		var failures []string
+
+		for _, t := range targets {
+			preSHA, err := git.Run(ctx, t.Path, "rev-parse", "HEAD")
+			if err != nil {
+				failures = append(failures, t.Name+": not a git repo")
+				continue
+			}
+			advanced, err := git.Pull(ctx, t.Path, false)
+			if err != nil {
+				failures = append(failures, t.Name+": "+gitErrDetail(err))
+				continue
+			}
+			if !advanced {
+				upToDate++
+				continue
+			}
+			pulled++
+			refs = append(refs, journal.PullRef{Repo: t.Name, Path: t.Path, SHA: preSHA})
 		}
 
-		advanced, err := git.Pull(ctx, path, false)
-		if err != nil {
-			return "", fmt.Errorf("pull failed (needs a clean fast-forward)")
-		}
-		if !advanced {
-			return "already up to date", nil
+		// One journal entry for the whole batch keeps undo atomic.
+		journalNote := ""
+		if len(refs) > 0 {
+			entry := journal.Entry{
+				Op:      journal.OpPull,
+				Time:    time.Now(),
+				Summary: fmt.Sprintf("pulled %d %s (soko ui)", len(refs), output.Plural(len(refs), "repo")),
+				Pulls:   refs,
+			}
+			if jerr := journal.Append(&entry); jerr != nil {
+				// The pulls succeeded; surface the journal miss without failing.
+				journalNote = " (undo unavailable: " + jerr.Error() + ")"
+			}
 		}
 
-		// Record the pre-pull SHA so undo can rewind the fast-forward.
-		entry := journal.Entry{
-			Op:      journal.OpPull,
-			Time:    time.Now(),
-			Summary: "pulled " + name,
-			Pulls:   []journal.PullRef{{Repo: name, Path: path, SHA: preSHA}},
+		if len(failures) > 0 {
+			summary := strings.Join(failures, "; ")
+			if pulled+upToDate > 0 {
+				return "", fmt.Errorf("%d ok, %d failed: %s", pulled+upToDate, len(failures), summary)
+			}
+			return "", fmt.Errorf("%s", summary)
 		}
-		if jerr := journal.Append(&entry); jerr != nil {
-			// The pull succeeded; surface the journal miss without failing it.
-			return "pulled (undo unavailable: " + jerr.Error() + ")", nil
+		if len(targets) == 1 {
+			if pulled == 1 {
+				return targets[0].Name + ": pulled" + journalNote, nil
+			}
+			return targets[0].Name + ": already up to date", nil
 		}
-		return "pulled", nil
+		return fmt.Sprintf("pulled %d · up to date %d%s", pulled, upToDate, journalNote), nil
 	}
+}
+
+// gitErrDetail compacts a git error (which embeds stderr) to its most useful
+// line, capped for the status bar.
+func gitErrDetail(err error) string {
+	s := strings.TrimSpace(err.Error())
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[i+1:])
+	}
+	const maxLen = 90
+	if utf8.RuneCountInString(s) > maxLen {
+		s = string([]rune(s)[:maxLen-1]) + "…"
+	}
+	return s
+}
+
+// undoLastPullForUI returns the ui's undo callback: it rewinds the most recent
+// journal entry if and only if it is a pull, mirroring soko undo's pull path.
+func undoLastPullForUI(ctx context.Context) func() (string, error) {
+	return func() (string, error) {
+		j, err := journal.Load()
+		if err != nil {
+			return "", err
+		}
+		entry, ok := j.Last()
+		if !ok {
+			return "", fmt.Errorf("nothing to undo")
+		}
+		if entry.Op != journal.OpPull {
+			return "", fmt.Errorf("last operation is %q, not a pull — use soko undo", entry.Op)
+		}
+
+		var reset int
+		for _, p := range entry.Pulls {
+			if _, err := git.Run(ctx, p.Path, "reset", "--hard", p.SHA); err != nil {
+				return "", fmt.Errorf("%s: %s", p.Repo, gitErrDetail(err))
+			}
+			reset++
+		}
+		if _, err := journal.PopLast(); err != nil {
+			return "", fmt.Errorf("updating journal: %w", err)
+		}
+		return fmt.Sprintf("undid pull (%d %s reset)", reset, output.Plural(reset, "repo")), nil
+	}
+}
+
+// fetchRepoForUI returns the ui's single-repo fetch callback (R key).
+func fetchRepoForUI(ctx context.Context) func(path string) error {
+	return func(path string) error {
+		if err := git.Fetch(ctx, path, false); err != nil {
+			return fmt.Errorf("fetch failed: %s", gitErrDetail(err))
+		}
+		return nil
+	}
+}
+
+// copyToClipboard writes text to the system clipboard via the platform's
+// native tool (pbcopy/clip/wl-copy/xclip/xsel).
+func copyToClipboard(text string) error {
+	ctx := context.Background()
+	var c *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		c = exec.CommandContext(ctx, "pbcopy")
+	case "windows":
+		c = exec.CommandContext(ctx, "clip")
+	default:
+		switch {
+		case commandExists("wl-copy"):
+			c = exec.CommandContext(ctx, "wl-copy")
+		case commandExists("xclip"):
+			c = exec.CommandContext(ctx, "xclip", "-selection", "clipboard")
+		case commandExists("xsel"):
+			c = exec.CommandContext(ctx, "xsel", "--clipboard", "--input")
+		default:
+			return fmt.Errorf("no clipboard tool found (install wl-copy, xclip, or xsel)")
+		}
+	}
+	c.Stdin = strings.NewReader(text)
+	return c.Run()
+}
+
+func commandExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 // uiBrowserPage maps the ui's page token to a browser.Page.
