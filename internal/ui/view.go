@@ -40,8 +40,8 @@ func (m *Model) View() string {
 
 	// Title bar.
 	b.WriteString("  " + styleTitle.Render("soko ui") + "  " + styleDim.Render(m.statusLine()) + "\n")
-	if m.pending == pendingPull {
-		b.WriteString("  " + styleWarn.Render(fmt.Sprintf("pull %s? [y/N]", m.pendingName)) + "\n")
+	if m.pending != pendingNone {
+		b.WriteString("  " + styleWarn.Render(m.confirmBanner()) + "\n")
 	}
 	if m.searching {
 		b.WriteString("  " + styleDim.Render("/") + m.query + styleDim.Render("▏") + "\n")
@@ -88,6 +88,28 @@ func (m *Model) detailLine() string {
 		parts = append(parts, "worktree of "+r.WorktreeOf)
 	}
 	return styleDim.Render("  › "+r.Name+" — "+strings.Join(parts, " · ")) + "\n"
+}
+
+// confirmBanner is the y/N prompt for the armed mutation.
+func (m *Model) confirmBanner() string {
+	switch m.pending {
+	case pendingUndo:
+		return "undo last pull? [y/N]"
+	case pendingPull:
+		if len(m.pendingPulls) == 1 {
+			return fmt.Sprintf("pull %s? [y/N]", m.pendingPulls[0].Name)
+		}
+		names := make([]string, 0, 3)
+		for i, t := range m.pendingPulls {
+			if i == 3 {
+				names = append(names, fmt.Sprintf("+%d more", len(m.pendingPulls)-3))
+				break
+			}
+			names = append(names, t.Name)
+		}
+		return fmt.Sprintf("pull %d repos (%s)? [y/N]", len(m.pendingPulls), strings.Join(names, ", "))
+	}
+	return ""
 }
 
 // lineItem is one renderable table line: either a repo row (row >= 0, an index
@@ -237,7 +259,7 @@ func (m *Model) statusLine() string {
 		line += "  " + "fetched " + output.FormatTimeAgo(m.lastFetch)
 	}
 	if m.busy {
-		line += "  " + styleFetching.Render("pulling…")
+		line += "  " + styleFetching.Render("working…")
 	}
 	if m.statusMsg != "" && m.lastErr == nil {
 		line += "  " + styleOK.Render(m.statusMsg)
@@ -289,8 +311,13 @@ func (m *Model) table(items []lineItem) string {
 
 		r := &m.view[it.row]
 		marker := "  "
-		if it.row == m.cursor {
+		switch {
+		case it.row == m.cursor && m.marked[r.Path]:
+			marker = styleCursor.Render("›") + styleActive.Render("•")
+		case it.row == m.cursor:
 			marker = styleCursor.Render("› ")
+		case m.marked[r.Path]:
+			marker = styleActive.Render("• ")
 		}
 		age := output.FormatTimeAgo(r.LastCommit)
 		line := pad(displayName(r), repoW) + " " +
@@ -432,18 +459,22 @@ func (m *Model) footer(start, end int) string {
 	if len(m.view) != len(m.all) {
 		shown = fmt.Sprintf("%d shown · ", len(m.view))
 	}
+	marked := ""
+	if len(m.marked) > 0 {
+		marked = fmt.Sprintf(" · %d marked", len(m.marked))
+	}
 	scroll := ""
 	if total := len(m.buildItems()); end-start < total {
 		scroll = fmt.Sprintf(" · lines %d–%d/%d", start+1, end, total)
 	}
-	line := fmt.Sprintf("  %s%d %s · %d dirty · %d behind · %d crit%s",
-		shown, len(m.all), output.Plural(len(m.all), "repo"), dirty, behind, crit, scroll)
+	line := fmt.Sprintf("  %s%d %s · %d dirty · %d behind · %d crit%s%s",
+		shown, len(m.all), output.Plural(len(m.all), "repo"), dirty, behind, crit, marked, scroll)
 	return styleDim.Render(line) + "\n"
 }
 
 // helpLine is the bottom keybinding cheatsheet (the short form; ? opens full).
 func (m *Model) helpLine() string {
-	help := "  j/k move · g/G top/bottom · enter cd · / search · s/S sort · f/F filter · t/T tag · b group · o open · P pull · r fetch · esc clear · ? help · q quit"
+	help := "  j/k move · enter cd · / search · s/S sort · f/F filter · t/T tag · b group · space mark · P pull · u undo · o open · r/R fetch · y copy · ? help · q quit"
 	return styleDim.Render(help)
 }
 
@@ -463,10 +494,14 @@ func (m *Model) helpOverlay() string {
 		{"f / F", "cycle filter forward/back: all → dirty → behind → ahead → conflicts"},
 		{"t / T", "cycle tag filter forward/back through your tags"},
 		{"b", "toggle group-by-tag view"},
+		{"space", "mark/unmark the repo for batch actions"},
+		{"*", "mark all visible repos (again to clear)"},
 		{"o", "open the repo home page in a browser"},
 		{"p / i / a", "open pull requests / issues / actions"},
-		{"P", "pull the selected repo (fast-forward, confirmed, undoable)"},
-		{"r", "re-fetch from remotes now"},
+		{"P", "pull the marked repos, or the selected one (confirmed, undoable)"},
+		{"u", "undo the last pull (resets to the pre-pull commit)"},
+		{"r / R", "re-fetch all repos / just the selected one"},
+		{"y", "copy the repo path to the clipboard"},
 		{"mouse", "wheel scrolls · click selects a row"},
 		{"?", "toggle this help"},
 		{"esc", "clear search, then filters, then quit"},
