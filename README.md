@@ -83,12 +83,14 @@ soko status
 | `soko pull [repos...]` | Pull all (or specific) registered repos in parallel |
 | `soko sync [repos...]` | Fetch all repos, fast-forward the safe ones, report the rest |
 | `soko ctx` | Save and restore workspace contexts (branches + stashes) |
+| `soko snapshot` | Save and restore exact repo positions (branch + commit) |
 | `soko worktree` | Create, list, and remove git worktrees with registry bookkeeping |
 | `soko branch [name]` | Current branch per repo, or where a branch exists; `switch`/`stale` subcommands |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
 | `soko ui` | Live full-screen dashboard of local workspace state |
 | `soko exec` | Run a command in all registered repos |
+| `soko apply <file>` | Copy a file into many repos with a diff preview |
 | `soko grep <pattern>` | Search file content across repos with git grep |
 | `soko open` | Open a repo in the browser |
 | `soko report [repos...]` | Summarize commit activity across repos |
@@ -108,19 +110,22 @@ soko status
 |------|-------|-------------|
 | `--json` | Global | Output in JSON format |
 | `--quiet`, `-q` | Global | Suppress hints, progress, and summary lines (also via `SOKO_QUIET`) |
+| `--perf` | Global | Report per-repo and aggregate timing after a parallel command (also via `SOKO_PERF`) |
 | `--fetch` | `status` | Fetch from remotes before showing status |
 | `--dirty` | `status` | Show only repos with uncommitted changes |
 | `--clean` | `status` | Show only clean repos in sync with remote |
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--missing-upstream` | `remotes` | Show only repos with no remote or no upstream |
-| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `sync`, `branch`, `exec`, `grep`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `discover on` | Filter by tag (repeatable, combines with OR) |
+| `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `sync`, `branch`, `exec`, `grep`, `apply`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `ui`, `snapshot save`, `discover on` | Filter by tag (repeatable, combines with OR) |
 | `--meta` | `list`, `status` | Filter by metadata `key=value` (repeatable, combines with AND) |
 | `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |
 | `--ignore` | `discover on` | Glob patterns of paths to skip during auto-discovery (repeatable) |
 | `--worktree` | `init` | Register as a linked worktree instead of resolving to main repo |
 | `--worktrees` | `scan` | Also discover and register linked git worktrees |
-| `--no-worktrees` | `fetch`, `pull`, `sync`, `exec`, `grep` | Skip worktree entries, only operate on parent repos |
+| `--no-worktrees` | `fetch`, `pull`, `sync`, `exec`, `grep`, `apply` | Skip worktree entries, only operate on parent repos |
+| `--to` | `apply` | Destination path relative to each repo root (required) |
+| `--write` | `apply` | Write the files (default is a dry-run diff) |
 | `--fetch-only` | `sync` | Fetch every repo but never pull |
 | `--create`, `-b` | `branch switch` | Create the branch from the default branch where missing |
 | `--days` | `branch stale` | Staleness threshold in days (default: 90) |
@@ -133,12 +138,15 @@ soko status
 | `--group` | `status`, `list` | Group repos by tag in a tree view |
 | `--all` | `status` | Show all repos without truncation |
 | `--prune` | `fetch`, `clean` | Prune stale remote tracking refs |
-| `--force` | `remove`, `clean`, `prune` | Skip confirmation prompt |
+| `--force` | `remove`, `clean`, `prune`, `apply --write` | Skip confirmation prompt |
+| `--force` | `snapshot save` | Overwrite an existing snapshot |
+| `--fetch` | `ui` | Fetch from remotes in the background every interval (e.g. `--fetch 5m`) |
 | `--select` | `clean`, `prune`, `remove --all` | Open the interactive picker to choose exactly which repos the operation touches (requires a TTY) |
 | `--set` | `annotate` | Set a metadata `key=value` (repeatable) |
 | `--unset` | `annotate` | Remove a metadata key (repeatable) |
 | `--clear` | `annotate` | Remove all metadata from a repo |
 | `--list` | `annotate` | List every repo that has metadata |
+| `--list` | `undo` | Show the undo journal without reverting anything |
 | `-r`, `--repo` | `annotate`, `tag add`, `tag remove` | Target repo by name (defaults to the current directory) |
 | `--seq` | `exec` | Run sequentially instead of in parallel |
 | `--prs` | `open` | Open pull/merge requests page |
@@ -255,6 +263,27 @@ refuses to touch any repo that is dirty *right now* — save the current state
 under another name first. A stash that was popped manually degrades to a
 note, never an error. Contexts live in the same config file as the registry.
 
+### Snapshots
+
+Where `ctx` moves work-in-progress between branches, `soko snapshot` pins exact
+positions — branch and HEAD SHA per repo. Take one before a risky bulk
+operation (sync, pull, clean), and restore moves every branch back to the
+recorded commit:
+
+```bash
+soko snapshot save pre-sync         # record branch + SHA per repo
+soko snapshot save pre-sync --tag work --force   # tagged repos, overwrite existing
+soko snapshot restore pre-sync      # move each repo back
+soko snapshot list                  # saved snapshots
+soko snapshot show pre-sync         # per-repo detail
+soko snapshot drop pre-sync         # delete it
+```
+
+Snapshots pin commits; they never touch uncommitted work. `save` records
+whether a repo was dirty, and `restore` refuses dirty repos — stash first, or
+use `soko ctx` for work in progress. `restore` rewinds branches that moved and
+recreates branches that were deleted.
+
 ### Tags
 
 ```bash
@@ -350,6 +379,25 @@ soko exec --seq -- git log -1       # sequential, one at a time
 soko exec --tag backend -- go vet   # only in backend repos
 ```
 
+### Copy a file into many repos
+
+Polyrepo housekeeping means landing the same CI config, license, or lint
+settings everywhere. `soko apply` copies one source file into many repos,
+diff-first:
+
+```bash
+soko apply ci.yml --to .github/workflows/ci.yml          # dry-run: per-repo diff
+soko apply ci.yml --to .github/workflows/ci.yml --tag go # only repos tagged "go"
+soko apply LICENSE --to LICENSE backend auth             # only these repos
+soko apply ci.yml --to .github/workflows/ci.yml --write  # write after confirmation
+soko apply .editorconfig --to .editorconfig --json       # machine-readable plan
+```
+
+By default `apply` is a dry run: it shows a per-repo unified diff and writes
+nothing. `--write` applies the changes after a confirmation prompt (`--force`
+skips it). Writes are local file operations — apply never touches git or the
+network, so review and commit per repo as usual.
+
 ### Search across repos
 
 ```bash
@@ -389,6 +437,29 @@ soko cd auth                        # jump by name (prefix match)
 soko go                             # interactive picker
 soko go --tag backend               # picker filtered by tag
 ```
+
+### Live dashboard
+
+`soko ui` opens a full-screen, auto-refreshing dashboard of your workspace:
+each repo's branch, dirty state, ahead/behind, last-commit age, and a health
+badge. Local state refreshes every 5 seconds — cheap, no network. Meant to
+live in a tmux pane all day.
+
+```bash
+soko ui                             # the whole workspace
+soko ui --tag backend               # only backend repos
+soko ui --fetch 5m                  # also fetch from remotes every 5 minutes
+```
+
+Keys: `j`/`k` move · `enter` cd into the repo (needs shell integration) ·
+`/` search by name · `s` cycle sort · `f` cycle filter
+(all/dirty/behind/ahead/conflicts) · `t` cycle tag filter · `G` group by tag ·
+`o` open in browser (`p`/`i`/`a` for PRs/issues/actions) · `P` pull ·
+`g` re-fetch now · `?` help · `q` quit.
+
+The only mutating key is `P`: a fast-forward pull of the selected repo, after a
+confirmation prompt, recorded in the journal so `soko undo` can rewind it to
+the pre-pull commit.
 
 ### Automatic discovery
 
@@ -521,6 +592,12 @@ soko exec --no-worktrees -- git pull
 
 Without `--worktrees`, soko detects when you're in a worktree and registers the main repo instead — no duplicates.
 
+Worktrees inherit their parent repo's tags at filter time: `--tag backend`
+matches a worktree whose parent is tagged `backend`, and retagging the parent
+instantly re-scopes its worktrees. `soko tag remove` on a worktree only removes
+the worktree's own tags and errors on inherited ones — remove those on the
+parent.
+
 Beyond tracking, `soko worktree` manages the lifecycle — create, inspect, and
 tear down worktrees without leaving the registry stale:
 
@@ -606,6 +683,13 @@ Errors are never silenced: a failing `soko pull --quiet` still prints its error
 to stderr and exits non-zero. An explicit `--quiet` always wins over
 `SOKO_QUIET`, so a script can export the env globally and you can still get full
 output with `--quiet=false`.
+
+Two more scripting aids: per-repo failures in `--json` output (`pull`, `fetch`,
+`exec`, `clean`, `stash`) carry a stable `error_code` field, so scripts can
+branch on the failure type without parsing human-readable messages. And the
+global `--perf` flag (or `SOKO_PERF=1`) reports per-repo and aggregate timing
+after a parallel command — handy for spotting the one slow repo that drags
+down every `soko fetch`.
 
 ## Configuration
 
