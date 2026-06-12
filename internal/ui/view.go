@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/CelikE/soko/internal/output"
 )
@@ -54,23 +55,148 @@ func (m *Model) View() string {
 	if !m.loaded {
 		b.WriteString("  " + styleDim.Render("loading…") + "\n")
 		b.WriteString(m.helpLine())
-		return b.String()
+		return clampWidth(b.String(), m.width)
 	}
 
 	if len(m.view) == 0 {
 		b.WriteString("  " + styleDim.Render(m.emptyHint()) + "\n\n")
 		b.WriteString(m.tagLegend())
-		b.WriteString(m.footer())
+		b.WriteString(m.footer(0, 0))
 		b.WriteString(m.helpLine())
-		return b.String()
+		return clampWidth(b.String(), m.width)
 	}
 
-	b.WriteString(m.table())
+	items := m.buildItems()
+	start, end := m.scrollWindow(items)
+	b.WriteString(m.table(items[start:end]))
 	b.WriteString("\n")
 	b.WriteString(m.tagLegend())
-	b.WriteString(m.footer())
+	b.WriteString(m.footer(start, end))
 	b.WriteString(m.helpLine())
-	return b.String()
+	return clampWidth(b.String(), m.width)
+}
+
+// lineItem is one renderable table line: either a repo row (row >= 0, an index
+// into m.view) or a group header (row == -1) in grouped mode. The viewport
+// scrolls over these items so group headers consume screen budget too.
+type lineItem struct {
+	row   int    // index into m.view, or -1 for a group header
+	group string // header label's tag ("" = untagged) when row == -1
+}
+
+// buildItems flattens the current view into renderable line items, inserting a
+// group header before each first-tag cluster in grouped mode.
+func (m *Model) buildItems() []lineItem {
+	items := make([]lineItem, 0, len(m.view)+8)
+	lastGroup := "\x00" // sentinel so the first group always gets a header
+	for i := range m.view {
+		if m.grouped {
+			if g := m.view[i].firstTag(); g != lastGroup {
+				lastGroup = g
+				items = append(items, lineItem{row: -1, group: g})
+			}
+		}
+		items = append(items, lineItem{row: i})
+	}
+	return items
+}
+
+// tableCapacity is how many table line items fit on screen after the fixed
+// chrome (title, banners, header, legend, footer, help). Unknown height (tests,
+// pre-WindowSizeMsg) means no clamping.
+func (m *Model) tableCapacity() int {
+	if m.height <= 0 {
+		return len(m.view) * 2 // unbounded: rows + worst-case group headers
+	}
+	chrome := 7 // title, blank, 2 table header lines, blank, footer, help
+	if m.pending != pendingNone {
+		chrome++
+	}
+	if m.searching {
+		chrome++
+	}
+	if len(m.allTags) > 0 {
+		chrome++ // tag legend
+	}
+	return max(m.height-chrome, 1)
+}
+
+// pageSize is the viewport height in rows, used by paging keys.
+func (m *Model) pageSize() int {
+	return max(m.tableCapacity(), 1)
+}
+
+// scrollWindow clamps m.offset so the cursor's line item stays visible and
+// returns the visible item range. When the cursor row sits directly under its
+// group header, the header is pulled into view with it.
+func (m *Model) scrollWindow(items []lineItem) (start, end int) {
+	capacity := m.tableCapacity()
+
+	cursorItem := 0
+	for i := range items {
+		if items[i].row == m.cursor {
+			cursorItem = i
+			break
+		}
+	}
+
+	if m.offset > cursorItem {
+		m.offset = cursorItem
+	}
+	if cursorItem-m.offset >= capacity {
+		m.offset = cursorItem - capacity + 1
+	}
+	// Keep the cursor's group header attached when scrolling up to its row.
+	if m.offset == cursorItem && m.offset > 0 && items[m.offset-1].row == -1 {
+		m.offset--
+	}
+	m.offset = min(m.offset, max(len(items)-capacity, 0))
+	m.offset = max(m.offset, 0)
+
+	return m.offset, min(len(items), m.offset+capacity)
+}
+
+// tableTopLines is the number of screen lines above the first table item:
+// title, optional banners, the blank separator, and the two header lines.
+func (m *Model) tableTopLines() int {
+	top := 4 // title + blank + 2 table header lines
+	if m.pending != pendingNone {
+		top++
+	}
+	if m.searching {
+		top++
+	}
+	return top
+}
+
+// rowAtScreenLine maps a terminal line (0-based, from a mouse click) to the
+// view row rendered there.
+func (m *Model) rowAtScreenLine(y int) (int, bool) {
+	if !m.loaded || len(m.view) == 0 {
+		return 0, false
+	}
+	items := m.buildItems()
+	start, end := m.scrollWindow(items)
+	idx := start + (y - m.tableTopLines())
+	if idx < start || idx >= end || items[idx].row < 0 {
+		return 0, false
+	}
+	return items[idx].row, true
+}
+
+// clampWidth truncates every rendered line to the terminal width (ANSI-aware)
+// so long rows never wrap and break the table layout.
+func clampWidth(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) > width {
+			lines[i] = ansi.Truncate(line, width-1, "…")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // statusLine is the right-hand summary on the title bar: sort, active filters,
@@ -120,10 +246,11 @@ func (m *Model) emptyHint() string {
 	}
 }
 
-// table renders the repo rows with a header. Columns: REPO BRANCH STATUS ↑↓ AGE
-// HEALTH — the same vocabulary as soko status plus a health badge. In grouped
-// mode a dim tag header precedes each cluster.
-func (m *Model) table() string {
+// table renders the visible window of line items under a column header.
+// Columns: REPO BRANCH STATUS ↑↓ AGE HEALTH — the same vocabulary as soko
+// status plus a health badge. In grouped mode a dim tag header precedes each
+// cluster.
+func (m *Model) table(items []lineItem) string {
 	repoW, branchW, statusW, abW := m.columnWidths()
 
 	var b strings.Builder
@@ -139,23 +266,19 @@ func (m *Model) table() string {
 	b.WriteString(styleHeader.Render("  "+strings.Repeat("─", lipgloss.Width(header)-2)) + "\n")
 
 	counts := m.groupCounts()
-	lastGroup := "\x00" // sentinel so the first group always prints a header
-	for i := range m.view {
-		r := &m.view[i]
-
-		if m.grouped {
-			if g := r.firstTag(); g != lastGroup {
-				lastGroup = g
-				label := g
-				if label == "" {
-					label = "untagged"
-				}
-				b.WriteString(styleGroup.Render(fmt.Sprintf("  %s (%d)", label, counts[g])) + "\n")
+	for _, it := range items {
+		if it.row < 0 {
+			label := it.group
+			if label == "" {
+				label = "untagged"
 			}
+			b.WriteString(styleGroup.Render(fmt.Sprintf("  %s (%d)", label, counts[it.group])) + "\n")
+			continue
 		}
 
+		r := &m.view[it.row]
 		marker := "  "
-		if i == m.cursor {
+		if it.row == m.cursor {
 			marker = styleCursor.Render("› ")
 		}
 		age := output.FormatTimeAgo(r.LastCommit)
@@ -167,7 +290,7 @@ func (m *Model) table() string {
 			truncate(age, 10),
 			m.healthBadge(r),
 		)
-		if i == m.cursor {
+		if it.row == m.cursor {
 			line = styleCursor.Render(line)
 		}
 		b.WriteString(marker + line + "\n")
@@ -251,8 +374,9 @@ func (m *Model) tagLegend() string {
 }
 
 // footer shows workspace totals — the same numbers as soko stats' HEALTH block,
-// computed from the cheap live signals.
-func (m *Model) footer() string {
+// computed from the cheap live signals. When the viewport clips the table it
+// also shows which slice of the list is on screen.
+func (m *Model) footer(start, end int) string {
 	var dirty, behind, crit int
 	for i := range m.all {
 		r := &m.all[i]
@@ -270,14 +394,18 @@ func (m *Model) footer() string {
 	if len(m.view) != len(m.all) {
 		shown = fmt.Sprintf("%d shown · ", len(m.view))
 	}
-	line := fmt.Sprintf("  %s%d %s · %d dirty · %d behind · %d crit",
-		shown, len(m.all), output.Plural(len(m.all), "repo"), dirty, behind, crit)
+	scroll := ""
+	if total := len(m.buildItems()); end-start < total {
+		scroll = fmt.Sprintf(" · lines %d–%d/%d", start+1, end, total)
+	}
+	line := fmt.Sprintf("  %s%d %s · %d dirty · %d behind · %d crit%s",
+		shown, len(m.all), output.Plural(len(m.all), "repo"), dirty, behind, crit, scroll)
 	return styleDim.Render(line) + "\n"
 }
 
 // helpLine is the bottom keybinding cheatsheet (the short form; ? opens full).
 func (m *Model) helpLine() string {
-	help := "  j/k move · enter cd · / search · s sort · f filter · t tag · G group · o open · P pull · g fetch · ? help · q quit"
+	help := "  j/k move · g/G top/bottom · enter cd · / search · s sort · f filter · t tag · b group · o open · P pull · r fetch · ? help · q quit"
 	return styleDim.Render(help)
 }
 
@@ -286,16 +414,21 @@ func (m *Model) helpOverlay() string {
 	rows := [][2]string{
 		{"j / ↓", "move down"},
 		{"k / ↑", "move up"},
+		{"g / home", "jump to the top"},
+		{"G / end", "jump to the bottom"},
+		{"ctrl+d / ctrl+u", "half page down / up"},
+		{"pgdn / pgup", "page down / up"},
 		{"enter", "cd to the selected repo (needs shell integration)"},
 		{"/", "live search by name"},
 		{"s", "cycle sort: name → dirty → behind → health"},
 		{"f", "cycle filter: all → dirty → behind → ahead → conflicts"},
 		{"t", "cycle tag filter through your tags"},
-		{"G", "toggle group-by-tag view"},
+		{"b", "toggle group-by-tag view"},
 		{"o", "open the repo home page in a browser"},
 		{"p / i / a", "open pull requests / issues / actions"},
 		{"P", "pull the selected repo (fast-forward, confirmed, undoable)"},
-		{"g", "re-fetch from remotes now"},
+		{"r", "re-fetch from remotes now"},
+		{"mouse", "wheel scrolls · click selects a row"},
 		{"?", "toggle this help"},
 		{"q / esc", "quit"},
 	}
