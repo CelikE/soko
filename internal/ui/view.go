@@ -17,7 +17,8 @@ var (
 	styleTitle    = lipgloss.NewStyle().Bold(true)
 	styleHeader   = lipgloss.NewStyle().Faint(true)
 	styleDim      = lipgloss.NewStyle().Faint(true)
-	styleGroup    = lipgloss.NewStyle().Bold(true).Faint(true)
+	styleGroup    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	styleGroupDim = lipgloss.NewStyle().Bold(true).Faint(true)
 	styleCursor   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
 	styleActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
 	styleCrit     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
@@ -287,25 +288,28 @@ func (m *Model) emptyHint() string {
 
 // table renders the visible window of line items under a column header.
 // Columns: REPO BRANCH STATUS ↑↓ AGE HEALTH — the same vocabulary as soko
-// status plus a health badge. In grouped mode a dim tag header precedes each
-// cluster.
+// status plus a health badge. In grouped mode every cluster sits indented
+// under a `▾ tag (n)` header that carries the group's dirty/crit totals, so
+// the hierarchy is visible at a glance.
 func (m *Model) table(items []lineItem) string {
 	repoW, branchW, statusW, abW := m.columnWidths()
 
+	// Grouped rows are indented two cells under their header; the column
+	// header shifts with them so the columns still line up.
+	indent := ""
+	if m.grouped {
+		indent = "  "
+	}
+
 	var b strings.Builder
-	header := "  " + pad("REPO", repoW) + " " + pad("BRANCH", branchW) + " " +
+	header := "  " + indent + pad("REPO", repoW) + " " + pad("BRANCH", branchW) + " " +
 		pad("STATUS", statusW) + " " + pad("↑↓", abW) + " " + pad("AGE", ageW) + " HEALTH"
 	b.WriteString(styleHeader.Render(header) + "\n")
 	b.WriteString(styleHeader.Render("  "+strings.Repeat("─", lipgloss.Width(header)-2)) + "\n")
 
-	counts := m.groupCounts()
 	for _, it := range items {
 		if it.row < 0 {
-			label := it.group
-			if label == "" {
-				label = "untagged"
-			}
-			b.WriteString(styleGroup.Render(fmt.Sprintf("  %s (%d)", label, counts[it.group])) + "\n")
+			b.WriteString(m.groupHeader(it.group) + "\n")
 			continue
 		}
 
@@ -329,9 +333,45 @@ func (m *Model) table(items []lineItem) string {
 		if it.row == m.cursor {
 			line = styleCursor.Render(line)
 		}
-		b.WriteString(marker + line + "\n")
+		b.WriteString(indent + marker + line + "\n")
 	}
 	return b.String()
+}
+
+// groupHeader renders one `▾ tag (n)` cluster header with the group's
+// dirty/crit totals, so a collapsed glance shows where the work is.
+func (m *Model) groupHeader(group string) string {
+	label := group
+	if label == "" {
+		label = "untagged"
+	}
+
+	var count, dirty, crit int
+	for i := range m.view {
+		if m.view[i].firstTag() != group {
+			continue
+		}
+		count++
+		if m.view[i].Dirty {
+			dirty++
+		}
+		if m.view[i].Severity == SevCrit || m.view[i].Missing {
+			crit++
+		}
+	}
+
+	style := styleGroup
+	if group == "" {
+		style = styleGroupDim
+	}
+	head := "  " + style.Render(fmt.Sprintf("▾ %s (%d)", label, count))
+	if dirty > 0 {
+		head += styleWarn.Render(fmt.Sprintf("  %s %d", output.SymModified, dirty))
+	}
+	if crit > 0 {
+		head += styleCrit.Render(fmt.Sprintf("  %s %d", output.SymConflict, crit))
+	}
+	return head
 }
 
 // ageW is the fixed width of the AGE column ("102w ago" fits).
@@ -353,15 +393,6 @@ func pad(s string, w int) string {
 		return s + strings.Repeat(" ", gap)
 	}
 	return s
-}
-
-// groupCounts tallies the rows in the current view per first-tag group.
-func (m *Model) groupCounts() map[string]int {
-	counts := map[string]int{}
-	for i := range m.view {
-		counts[m.view[i].firstTag()]++
-	}
-	return counts
 }
 
 // columnWidths sizes the data-driven columns to their widest cell (in display
