@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -527,6 +528,90 @@ func TestPendingPullPinned(t *testing.T) {
 	cmd()
 	if gotName != "bravo" {
 		t.Errorf("pull ran against %q, want bravo", gotName)
+	}
+}
+
+// TestFetchIndicatorSurvivesCheapRefresh keeps the fetching flag up until the
+// fetched frame arrives, even when a cheap tick refresh lands first.
+func TestFetchIndicatorSurvivesCheapRefresh(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.collect = func(context.Context, bool) []Row { return sampleRows() }
+
+	m.handleKey("r")
+	if !m.fetching {
+		t.Fatal("r did not set fetching")
+	}
+
+	m.Update(rowsMsg{rows: sampleRows(), fetched: false}) // cheap refresh wins the race
+	if !m.fetching {
+		t.Error("cheap refresh cleared the fetching indicator")
+	}
+
+	m.Update(rowsMsg{rows: sampleRows(), fetched: true})
+	if m.fetching {
+		t.Error("fetched frame did not clear the indicator")
+	}
+	if m.lastFetch.IsZero() {
+		t.Error("fetched frame did not stamp lastFetch")
+	}
+	if out := m.View(); !strings.Contains(out, "fetched ") {
+		t.Errorf("status line missing fetch staleness\n%s", out)
+	}
+}
+
+// TestTickSkipsCollectWhileFetching re-arms only the timer during a fetch so
+// slow fetches don't pile up concurrent collectors.
+func TestTickSkipsCollectWhileFetching(t *testing.T) {
+	m := New(Config{RefreshEvery: time.Millisecond})
+	m.Update(rowsMsg{rows: sampleRows()})
+
+	m.fetching = true
+	_, cmd := m.Update(tickMsg(time.Now()))
+	if msg := cmd(); msg != nil {
+		if _, isTick := msg.(tickMsg); !isTick {
+			t.Errorf("tick while fetching returned %T, want tickMsg only", msg)
+		}
+	}
+}
+
+// TestStatusExpires clears transient status and error lines after statusTTL.
+func TestStatusExpires(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.collect = func(context.Context, bool) []Row { return sampleRows() }
+
+	m.setStatus("bravo: pulled")
+	m.msgSetAt = time.Now().Add(-statusTTL - time.Second)
+	m.Update(tickMsg(time.Now()))
+	if m.statusMsg != "" {
+		t.Errorf("statusMsg = %q, want expired", m.statusMsg)
+	}
+
+	m.setError(context.DeadlineExceeded)
+	m.msgSetAt = time.Now().Add(-statusTTL - time.Second)
+	m.Update(tickMsg(time.Now()))
+	if m.lastErr != nil {
+		t.Errorf("lastErr = %v, want expired", m.lastErr)
+	}
+}
+
+// TestSuccessReplacesError lets a later success clear a stale error so status
+// lines never get stuck behind one failed action.
+func TestSuccessReplacesError(t *testing.T) {
+	onPull := func(string, string) (string, error) { return "pulled", nil }
+	m := New(Config{OnPull: onPull})
+	m.Update(rowsMsg{rows: sampleRows()})
+
+	m.setError(context.DeadlineExceeded)
+
+	m.handleKey("P")
+	_, cmd := m.handleConfirmKey("y")
+	m.Update(cmd())
+
+	if m.lastErr != nil {
+		t.Errorf("lastErr = %v, want cleared by pull success", m.lastErr)
+	}
+	if m.statusMsg == "" {
+		t.Error("statusMsg empty after successful pull")
 	}
 }
 

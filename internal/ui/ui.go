@@ -160,6 +160,10 @@ const defaultWidth = 80
 // wheelStep is how many rows one mouse-wheel tick moves the cursor.
 const wheelStep = 3
 
+// statusTTL is how long a transient status or error line stays on screen
+// before a refresh tick clears it.
+const statusTTL = 8 * time.Second
+
 // Model is the bubbletea model for the dashboard.
 type Model struct {
 	ctx      context.Context
@@ -189,6 +193,7 @@ type Model struct {
 	pendingPath string      // arm time so a background refresh can't retarget it
 	busy        bool        // a mutation is running
 	statusMsg   string      // transient result line (e.g. "repo: pulled")
+	msgSetAt    time.Time   // when statusMsg/lastErr was set; expires after statusTTL
 
 	showHelp bool
 
@@ -196,9 +201,10 @@ type Model struct {
 	refreshEvery  time.Duration
 	fetchEvery    time.Duration
 
-	fetching bool
-	loaded   bool
-	lastErr  error
+	fetching  bool
+	lastFetch time.Time // when the last remote fetch finished; "" = never
+	loaded    bool
+	lastErr   error
 
 	selected string // path chosen via enter; read by the caller after Run
 	quitting bool
@@ -234,7 +240,13 @@ func (m *Model) Selected() string { return m.selected }
 
 type tickMsg time.Time
 type fetchTickMsg time.Time
-type rowsMsg struct{ rows []Row }
+
+// rowsMsg carries one collected frame; fetched marks frames that included a
+// remote fetch, so a concurrent cheap refresh can't clear the fetch indicator.
+type rowsMsg struct {
+	rows    []Row
+	fetched bool
+}
 type pullDoneMsg struct {
 	name string
 	msg  string
@@ -247,7 +259,7 @@ func (m *Model) refreshCmd(fetch bool) tea.Cmd {
 	collect := m.collect
 	ctx := m.ctx
 	return func() tea.Msg {
-		return rowsMsg{rows: collect(ctx, fetch)}
+		return rowsMsg{rows: collect(ctx, fetch), fetched: fetch}
 	}
 }
 
@@ -284,13 +296,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tagFilter != "" && !slices.Contains(m.allTags, m.tagFilter) {
 			m.tagFilter = ""
 		}
-		m.fetching = false
+		// Only a fetched frame ends the fetch indicator — a cheap refresh
+		// finishing first must not clear it while the fetch is still running.
+		if msg.fetched {
+			m.fetching = false
+			m.lastFetch = time.Now()
+		}
 		m.loaded = true
 		m.rebuild()
 		return m, nil
 
 	case tickMsg:
-		// Re-arm the local refresh timer and collect again.
+		m.expireStatus()
+		// Re-arm the local refresh timer; skip the collect while a fetch is in
+		// flight so slow fetches don't pile up concurrent collectors.
+		if m.fetching {
+			return m, tickCmd(m.refreshEvery)
+		}
 		return m, tea.Batch(m.refreshCmd(false), tickCmd(m.refreshEvery))
 
 	case fetchTickMsg:
@@ -300,9 +322,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pullDoneMsg:
 		m.busy = false
 		if msg.err != nil {
-			m.lastErr = msg.err
+			m.setError(msg.err)
 		} else {
-			m.statusMsg = msg.name + ": " + msg.msg
+			m.setStatus(msg.name + ": " + msg.msg)
 		}
 		// Reflect the new local state right away.
 		cmd := m.refreshCmd(false)
@@ -402,6 +424,30 @@ func (m *Model) runPending() (tea.Model, tea.Cmd) {
 func (m *Model) clearPending() {
 	m.pending = pendingNone
 	m.pendingName, m.pendingPath = "", ""
+}
+
+// setStatus shows a transient success line; it replaces any visible error.
+func (m *Model) setStatus(s string) {
+	m.statusMsg = s
+	m.lastErr = nil
+	m.msgSetAt = time.Now()
+}
+
+// setError shows a transient error line; it replaces any visible status.
+func (m *Model) setError(err error) {
+	m.lastErr = err
+	m.statusMsg = ""
+	m.msgSetAt = time.Now()
+}
+
+// expireStatus clears the transient status/error line once it has been on
+// screen for statusTTL.
+func (m *Model) expireStatus() {
+	if !m.msgSetAt.IsZero() && time.Since(m.msgSetAt) > statusTTL {
+		m.statusMsg = ""
+		m.lastErr = nil
+		m.msgSetAt = time.Time{}
+	}
 }
 
 // handleNormalKey handles the default (non-search, non-help) bindings.
@@ -549,7 +595,7 @@ func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
 func (m *Model) openCurrent(page string) (tea.Model, tea.Cmd) {
 	if r, ok := m.current(); ok && m.onOpen != nil {
 		if err := m.onOpen(r.Path, page); err != nil {
-			m.lastErr = err
+			m.setError(err)
 		}
 	}
 	return m, nil
@@ -564,7 +610,7 @@ func (m *Model) selectCurrent() (tea.Model, tea.Cmd) {
 	}
 	if m.onSelect != nil {
 		if err := m.onSelect(r.Path); err != nil {
-			m.lastErr = err
+			m.setError(err)
 			return m, nil
 		}
 	}
