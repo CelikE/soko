@@ -15,6 +15,9 @@ const shellInitScript = `# soko shell integration
 # Add this to your shell profile (.bashrc, .zshrc):
 #   eval "$(soko shell-init)"
 
+# Lets soko detect the integration (e.g. soko ui's cd-on-enter hint).
+export SOKO_SHELL_INTEGRATION=1
+
 __soko_nav_hook() {
   local nav_file="${XDG_CONFIG_HOME:-$HOME/.config}/soko/.nav"
   if [[ -f "$nav_file" ]]; then
@@ -40,6 +43,9 @@ const fishInitScript = `# soko shell integration for fish
 # Add to ~/.config/fish/config.fish:
 #   soko shell-init --fish | source
 
+# Lets soko detect the integration (e.g. soko ui's cd-on-enter hint).
+set -gx SOKO_SHELL_INTEGRATION 1
+
 function __soko_nav_hook --on-event fish_postexec
   if set -q XDG_CONFIG_HOME
     set -l base $XDG_CONFIG_HOME
@@ -61,6 +67,9 @@ end
 const pwshInitScript = `# soko shell integration for PowerShell
 # Add to your $PROFILE:
 #   soko shell-init --pwsh | Invoke-Expression
+
+# Lets soko detect the integration (e.g. soko ui's cd-on-enter hint).
+$env:SOKO_SHELL_INTEGRATION = "1"
 
 function __soko_nav_hook {
     if ($env:LOCALAPPDATA) {

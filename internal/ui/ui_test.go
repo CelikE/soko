@@ -11,6 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+
+	"github.com/CelikE/soko/internal/browser"
 )
 
 // TestMain strips color so View() output is deterministic for snapshot-style
@@ -36,7 +38,7 @@ func sampleRows() []Row {
 // loadedModel returns a model already populated with sampleRows. The model uses
 // pointer receivers, so handleKey/Update mutate it in place — tests read the
 // fields directly after each keystroke.
-func loadedModel(t *testing.T, onSelect func(string) error, onOpen func(string, string) error) *Model {
+func loadedModel(t *testing.T, onSelect func(string) error, onOpen func(string, browser.Page) error) *Model {
 	t.Helper()
 	m := New(&Config{OnSelect: onSelect, OnOpen: onOpen})
 	m.Update(rowsMsg{rows: sampleRows()})
@@ -267,16 +269,22 @@ func TestEnterSelectError(t *testing.T) {
 
 // TestOpenPages maps o/p/i/a to the right browser page for the cursor's repo.
 func TestOpenPages(t *testing.T) {
-	var gotPath, gotPage string
-	onOpen := func(p, page string) error { gotPath, gotPage = p, page; return nil }
+	var gotPath string
+	var gotPage browser.Page
+	onOpen := func(p string, page browser.Page) error { gotPath, gotPage = p, page; return nil }
 
-	cases := map[string]string{"o": "home", "p": "prs", "i": "issues", "a": "actions"}
+	cases := map[string]browser.Page{
+		"o": browser.PageHome,
+		"p": browser.PagePRs,
+		"i": browser.PageIssues,
+		"a": browser.PageActions,
+	}
 	for key, wantPage := range cases {
 		m := loadedModel(t, nil, onOpen)
 		m.handleKey("j") // bravo
 		m.handleKey(key)
 		if gotPath != "/b" || gotPage != wantPage {
-			t.Errorf("%q opened (%q,%q), want (/b,%q)", key, gotPath, gotPage, wantPage)
+			t.Errorf("%q opened (%q,%v), want (/b,%v)", key, gotPath, gotPage, wantPage)
 		}
 	}
 }
@@ -626,7 +634,7 @@ func TestMissingRepoGuards(t *testing.T) {
 	selected, opened, pulled := false, false, false
 	m := New(&Config{
 		OnSelect: func(string) error { selected = true; return nil },
-		OnOpen:   func(string, string) error { opened = true; return nil },
+		OnOpen:   func(string, browser.Page) error { opened = true; return nil },
 		OnPull:   func([]PullTarget) (string, error) { pulled = true; return "", nil },
 	})
 	rows := sampleRows()
