@@ -1,8 +1,9 @@
 // Package ui implements `soko ui` — a live, full-screen dashboard of local
-// workspace state (dirt, ahead/behind, branch, last-commit age, health). It is
-// read-only: navigation (enter) and open-in-browser (o/p/i/a) are the only
-// actions, both delegated to injected callbacks so this package owns no git or
-// shell I/O.
+// workspace state (dirt, ahead/behind, branch, last-commit age, health).
+// Every side effect — navigation (enter), open-in-browser (o/p/i/a), pull
+// (P), undo (u), fetch (r/R), clipboard (y) — is delegated to injected
+// callbacks, so this package owns no git or shell I/O and mutations are
+// confirmed in-model before their callback runs.
 //
 // The model is a standard bubbletea Elm loop. Refresh of local state is driven
 // by a cheap timer tick; an optional, slower timer triggers a background fetch.
@@ -20,6 +21,8 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/CelikE/soko/internal/browser"
 )
 
 // Row is one repo's live state as shown in the dashboard. The collector fills
@@ -54,7 +57,7 @@ func (r *Row) firstTag() string {
 
 // Collector returns the current local state of every tracked repo. When fetch
 // is true it first fetches from remotes (slow) — the dashboard only sets it on
-// the background fetch tick or an explicit `g` keypress.
+// the background fetch tick or an explicit `r` keypress.
 type Collector func(ctx context.Context, fetch bool) []Row
 
 // PullTarget identifies one repo a pull acts on.
@@ -68,14 +71,14 @@ type PullTarget struct {
 type Config struct {
 	Ctx          context.Context
 	Collect      Collector
-	OnSelect     func(path string) error                  // enter — write the shell nav file
-	OnOpen       func(path, page string) error            // o/p/i/a — open a repo page in a browser
-	OnPull       func(repos []PullTarget) (string, error) // P — fast-forward pull (cursor or marked repos)
-	OnUndo       func() (string, error)                   // u — undo the last recorded pull
-	OnFetchRepo  func(path string) error                  // R — fetch one repo from its remotes
-	OnCopy       func(text string) error                  // y — copy the repo path to the clipboard
-	RefreshEvery time.Duration                            // local state refresh cadence
-	FetchEvery   time.Duration                            // background fetch cadence; 0 disables
+	OnSelect     func(path string) error                    // enter — write the shell nav file
+	OnOpen       func(path string, page browser.Page) error // o/p/i/a — open a repo page in a browser
+	OnPull       func(repos []PullTarget) (string, error)   // P — fast-forward pull (cursor or marked repos)
+	OnUndo       func() (string, error)                     // u — undo the last recorded pull
+	OnFetchRepo  func(path string) error                    // R — fetch one repo from its remotes
+	OnCopy       func(text string) error                    // y — copy the repo path to the clipboard
+	RefreshEvery time.Duration                              // local state refresh cadence
+	FetchEvery   time.Duration                              // background fetch cadence; 0 disables
 }
 
 // pendingKind is a mutating action awaiting y/n confirmation.
@@ -154,12 +157,11 @@ func (f filterMode) match(r *Row) bool {
 	}
 }
 
-// Browser page targets passed to OnOpen.
+// Severity labels carried in Row.Severity (the health scorer's vocabulary).
 const (
-	pageHome    = "home"
-	pagePRs     = "prs"
-	pageIssues  = "issues"
-	pageActions = "actions"
+	SevOK   = "ok"
+	SevWarn = "warn"
+	SevCrit = "crit"
 )
 
 // defaultRefresh is used when Config.RefreshEvery is unset. The feature contract
@@ -182,7 +184,7 @@ type Model struct {
 	ctx         context.Context
 	collect     Collector
 	onSelect    func(path string) error
-	onOpen      func(path, page string) error
+	onOpen      func(path string, page browser.Page) error
 	onPull      func(repos []PullTarget) (string, error)
 	onUndo      func() (string, error)
 	onFetchRepo func(path string) error
@@ -254,10 +256,6 @@ func New(cfg *Config) Model {
 		width:        defaultWidth,
 	}
 }
-
-// Selected returns the repo path chosen with enter, or "" if the user quit
-// without selecting. Exposed for tests; the caller normally reads Run's return.
-func (m *Model) Selected() string { return m.selected }
 
 // --- messages ---
 
@@ -715,13 +713,13 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "o":
-		return m.openCurrent(pageHome)
+		return m.openCurrent(browser.PageHome)
 	case "p":
-		return m.openCurrent(pagePRs)
+		return m.openCurrent(browser.PagePRs)
 	case "i":
-		return m.openCurrent(pageIssues)
+		return m.openCurrent(browser.PageIssues)
 	case "a":
-		return m.openCurrent(pageActions)
+		return m.openCurrent(browser.PageActions)
 
 	case "enter":
 		return m.selectCurrent()
@@ -777,7 +775,7 @@ func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // openCurrent opens the cursor's repo at the given browser page.
-func (m *Model) openCurrent(page string) (tea.Model, tea.Cmd) {
+func (m *Model) openCurrent(page browser.Page) (tea.Model, tea.Cmd) {
 	if r, ok := m.current(); ok && m.onOpen != nil {
 		if r.Missing {
 			m.setError(errMissing(&r))

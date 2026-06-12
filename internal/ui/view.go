@@ -384,9 +384,9 @@ func (m *Model) healthBadge(r *Row) string {
 		return styleCrit.Render(output.SymConflict + " missing")
 	}
 	switch r.Severity {
-	case "crit":
+	case SevCrit:
 		return styleCrit.Render(output.SymConflict + " crit")
-	case "warn":
+	case SevWarn:
 		return styleWarn.Render(output.SymWarning + " warn")
 	default:
 		return styleOK.Render(output.SymClean + " ok")
@@ -451,7 +451,7 @@ func (m *Model) footer(start, end int) string {
 		if r.Behind > 0 {
 			behind++
 		}
-		if r.Severity == "crit" {
+		if r.Severity == SevCrit {
 			crit++
 		}
 	}
@@ -518,6 +518,7 @@ func (m *Model) helpOverlay() string {
 		keyCell := fmt.Sprintf("%-*s", keyW, r[0]) // pad before styling so ANSI never skews width
 		b.WriteString("  " + styleActive.Render(keyCell) + "  " + r[1] + "\n")
 	}
+	b.WriteString("\n" + styleDim.Render("  confirmations: y or enter runs · any other key cancels"))
 	b.WriteString("\n" + styleDim.Render("  press any key to close"))
 	return b.String()
 }

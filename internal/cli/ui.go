@@ -98,6 +98,11 @@ from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 			}
 			if selected != "" {
 				output.Confirm(stderr, fmt.Sprintf("→ %s", selected))
+				// Without the shell hook the nav file is never consumed, so
+				// enter silently does nothing — say so once.
+				if os.Getenv("SOKO_SHELL_INTEGRATION") == "" {
+					output.Info(stderr, "shell integration not detected — to make enter cd, add: "+shellInitActivateHint())
+				}
 			}
 			return nil
 		},
@@ -163,16 +168,16 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 }
 
 // openRepoInBrowser returns a callback that opens a repo's origin URL at a
-// named page (home/prs/issues/actions), bound to the given context. Mirrors
-// soko open's URL construction.
-func openRepoInBrowser(ctx context.Context) func(path, page string) error {
-	return func(path, page string) error {
+// browser page, bound to the given context. Mirrors soko open's URL
+// construction.
+func openRepoInBrowser(ctx context.Context) func(path string, page browser.Page) error {
+	return func(path string, page browser.Page) error {
 		remote, err := git.Run(ctx, path, "remote", "get-url", "origin")
 		if err != nil {
 			return fmt.Errorf("no remote origin configured")
 		}
 		baseURL := browser.RemoteToHTTPS(remote)
-		fullURL := baseURL + browser.SubPagePath(baseURL, uiBrowserPage(page))
+		fullURL := baseURL + browser.SubPagePath(baseURL, page)
 		return browser.Open(fullURL)
 	}
 }
@@ -321,18 +326,4 @@ func copyToClipboard(text string) error {
 func commandExists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
-}
-
-// uiBrowserPage maps the ui's page token to a browser.Page.
-func uiBrowserPage(page string) browser.Page {
-	switch page {
-	case "prs":
-		return browser.PagePRs
-	case "issues":
-		return browser.PageIssues
-	case "actions":
-		return browser.PageActions
-	default:
-		return browser.PageHome
-	}
 }
