@@ -214,6 +214,8 @@ func (m *Model) statusLine() string {
 	line := strings.Join(parts, " · ")
 	if m.fetching {
 		line += "  " + styleFetching.Render("fetching…")
+	} else if !m.lastFetch.IsZero() {
+		line += "  " + "fetched " + output.FormatTimeAgo(m.lastFetch)
 	}
 	if m.busy {
 		line += "  " + styleFetching.Render("pulling…")
