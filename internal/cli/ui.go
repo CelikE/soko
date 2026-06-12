@@ -120,7 +120,7 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 			conflicts = r.status.Conflicts
 			lastCommit = r.status.LastCommitTime
 		}
-		score, severity, _ := scoreRepo(&st)
+		score, severity, reasons := scoreRepo(&st)
 
 		rows[i] = ui.Row{
 			Name:       r.row.Name,
@@ -136,6 +136,8 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 			StatusText: r.row.StatusText,
 			Health:     score,
 			Severity:   severity,
+			Reasons:    reasons,
+			WorktreeOf: r.worktreeOf,
 			Missing:    st.missing,
 		}
 	}

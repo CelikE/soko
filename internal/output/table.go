@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // RenderJSON encodes data as pretty-printed JSON to w.
@@ -788,9 +789,11 @@ func FormatLastCommit(t time.Time, message string) string {
 	return timeStr + "  " + truncate(message, 30)
 }
 
+// truncate cuts s to maxLen runes with an ellipsis, never splitting a rune.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-1] + "…"
+	runes := []rune(s)
+	return string(runes[:maxLen-1]) + "…"
 }

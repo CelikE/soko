@@ -615,6 +615,116 @@ func TestSuccessReplacesError(t *testing.T) {
 	}
 }
 
+// TestMissingRepoGuards blocks enter/P/o on a missing repo with an explanatory
+// error instead of acting on a nonexistent path.
+func TestMissingRepoGuards(t *testing.T) {
+	selected, opened, pulled := false, false, false
+	m := New(Config{
+		OnSelect: func(string) error { selected = true; return nil },
+		OnOpen:   func(string, string) error { opened = true; return nil },
+		OnPull:   func(string, string) (string, error) { pulled = true; return "", nil },
+	})
+	rows := sampleRows()
+	rows[0].Missing = true
+	m.Update(rowsMsg{rows: rows}) // cursor on alpha (missing)
+
+	if _, cmd := m.handleKey("enter"); isQuit(cmd) || selected {
+		t.Error("enter acted on a missing repo")
+	}
+	if m.lastErr == nil {
+		t.Error("enter on missing repo set no error")
+	}
+
+	m.handleKey("o")
+	if opened {
+		t.Error("o opened a browser for a missing repo")
+	}
+
+	m.handleKey("P")
+	if m.pending != pendingNone || pulled {
+		t.Error("P armed a pull for a missing repo")
+	}
+
+	m.width = 100
+	if out := m.View(); !strings.Contains(out, "missing") {
+		t.Errorf("missing badge not rendered\n%s", out)
+	}
+}
+
+// TestWorktreeMarker marks linked worktrees in the REPO column and names the
+// parent in the detail line.
+func TestWorktreeMarker(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	rows := sampleRows()
+	rows[1].WorktreeOf = "alpha"
+	m.Update(rowsMsg{rows: rows})
+	m.width = 120
+
+	out := m.View()
+	if !strings.Contains(out, "↳ bravo") {
+		t.Errorf("worktree marker missing\n%s", out)
+	}
+
+	m.handleKey("j") // bravo
+	if out := m.View(); !strings.Contains(out, "worktree of alpha") {
+		t.Errorf("detail line missing worktree parent\n%s", out)
+	}
+}
+
+// TestDetailLine shows the cursor repo's path and health reasons below the
+// table.
+func TestDetailLine(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	rows := sampleRows()
+	rows[2].Reasons = []string{"1 conflict", "10 behind"}
+	m.Update(rowsMsg{rows: rows})
+	m.width = 120
+
+	m.handleKey("G") // charlie
+	out := m.View()
+	if !strings.Contains(out, "› charlie — /c") {
+		t.Errorf("detail line missing path\n%s", out)
+	}
+	if !strings.Contains(out, "1 conflict, 10 behind") {
+		t.Errorf("detail line missing reasons\n%s", out)
+	}
+}
+
+// TestTruncateRuneSafe never splits a multibyte rune.
+func TestTruncateRuneSafe(t *testing.T) {
+	got := truncate("brånçh-nämé-lông", 8)
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncate = %q, want ellipsis suffix", got)
+	}
+	if lipgloss.Width(got) > 8 {
+		t.Errorf("truncate width = %d, want <= 8", lipgloss.Width(got))
+	}
+	for _, r := range got {
+		if r == '�' {
+			t.Errorf("truncate produced replacement char: %q", got)
+		}
+	}
+}
+
+// TestGroupedLegendMatchesHeaders counts the legend by first tag in grouped
+// mode so legend and group header numbers agree for multi-tag repos.
+func TestGroupedLegendMatchesHeaders(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	rows := sampleRows()
+	rows[0].Tags = []string{"backend", "frontend"} // alpha counts once, under backend
+	m.Update(rowsMsg{rows: rows})
+	m.width = 120
+
+	if out := m.View(); !strings.Contains(out, "frontend(2)") {
+		t.Errorf("ungrouped legend should count all tags\n%s", out)
+	}
+
+	m.handleKey("b")
+	if out := m.View(); !strings.Contains(out, "frontend(1)") {
+		t.Errorf("grouped legend should count first tags only\n%s", out)
+	}
+}
+
 // manyRows builds n distinct repos for viewport tests.
 func manyRows(n int) []Row {
 	rows := make([]Row, n)
