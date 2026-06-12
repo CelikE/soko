@@ -171,13 +171,51 @@ func TestGroupByTag(t *testing.T) {
 
 	m.width = 100
 	out := m.View()
-	if !strings.Contains(out, "backend (2)") || !strings.Contains(out, "frontend (1)") {
+	if !strings.Contains(out, "▾ backend (2)") || !strings.Contains(out, "▾ frontend (1)") {
 		t.Errorf("grouped View missing tag headers\n%s", out)
 	}
 
 	m.handleKey("b")
 	if m.grouped {
 		t.Error("second b did not disable grouping")
+	}
+}
+
+// TestGroupedIndentAndSummary indents rows two cells under their group header
+// and rolls the group's dirty/crit totals into the header line.
+func TestGroupedIndentAndSummary(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+	m.width = 120
+	m.handleKey("b")
+	out := m.View()
+
+	// Cursor row (alpha) sits indented under the backend header; charlie is a
+	// plain indented row (4-space lead: 2 indent + 2 marker).
+	if !strings.Contains(out, "  › alpha") {
+		t.Errorf("cursor row not indented under its group\n%s", out)
+	}
+	if !strings.Contains(out, "\n    charlie") {
+		t.Errorf("grouped row not indented\n%s", out)
+	}
+
+	// backend holds charlie (crit) → header carries ✗ 1; frontend holds bravo
+	// (dirty) → header carries ✎ 1.
+	if !strings.Contains(out, "▾ backend (2)  "+"✗ 1") {
+		t.Errorf("backend header missing crit summary\n%s", out)
+	}
+	if !strings.Contains(out, "▾ frontend (1)  "+"✎ 1") {
+		t.Errorf("frontend header missing dirty summary\n%s", out)
+	}
+
+	// The column header shifts with the indent so columns still align.
+	if !strings.Contains(out, "    REPO") {
+		t.Errorf("column header not shifted in grouped mode\n%s", out)
+	}
+
+	// Ungrouped view has no indent.
+	m.handleKey("b")
+	if out := m.View(); !strings.Contains(out, "\n  › alpha") {
+		t.Errorf("ungrouped cursor row should not be indented\n%s", out)
 	}
 }
 
