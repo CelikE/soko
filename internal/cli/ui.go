@@ -31,10 +31,11 @@ each repo's branch, dirty state, ahead/behind, last-commit age, and a health
 badge. Local state refreshes every 5s — cheap, no network. Meant to live in a
 tmux pane all day.
 
-Keys: j/k move · enter cd (needs shell integration, see soko shell-init) ·
-/ search by name · s cycle sort · f cycle filter · t cycle tag filter ·
-G group by tag · o open home (p/i/a for PRs/issues/actions) · P pull (confirmed,
-undoable) · g re-fetch now · ? help · q quit.
+Keys: j/k move · g/G top/bottom · ctrl+d/u half page · enter cd (needs shell
+integration, see soko shell-init) · / search by name · s cycle sort · f cycle
+filter · t cycle tag filter · b group by tag · o open home (p/i/a for
+PRs/issues/actions) · P pull (confirmed, undoable) · r re-fetch now · ? help ·
+q quit. The mouse works too: wheel scrolls, click selects.
 
 The only mutating key is P: a fast-forward pull of the selected repo, after a
 confirmation prompt and recorded so soko undo can reset it. Use --fetch to fetch

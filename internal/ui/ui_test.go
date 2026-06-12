@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -156,9 +157,9 @@ func TestTagCycle(t *testing.T) {
 // the active sort within each group.
 func TestGroupByTag(t *testing.T) {
 	m := loadedModel(t, nil, nil)
-	m.handleKey("G")
+	m.handleKey("b")
 	if !m.grouped {
-		t.Fatal("G did not enable grouping")
+		t.Fatal("b did not enable grouping")
 	}
 	// backend (alpha, charlie) then frontend (bravo).
 	if got := viewNames(m.view); !eq(got, []string{"alpha", "charlie", "bravo"}) {
@@ -171,9 +172,9 @@ func TestGroupByTag(t *testing.T) {
 		t.Errorf("grouped View missing tag headers\n%s", out)
 	}
 
-	m.handleKey("G")
+	m.handleKey("b")
 	if m.grouped {
-		t.Error("second G did not disable grouping")
+		t.Error("second b did not disable grouping")
 	}
 }
 
@@ -296,12 +297,12 @@ func TestFetchKeyMarksFetching(t *testing.T) {
 	m := loadedModel(t, nil, nil)
 	m.collect = func(context.Context, bool) []Row { return sampleRows() }
 
-	_, cmd := m.handleKey("g")
+	_, cmd := m.handleKey("r")
 	if !m.fetching {
-		t.Error("g did not set fetching")
+		t.Error("r did not set fetching")
 	}
 	if cmd == nil {
-		t.Error("g did not issue a refresh command")
+		t.Error("r did not issue a refresh command")
 	}
 }
 
@@ -458,6 +459,136 @@ func TestPullNoCallback(t *testing.T) {
 	m.handleKey("P")
 	if m.pending != pendingNone {
 		t.Error("P armed a pull with no callback wired")
+	}
+}
+
+// manyRows builds n distinct repos for viewport tests.
+func manyRows(n int) []Row {
+	rows := make([]Row, n)
+	for i := range rows {
+		rows[i] = Row{
+			Name: fmt.Sprintf("repo-%02d", i), Path: fmt.Sprintf("/r/%02d", i),
+			Branch: "main", Severity: "ok", StatusText: "✓ clean",
+		}
+	}
+	return rows
+}
+
+// TestJumpAndPagingKeys covers g/G/home/end and the paging keys.
+func TestJumpAndPagingKeys(t *testing.T) {
+	m := New(Config{})
+	m.Update(rowsMsg{rows: manyRows(40)})
+	m.height = 20 // pageSize derives from the viewport
+
+	m.handleKey("G")
+	if m.cursor != 39 {
+		t.Errorf("G cursor = %d, want 39", m.cursor)
+	}
+	m.handleKey("g")
+	if m.cursor != 0 {
+		t.Errorf("g cursor = %d, want 0", m.cursor)
+	}
+	m.handleKey("end")
+	if m.cursor != 39 {
+		t.Errorf("end cursor = %d, want 39", m.cursor)
+	}
+	m.handleKey("home")
+	if m.cursor != 0 {
+		t.Errorf("home cursor = %d, want 0", m.cursor)
+	}
+
+	page := m.pageSize()
+	m.handleKey("pgdown")
+	if m.cursor != page {
+		t.Errorf("pgdown cursor = %d, want %d", m.cursor, page)
+	}
+	m.handleKey("ctrl+u")
+	if m.cursor != page-page/2 {
+		t.Errorf("ctrl+u cursor = %d, want %d", m.cursor, page-page/2)
+	}
+}
+
+// TestViewportClampsToHeight keeps the frame within the terminal height and the
+// cursor row visible while walking a long list.
+func TestViewportClampsToHeight(t *testing.T) {
+	m := New(Config{})
+	m.Update(rowsMsg{rows: manyRows(40)})
+	m.width, m.height = 100, 16
+
+	for range 30 {
+		m.handleKey("j")
+	}
+	out := m.View()
+	lines := strings.Count(out, "\n") + 1
+	if lines > m.height {
+		t.Errorf("View() is %d lines, want <= %d\n%s", lines, m.height, out)
+	}
+	if !strings.Contains(out, "› repo-30") {
+		t.Errorf("cursor row repo-30 not visible\n%s", out)
+	}
+	if !strings.Contains(out, "lines ") {
+		t.Errorf("footer missing scroll position\n%s", out)
+	}
+
+	// Jumping back to the top scrolls the window up.
+	m.handleKey("g")
+	if out := m.View(); !strings.Contains(out, "repo-00") {
+		t.Errorf("top row not visible after g\n%s", out)
+	}
+}
+
+// TestViewportUnclampedWithoutHeight renders everything when no WindowSizeMsg
+// has arrived (height 0), preserving the old behavior for tests and dumps.
+func TestViewportUnclampedWithoutHeight(t *testing.T) {
+	m := New(Config{})
+	m.Update(rowsMsg{rows: manyRows(40)})
+
+	out := m.View()
+	if !strings.Contains(out, "repo-00") || !strings.Contains(out, "repo-39") {
+		t.Errorf("unclamped view missing rows\n%s", out)
+	}
+}
+
+// TestClampWidth truncates over-wide lines ANSI-aware instead of letting the
+// terminal wrap them.
+func TestClampWidth(t *testing.T) {
+	m := New(Config{})
+	m.Update(rowsMsg{rows: manyRows(5)})
+	m.width = 30
+
+	for line := range strings.SplitSeq(m.View(), "\n") {
+		if w := lipgloss.Width(line); w > 30 {
+			t.Errorf("line width %d > 30: %q", w, line)
+		}
+	}
+}
+
+// TestMouse maps wheel ticks to cursor movement and a click to row selection.
+func TestMouse(t *testing.T) {
+	m := New(Config{})
+	m.Update(rowsMsg{rows: manyRows(10)})
+	m.height = 30
+
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	if m.cursor != wheelStep {
+		t.Errorf("wheel down cursor = %d, want %d", m.cursor, wheelStep)
+	}
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	if m.cursor != 0 {
+		t.Errorf("wheel up cursor = %d, want 0", m.cursor)
+	}
+
+	// Click the third row: top chrome is 4 lines (title, blank, two header
+	// lines), so row index 2 renders at screen line 6.
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 6})
+	if m.cursor != 2 {
+		t.Errorf("click cursor = %d, want 2", m.cursor)
+	}
+
+	// A click outside the table changes nothing.
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Y: 25})
+	if m.cursor != 2 {
+		t.Errorf("out-of-table click moved cursor to %d", m.cursor)
 	}
 }
 

@@ -157,6 +157,9 @@ const defaultRefresh = 5 * time.Second
 // tests, which never send one).
 const defaultWidth = 80
 
+// wheelStep is how many rows one mouse-wheel tick moves the cursor.
+const wheelStep = 3
+
 // Model is the bubbletea model for the dashboard.
 type Model struct {
 	ctx      context.Context
@@ -169,6 +172,7 @@ type Model struct {
 	view []Row // all after filter + search + sort (+ group ordering)
 
 	cursor    int
+	offset    int // first visible line item (viewport scroll position)
 	sort      sortMode
 	filter    filterMode
 	tagFilter string // "" = all tags
@@ -300,8 +304,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.refreshCmd(false)
 		return m, cmd
 
+	case tea.MouseMsg:
+		return m.handleMouse(tea.MouseEvent(msg))
+
 	case tea.KeyMsg:
 		return m.handleKey(msg.String())
+	}
+	return m, nil
+}
+
+// handleMouse maps wheel scrolling to cursor movement and a left click to
+// selecting the clicked row.
+func (m *Model) handleMouse(ev tea.MouseEvent) (tea.Model, tea.Cmd) {
+	if m.showHelp || m.searching || m.pending != pendingNone {
+		return m, nil
+	}
+	switch {
+	case ev.Button == tea.MouseButtonWheelUp:
+		m.moveCursor(-wheelStep)
+	case ev.Button == tea.MouseButtonWheelDown:
+		m.moveCursor(wheelStep)
+	case ev.Button == tea.MouseButtonLeft && ev.Action == tea.MouseActionPress:
+		if row, ok := m.rowAtScreenLine(ev.Y); ok {
+			m.cursor = row
+		}
 	}
 	return m, nil
 }
@@ -391,6 +417,30 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 		return m, nil
 
+	case "g", "home":
+		m.cursor = 0
+		return m, nil
+
+	case "G", "end":
+		m.cursor = max(len(m.view)-1, 0)
+		return m, nil
+
+	case "ctrl+d":
+		m.moveCursor(m.pageSize() / 2)
+		return m, nil
+
+	case "ctrl+u":
+		m.moveCursor(-m.pageSize() / 2)
+		return m, nil
+
+	case "pgdown":
+		m.moveCursor(m.pageSize())
+		return m, nil
+
+	case "pgup":
+		m.moveCursor(-m.pageSize())
+		return m, nil
+
 	case "s":
 		m.sort = (m.sort + 1) % numSortModes
 		m.rebuild()
@@ -406,12 +456,12 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
-	case "G":
+	case "b":
 		m.grouped = !m.grouped
 		m.rebuild()
 		return m, nil
 
-	case "g":
+	case "r":
 		m.fetching = true
 		cmd := m.refreshCmd(true)
 		return m, cmd
@@ -641,7 +691,7 @@ func collectTags(rows []Row) []string {
 // Run starts the program in the alternate screen and returns the selected repo
 // path (empty if the user quit without choosing).
 func Run(m *Model) (string, error) {
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(m.ctx))
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(m.ctx))
 	final, err := p.Run()
 	if err != nil {
 		return "", err
