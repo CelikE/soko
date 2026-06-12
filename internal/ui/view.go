@@ -226,7 +226,8 @@ func (m *Model) statusLine() string {
 	if m.grouped {
 		parts = append(parts, "grouped")
 	}
-	if m.query != "" {
+	// While typing, the search input line already shows the query.
+	if m.query != "" && !m.searching {
 		parts = append(parts, "search:"+m.query)
 	}
 	line := strings.Join(parts, " · ")
@@ -442,7 +443,7 @@ func (m *Model) footer(start, end int) string {
 
 // helpLine is the bottom keybinding cheatsheet (the short form; ? opens full).
 func (m *Model) helpLine() string {
-	help := "  j/k move · g/G top/bottom · enter cd · / search · s sort · f filter · t tag · b group · o open · P pull · r fetch · ? help · q quit"
+	help := "  j/k move · g/G top/bottom · enter cd · / search · s/S sort · f/F filter · t/T tag · b group · o open · P pull · r fetch · esc clear · ? help · q quit"
 	return styleDim.Render(help)
 }
 
@@ -456,10 +457,11 @@ func (m *Model) helpOverlay() string {
 		{"ctrl+d / ctrl+u", "half page down / up"},
 		{"pgdn / pgup", "page down / up"},
 		{"enter", "cd to the selected repo (needs shell integration)"},
-		{"/", "live search by name"},
-		{"s", "cycle sort: name → dirty → behind → health"},
-		{"f", "cycle filter: all → dirty → behind → ahead → conflicts"},
-		{"t", "cycle tag filter through your tags"},
+		{"/", "live search across name, branch, and tags"},
+		{"enter / tab", "(in search) keep the filter and return to the list"},
+		{"s / S", "cycle sort forward/back: name → dirty → behind → health"},
+		{"f / F", "cycle filter forward/back: all → dirty → behind → ahead → conflicts"},
+		{"t / T", "cycle tag filter forward/back through your tags"},
 		{"b", "toggle group-by-tag view"},
 		{"o", "open the repo home page in a browser"},
 		{"p / i / a", "open pull requests / issues / actions"},
@@ -467,7 +469,8 @@ func (m *Model) helpOverlay() string {
 		{"r", "re-fetch from remotes now"},
 		{"mouse", "wheel scrolls · click selects a row"},
 		{"?", "toggle this help"},
-		{"q / esc", "quit"},
+		{"esc", "clear search, then filters, then quit"},
+		{"q", "quit"},
 	}
 
 	var b strings.Builder

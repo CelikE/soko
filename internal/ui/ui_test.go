@@ -725,6 +725,110 @@ func TestGroupedLegendMatchesHeaders(t *testing.T) {
 	}
 }
 
+// TestSearchCommit keeps the query active after enter and lets normal-mode
+// actions operate on the filtered list.
+func TestSearchCommit(t *testing.T) {
+	var gotPath string
+	m := loadedModel(t, func(p string) error { gotPath = p; return nil }, nil)
+
+	m.handleKey("/")
+	m.handleKey("c")
+	m.handleKey("h")
+	m.handleKey("enter") // commit, not select
+
+	if m.searching {
+		t.Error("enter did not leave search mode")
+	}
+	if m.query != "ch" {
+		t.Errorf("query = %q, want kept as ch", m.query)
+	}
+	if got := viewNames(m.view); !eq(got, []string{"charlie"}) {
+		t.Errorf("committed view = %v, want [charlie]", got)
+	}
+
+	// Normal-mode enter now selects the match.
+	_, cmd := m.handleKey("enter")
+	if gotPath != "/c" || !isQuit(cmd) {
+		t.Errorf("select after commit = (%q, quit=%v), want (/c, true)", gotPath, isQuit(cmd))
+	}
+}
+
+// TestEscUnwind clears the committed search first, then filters, then quits.
+func TestEscUnwind(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+
+	m.handleKey("/")
+	m.handleKey("c")
+	m.handleKey("enter") // commit search
+	m.handleKey("f")     // filter: dirty
+	m.handleKey("t")     // tag: backend
+
+	m.handleKey("esc")
+	if m.query != "" {
+		t.Errorf("first esc kept query %q", m.query)
+	}
+	if m.filter == filterAll || m.tagFilter == "" {
+		t.Error("first esc should only clear the search")
+	}
+
+	m.handleKey("esc")
+	if m.filter != filterAll || m.tagFilter != "" {
+		t.Errorf("second esc kept filter=%v tag=%q", m.filter, m.tagFilter)
+	}
+	if m.quitting {
+		t.Error("second esc quit too early")
+	}
+
+	_, cmd := m.handleKey("esc")
+	if !m.quitting || !isQuit(cmd) {
+		t.Error("third esc did not quit")
+	}
+}
+
+// TestReverseCycles checks S/F/T step the cycles backwards (with wrap).
+func TestReverseCycles(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+
+	m.handleKey("S")
+	if m.sort.String() != "health" {
+		t.Errorf("S from name = %q, want health (wrap)", m.sort.String())
+	}
+	m.handleKey("F")
+	if m.filter.String() != "conflicts" {
+		t.Errorf("F from all = %q, want conflicts (wrap)", m.filter.String())
+	}
+	m.handleKey("T")
+	if m.tagFilter != "frontend" {
+		t.Errorf("T from all = %q, want frontend (wrap)", m.tagFilter)
+	}
+	m.handleKey("t")
+	if m.tagFilter != "" {
+		t.Errorf("t after T = %q, want all", m.tagFilter)
+	}
+}
+
+// TestSearchMatchesBranchAndTags widens search beyond the repo name.
+func TestSearchMatchesBranchAndTags(t *testing.T) {
+	m := loadedModel(t, nil, nil)
+
+	m.handleKey("/")
+	m.handleKey("d")
+	m.handleKey("e")
+	m.handleKey("v")
+	if got := viewNames(m.view); !eq(got, []string{"charlie"}) {
+		t.Errorf("branch search view = %v, want [charlie]", got)
+	}
+
+	m.handleKey("esc")
+	m.handleKey("/")
+	for _, k := range []string{"f", "r", "o", "n", "t"} {
+		m.handleKey(k)
+	}
+	if got := viewNames(m.view); !eq(got, []string{"bravo"}) {
+		t.Errorf("tag search view = %v, want [bravo]", got)
+	}
+}
+
 // manyRows builds n distinct repos for viewport tests.
 func manyRows(n int) []Row {
 	rows := make([]Row, n)

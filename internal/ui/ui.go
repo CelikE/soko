@@ -456,9 +456,26 @@ func (m *Model) expireStatus() {
 // handleNormalKey handles the default (non-search, non-help) bindings.
 func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "q", "ctrl+c", "esc":
+	case "q", "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+
+	case "esc":
+		// Unwind state one level before quitting: a committed search first,
+		// then active filters, then quit.
+		switch {
+		case m.query != "":
+			m.query = ""
+			m.rebuild()
+		case m.filter != filterAll || m.tagFilter != "":
+			m.filter = filterAll
+			m.tagFilter = ""
+			m.rebuild()
+		default:
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
 
 	case "?":
 		m.showHelp = true
@@ -505,13 +522,28 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
+	case "S":
+		m.sort = (m.sort - 1 + numSortModes) % numSortModes
+		m.rebuild()
+		return m, nil
+
 	case "f":
 		m.filter = (m.filter + 1) % numFilterModes
 		m.rebuild()
 		return m, nil
 
+	case "F":
+		m.filter = (m.filter - 1 + numFilterModes) % numFilterModes
+		m.rebuild()
+		return m, nil
+
 	case "t":
-		m.cycleTag()
+		m.cycleTag(1)
+		m.rebuild()
+		return m, nil
+
+	case "T":
+		m.cycleTag(-1)
 		m.rebuild()
 		return m, nil
 
@@ -566,9 +598,11 @@ func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		return m, nil
 
-	case "enter":
-		// Confirm the current match (and exit the program via cd).
-		return m.selectCurrent()
+	case "enter", "tab":
+		// Commit the query and return to normal mode: the filtered list stays
+		// and every normal-mode action (j/k, enter, o, P, …) works on it.
+		m.searching = false
+		return m, nil
 
 	case "backspace":
 		if m.query != "" {
@@ -664,8 +698,9 @@ func (m *Model) current() (Row, bool) {
 	return m.view[m.cursor], true
 }
 
-// cycleTag advances the tag filter through ["", tag1, tag2, ...] and wraps.
-func (m *Model) cycleTag() {
+// cycleTag advances the tag filter through ["", tag1, tag2, ...] by dir (+1
+// forward, -1 backward) and wraps.
+func (m *Model) cycleTag(dir int) {
 	if len(m.allTags) == 0 {
 		m.tagFilter = ""
 		return
@@ -678,7 +713,7 @@ func (m *Model) cycleTag() {
 			break
 		}
 	}
-	m.tagFilter = options[(idx+1)%len(options)]
+	m.tagFilter = options[(idx+dir+len(options))%len(options)]
 }
 
 // rebuild recomputes the visible rows from m.all by applying filter, search,
@@ -695,7 +730,7 @@ func (m *Model) rebuild() {
 		if m.tagFilter != "" && !slices.Contains(r.Tags, m.tagFilter) {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(r.Name), query) {
+		if query != "" && !matchesQuery(r, query) {
 			continue
 		}
 		rows = append(rows, *r)
@@ -717,6 +752,21 @@ func (m *Model) rebuild() {
 		}
 	}
 	m.setCursor(m.cursor)
+}
+
+// matchesQuery reports whether a lowercase query matches the row's name,
+// branch, or any tag.
+func matchesQuery(r *Row, query string) bool {
+	if strings.Contains(strings.ToLower(r.Name), query) ||
+		strings.Contains(strings.ToLower(r.Branch), query) {
+		return true
+	}
+	for _, t := range r.Tags {
+		if strings.Contains(strings.ToLower(t), query) {
+			return true
+		}
+	}
+	return false
 }
 
 // sortRows orders rows in place per mode. All modes break ties by name for a
