@@ -66,10 +66,28 @@ func (m *Model) View() string {
 	start, end := m.scrollWindow(items)
 	b.WriteString(m.table(items[start:end]))
 	b.WriteString("\n")
+	b.WriteString(m.detailLine())
 	b.WriteString(m.tagLegend())
 	b.WriteString(m.footer(start, end))
 	b.WriteString(m.helpLine())
 	return clampWidth(b.String(), m.width)
+}
+
+// detailLine expands the cursor's repo below the table: full path, health
+// reasons, and worktree parentage — detail the columns have no room for.
+func (m *Model) detailLine() string {
+	r, ok := m.current()
+	if !ok {
+		return ""
+	}
+	parts := []string{r.Path}
+	if len(r.Reasons) > 0 {
+		parts = append(parts, strings.Join(r.Reasons, ", "))
+	}
+	if r.WorktreeOf != "" {
+		parts = append(parts, "worktree of "+r.WorktreeOf)
+	}
+	return styleDim.Render("  › "+r.Name+" — "+strings.Join(parts, " · ")) + "\n"
 }
 
 // lineItem is one renderable table line: either a repo row (row >= 0, an index
@@ -104,7 +122,7 @@ func (m *Model) tableCapacity() int {
 	if m.height <= 0 {
 		return len(m.view) * 2 // unbounded: rows + worst-case group headers
 	}
-	chrome := 7 // title, blank, 2 table header lines, blank, footer, help
+	chrome := 8 // title, blank, 2 table header lines, blank, detail, footer, help
 	if m.pending != pendingNone {
 		chrome++
 	}
@@ -252,14 +270,8 @@ func (m *Model) table(items []lineItem) string {
 	repoW, branchW, statusW, abW := m.columnWidths()
 
 	var b strings.Builder
-	header := fmt.Sprintf("  %-*s %-*s %-*s %-*s %-10s %s",
-		repoW, "REPO",
-		branchW, "BRANCH",
-		statusW, "STATUS",
-		abW, "↑↓",
-		"AGE",
-		"HEALTH",
-	)
+	header := "  " + pad("REPO", repoW) + " " + pad("BRANCH", branchW) + " " +
+		pad("STATUS", statusW) + " " + pad("↑↓", abW) + " " + pad("AGE", ageW) + " HEALTH"
 	b.WriteString(styleHeader.Render(header) + "\n")
 	b.WriteString(styleHeader.Render("  "+strings.Repeat("─", lipgloss.Width(header)-2)) + "\n")
 
@@ -280,20 +292,39 @@ func (m *Model) table(items []lineItem) string {
 			marker = styleCursor.Render("› ")
 		}
 		age := output.FormatTimeAgo(r.LastCommit)
-		line := fmt.Sprintf("%-*s %-*s %-*s %-*s %-10s %s",
-			repoW, r.Name,
-			branchW, truncate(r.Branch, branchW),
-			statusW, r.StatusText,
-			abW, output.FormatAheadBehind(r.Ahead, r.Behind),
-			truncate(age, 10),
-			m.healthBadge(r),
-		)
+		line := pad(displayName(r), repoW) + " " +
+			pad(truncate(r.Branch, branchW), branchW) + " " +
+			pad(r.StatusText, statusW) + " " +
+			pad(output.FormatAheadBehind(r.Ahead, r.Behind), abW) + " " +
+			pad(truncate(age, ageW), ageW) + " " +
+			m.healthBadge(r)
 		if it.row == m.cursor {
 			line = styleCursor.Render(line)
 		}
 		b.WriteString(marker + line + "\n")
 	}
 	return b.String()
+}
+
+// ageW is the fixed width of the AGE column ("102w ago" fits).
+const ageW = 10
+
+// displayName is the REPO cell: linked worktrees get a marker so duplicate
+// names (a repo and its worktrees) are distinguishable.
+func displayName(r *Row) string {
+	if r.WorktreeOf != "" {
+		return "↳ " + r.Name
+	}
+	return r.Name
+}
+
+// pad right-pads s with spaces to display width w (ANSI- and rune-aware, so
+// multibyte symbols never skew the columns).
+func pad(s string, w int) string {
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
+	}
+	return s
 }
 
 // groupCounts tallies the rows in the current view per first-tag group.
@@ -305,22 +336,25 @@ func (m *Model) groupCounts() map[string]int {
 	return counts
 }
 
-// columnWidths sizes the data-driven columns to their widest cell, with header
-// minimums so headers are never clipped.
+// columnWidths sizes the data-driven columns to their widest cell (in display
+// cells, not bytes), with header minimums so headers are never clipped.
 func (m *Model) columnWidths() (repo, branch, status, ab int) {
-	repo, branch, status, ab = len("REPO"), len("BRANCH"), len("STATUS"), len("↑↓")
+	repo, branch, status, ab = lipgloss.Width("REPO"), lipgloss.Width("BRANCH"), lipgloss.Width("STATUS"), lipgloss.Width("↑↓")
 	for i := range m.view {
 		r := &m.view[i]
-		repo = max(repo, len(r.Name))
-		branch = max(branch, min(len(r.Branch), 24))
-		status = max(status, len(r.StatusText))
-		ab = max(ab, len(output.FormatAheadBehind(r.Ahead, r.Behind)))
+		repo = max(repo, lipgloss.Width(displayName(r)))
+		branch = max(branch, min(lipgloss.Width(r.Branch), 24))
+		status = max(status, lipgloss.Width(r.StatusText))
+		ab = max(ab, lipgloss.Width(output.FormatAheadBehind(r.Ahead, r.Behind)))
 	}
 	return repo, branch, status, ab
 }
 
 // healthBadge renders the colored severity cell for a row.
 func (m *Model) healthBadge(r *Row) string {
+	if r.Missing {
+		return styleCrit.Render(output.SymConflict + " missing")
+	}
 	switch r.Severity {
 	case "crit":
 		return styleCrit.Render(output.SymConflict + " crit")
@@ -343,6 +377,11 @@ func (m *Model) tagLegend() string {
 	for i := range m.all {
 		if len(m.all[i].Tags) == 0 {
 			untagged++
+			continue
+		}
+		if m.grouped {
+			// Count by first tag so the legend matches the group headers.
+			counts[m.all[i].firstTag()]++
 			continue
 		}
 		for _, t := range m.all[i].Tags {
@@ -445,12 +484,14 @@ func (m *Model) helpOverlay() string {
 	return b.String()
 }
 
-func truncate(s string, maxLen int) string {
-	if maxLen <= 0 || len(s) <= maxLen {
+// truncate cuts s to maxW display cells with an ellipsis, never splitting a
+// rune (ANSI-aware via x/ansi).
+func truncate(s string, maxW int) string {
+	if maxW <= 0 || lipgloss.Width(s) <= maxW {
 		return s
 	}
-	if maxLen == 1 {
+	if maxW == 1 {
 		return "…"
 	}
-	return s[:maxLen-1] + "…"
+	return ansi.Truncate(s, maxW-1, "…")
 }

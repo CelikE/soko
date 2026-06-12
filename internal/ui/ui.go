@@ -12,6 +12,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -34,9 +35,11 @@ type Row struct {
 	Behind     int
 	Conflicts  int
 	LastCommit time.Time
-	StatusText string // pre-formatted dirty marker (output.FormatStatus)
-	Health     int    // urgency score, higher = more neglected
-	Severity   string // "ok" | "warn" | "crit"
+	StatusText string   // pre-formatted dirty marker (output.FormatStatus)
+	Health     int      // urgency score, higher = more neglected
+	Severity   string   // "ok" | "warn" | "crit"
+	Reasons    []string // human-readable health reasons (from scoreRepo)
+	WorktreeOf string   // parent repo name when this row is a linked worktree
 	Missing    bool
 }
 
@@ -526,6 +529,10 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		// Ask before mutating. The target is pinned now so a background
 		// refresh that re-sorts the view can't silently retarget the pull.
 		if r, ok := m.current(); ok && m.onPull != nil && !m.busy {
+			if r.Missing {
+				m.setError(errMissing(&r))
+				return m, nil
+			}
 			m.pending = pendingPull
 			m.pendingName, m.pendingPath = r.Name, r.Path
 		}
@@ -594,6 +601,10 @@ func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
 // openCurrent opens the cursor's repo at the given browser page.
 func (m *Model) openCurrent(page string) (tea.Model, tea.Cmd) {
 	if r, ok := m.current(); ok && m.onOpen != nil {
+		if r.Missing {
+			m.setError(errMissing(&r))
+			return m, nil
+		}
 		if err := m.onOpen(r.Path, page); err != nil {
 			m.setError(err)
 		}
@@ -601,11 +612,20 @@ func (m *Model) openCurrent(page string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// errMissing explains why an action on a missing repo was refused.
+func errMissing(r *Row) error {
+	return fmt.Errorf("%s: path not found (%s)", r.Name, r.Path)
+}
+
 // selectCurrent writes the nav file for the cursor's repo and quits. On a nav
 // write error it keeps the dashboard open and surfaces the error.
 func (m *Model) selectCurrent() (tea.Model, tea.Cmd) {
 	r, ok := m.current()
 	if !ok {
+		return m, nil
+	}
+	if r.Missing {
+		m.setError(errMissing(&r))
 		return m, nil
 	}
 	if m.onSelect != nil {
