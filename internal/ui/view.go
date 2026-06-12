@@ -41,11 +41,7 @@ func (m *Model) View() string {
 	// Title bar.
 	b.WriteString("  " + styleTitle.Render("soko ui") + "  " + styleDim.Render(m.statusLine()) + "\n")
 	if m.pending == pendingPull {
-		name := ""
-		if r, ok := m.current(); ok {
-			name = r.Name
-		}
-		b.WriteString("  " + styleWarn.Render(fmt.Sprintf("pull %s? [y/N]", name)) + "\n")
+		b.WriteString("  " + styleWarn.Render(fmt.Sprintf("pull %s? [y/N]", m.pendingName)) + "\n")
 	}
 	if m.searching {
 		b.WriteString("  " + styleDim.Render("/") + m.query + styleDim.Render("▏") + "\n")

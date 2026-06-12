@@ -171,7 +171,9 @@ type Model struct {
 	all  []Row // last collected, in config order
 	view []Row // all after filter + search + sort (+ group ordering)
 
-	cursor    int
+	cursor     int
+	cursorPath string // path of the repo under the cursor; keeps the cursor on
+	// the same repo when a refresh re-sorts or re-filters the view
 	offset    int // first visible line item (viewport scroll position)
 	sort      sortMode
 	filter    filterMode
@@ -182,9 +184,11 @@ type Model struct {
 	searching bool
 	query     string
 
-	pending   pendingKind // mutation awaiting confirmation
-	busy      bool        // a mutation is running
-	statusMsg string      // transient result line (e.g. "repo: pulled")
+	pending     pendingKind // mutation awaiting confirmation
+	pendingName string      // repo the pending mutation targets, pinned at
+	pendingPath string      // arm time so a background refresh can't retarget it
+	busy        bool        // a mutation is running
+	statusMsg   string      // transient result line (e.g. "repo: pulled")
 
 	showHelp bool
 
@@ -326,7 +330,7 @@ func (m *Model) handleMouse(ev tea.MouseEvent) (tea.Model, tea.Cmd) {
 		m.moveCursor(wheelStep)
 	case ev.Button == tea.MouseButtonLeft && ev.Action == tea.MouseActionPress:
 		if row, ok := m.rowAtScreenLine(ev.Y); ok {
-			m.cursor = row
+			m.setCursor(row)
 		}
 	}
 	return m, nil
@@ -366,25 +370,25 @@ func (m *Model) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	default:
-		m.pending = pendingNone
+		m.clearPending()
 		return m, nil
 	}
 }
 
-// runPending executes the confirmed mutation as an async command.
+// runPending executes the confirmed mutation as an async command, against the
+// target pinned when the confirmation was armed.
 func (m *Model) runPending() (tea.Model, tea.Cmd) {
 	kind := m.pending
-	m.pending = pendingNone
+	name, path := m.pendingName, m.pendingPath
+	m.clearPending()
 
 	if kind == pendingPull {
-		r, ok := m.current()
-		if !ok || m.onPull == nil {
+		if path == "" || m.onPull == nil {
 			return m, nil
 		}
 		m.busy = true
 		m.statusMsg = ""
 		m.lastErr = nil
-		name, path := r.Name, r.Path
 		onPull := m.onPull
 		return m, func() tea.Msg {
 			msg, err := onPull(name, path)
@@ -392,6 +396,12 @@ func (m *Model) runPending() (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// clearPending resets a pending confirmation and its pinned target.
+func (m *Model) clearPending() {
+	m.pending = pendingNone
+	m.pendingName, m.pendingPath = "", ""
 }
 
 // handleNormalKey handles the default (non-search, non-help) bindings.
@@ -418,11 +428,11 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "g", "home":
-		m.cursor = 0
+		m.setCursor(0)
 		return m, nil
 
 	case "G", "end":
-		m.cursor = max(len(m.view)-1, 0)
+		m.setCursor(len(m.view) - 1)
 		return m, nil
 
 	case "ctrl+d":
@@ -467,9 +477,11 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case "P":
-		// Ask before mutating; the pull runs only after confirmation.
-		if _, ok := m.current(); ok && m.onPull != nil && !m.busy {
+		// Ask before mutating. The target is pinned now so a background
+		// refresh that re-sorts the view can't silently retarget the pull.
+		if r, ok := m.current(); ok && m.onPull != nil && !m.busy {
 			m.pending = pendingPull
+			m.pendingName, m.pendingPath = r.Name, r.Path
 		}
 		return m, nil
 
@@ -509,7 +521,7 @@ func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
 		if m.query != "" {
 			_, size := utf8.DecodeLastRuneInString(m.query)
 			m.query = m.query[:len(m.query)-size]
-			m.cursor = 0
+			m.cursor, m.cursorPath = 0, ""
 			m.rebuild()
 		}
 		return m, nil
@@ -526,7 +538,7 @@ func (m *Model) handleSearchKey(key string) (tea.Model, tea.Cmd) {
 		// so search mode never swallows control sequences as text.
 		if utf8.RuneCountInString(key) == 1 && key >= " " {
 			m.query += key
-			m.cursor = 0
+			m.cursor, m.cursorPath = 0, ""
 			m.rebuild()
 		}
 		return m, nil
@@ -563,12 +575,18 @@ func (m *Model) selectCurrent() (tea.Model, tea.Cmd) {
 
 // moveCursor shifts the cursor by delta, clamped to the view bounds.
 func (m *Model) moveCursor(delta int) {
-	m.cursor += delta
-	if m.cursor > len(m.view)-1 {
-		m.cursor = len(m.view) - 1
-	}
-	if m.cursor < 0 {
-		m.cursor = 0
+	m.setCursor(m.cursor + delta)
+}
+
+// setCursor places the cursor at index i (clamped) and remembers the repo
+// under it, so rebuild can keep following that repo across refreshes.
+func (m *Model) setCursor(i int) {
+	m.cursor = min(i, len(m.view)-1)
+	m.cursor = max(m.cursor, 0)
+	if m.cursor < len(m.view) {
+		m.cursorPath = m.view[m.cursor].Path
+	} else {
+		m.cursorPath = ""
 	}
 }
 
@@ -622,12 +640,17 @@ func (m *Model) rebuild() {
 	}
 	m.view = rows
 
-	if m.cursor >= len(m.view) {
-		m.cursor = len(m.view) - 1
+	// Follow the repo the cursor was on; fall back to clamping the index when
+	// that repo left the view (filtered out or removed).
+	if m.cursorPath != "" {
+		for i := range m.view {
+			if m.view[i].Path == m.cursorPath {
+				m.cursor = i
+				return
+			}
+		}
 	}
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
+	m.setCursor(m.cursor)
 }
 
 // sortRows orders rows in place per mode. All modes break ties by name for a
