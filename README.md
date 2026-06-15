@@ -63,6 +63,24 @@ soko status
   3 repos · 2 dirty · 1 behind · 6 changes
 ```
 
+## Manual
+
+soko ships a full `man` page covering every command, flag, key binding,
+environment variable, and config file. Package installs (Homebrew, deb/rpm,
+the `install.sh` script) place it automatically, so you can read it like any
+other manual:
+
+```bash
+man soko
+```
+
+From a source checkout, install or preview it directly:
+
+```bash
+make man                 # install to $MANPREFIX/man1 (default /usr/local/share/man)
+man -l docs/soko.1       # preview without installing
+```
+
 ## Commands
 
 | Command | Description |

@@ -130,6 +130,26 @@ chmod +x "${INSTALL_DIR}/${BINARY}"
 
 echo "soko ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
 
+# Install the man page (best-effort; never fails the install).
+MAN_SRC=""
+if [ -f "man/soko.1" ]; then
+  MAN_SRC="man/soko.1"
+elif [ -f "soko.1" ]; then
+  MAN_SRC="soko.1"
+fi
+if [ "$OS" != "windows" ] && [ -n "$MAN_SRC" ]; then
+  MAN_DIR="${MAN_DIR:-/usr/local/share/man/man1}"
+  if mkdir -p "$MAN_DIR" 2>/dev/null && [ -w "$MAN_DIR" ]; then
+    cp "$MAN_SRC" "$MAN_DIR/soko.1" 2>/dev/null && echo "man page installed to ${MAN_DIR}/soko.1 (run: man soko)" || true
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo mkdir -p "$MAN_DIR" 2>/dev/null && sudo cp "$MAN_SRC" "$MAN_DIR/soko.1" 2>/dev/null \
+      && echo "man page installed to ${MAN_DIR}/soko.1 (run: man soko)" \
+      || echo "note: skipped man page install (could not write ${MAN_DIR})"
+  else
+    echo "note: skipped man page install (no write access to ${MAN_DIR})"
+  fi
+fi
+
 # Verify.
 if command -v soko >/dev/null 2>&1; then
   echo ""
