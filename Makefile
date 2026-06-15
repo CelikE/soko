@@ -5,7 +5,9 @@ COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: build install test test-v lint fmt tidy check clean changelog changelog-check changelog-add
+MANPREFIX ?= /usr/local/share/man
+
+.PHONY: build install man man-check uninstall-man test test-v lint fmt tidy check clean changelog changelog-check changelog-add
 
 ## build: Compile the binary
 build:
@@ -14,6 +16,20 @@ build:
 ## install: Install the binary to $GOPATH/bin
 install:
 	go install -ldflags '$(LDFLAGS)' ./cmd/soko
+
+## man: Install the man page to $MANPREFIX/man1 (override MANPREFIX as needed)
+man: man-check
+	install -d "$(MANPREFIX)/man1"
+	install -m 0644 docs/soko.1 "$(MANPREFIX)/man1/soko.1"
+	@echo "installed $(MANPREFIX)/man1/soko.1 — run 'man soko' to view"
+
+## man-check: Lint the man page source
+man-check:
+	mandoc -T lint docs/soko.1
+
+## uninstall-man: Remove the installed man page
+uninstall-man:
+	rm -f "$(MANPREFIX)/man1/soko.1"
 
 ## test: Run all tests with race detection
 test:

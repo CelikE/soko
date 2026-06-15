@@ -29,6 +29,12 @@ archives:
         formats:
           - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - src: docs/soko.1
+        dst: man/soko.1
 
 nfpms:
   - id: soko
@@ -41,6 +47,9 @@ nfpms:
     formats:
       - deb
       - rpm
+    contents:
+      - src: docs/soko.1
+        dst: /usr/share/man/man1/soko.1
 
 homebrew_casks:
   - repository:

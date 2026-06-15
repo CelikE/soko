@@ -1,0 +1,1117 @@
+.\" Manpage for soko.
+.\" Contact: https://github.com/CelikE/soko
+.TH SOKO 1 "2026-06-15" "soko 0.21.0" "soko Manual"
+.\" ----------------------------------------------------------------------
+.SH NAME
+soko \- all your git repositories, one command
+.\" ----------------------------------------------------------------------
+.SH SYNOPSIS
+.B soko
+.RI [ command ]
+.RI [ arguments... ]
+.RI [ options... ]
+.PP
+.B soko
+.RB [ \-\-json ]
+.RB [ \-\-quiet | \-q ]
+.RB [ \-\-perf ]
+.IR command
+.RI [ repos... ]
+.\" ----------------------------------------------------------------------
+.SH DESCRIPTION
+.B soko
+(\[u5009]\[u5EAB], Japanese for "storehouse") is a fast, lightweight
+command-line tool for managing many git repositories at once. Register
+your repositories once, then inspect, fetch, pull, search, and navigate
+all of them from anywhere with a single command \(em no more
+.B cd
+between directories and running
+.B git status
+one repository at a time.
+.PP
+soko shells out to
+.BR git (1)
+for every repository operation; it never reimplements git. It stores a
+small registry of repository names and paths (plus tags, metadata,
+aliases, saved contexts, and discovery settings) in a single YAML
+configuration file. Read commands such as
+.BR status ", " remotes ", " diff ", " stats ", and " health
+never mutate a repository or touch the network. Write commands are
+conservative by design: bulk pulls are fast-forward-only, destructive
+operations prompt for confirmation and are recorded so they can be
+reverted with
+.BR "soko undo" .
+.PP
+Most commands accept an optional list of
+.I repos
+positional arguments to restrict the operation to specific
+repositories. Repository selection is by name with prefix matching, so
+.B soko status auth
+matches
+.IR auth\-service .
+Commands that operate on many repositories run them in parallel unless
+noted otherwise.
+.PP
+Running
+.B soko
+with no command, or with
+.BR \-\-help / \-h
+on any command, prints usage. If the first argument is a configured
+alias (see
+.BR "soko alias" ")"
+and is not a built-in command, it is expanded before execution.
+Built-in commands always take priority over aliases.
+.\" ----------------------------------------------------------------------
+.SH GLOBAL OPTIONS
+These persistent options are accepted by every command.
+.TP
+.B \-\-json
+Emit machine-readable JSON instead of the human-readable table. JSON
+output is never colorized and is suitable for scripting. Some commands
+restrict
+.B \-\-json
+(for example,
+.B soko prune \-\-json
+requires
+.BR \-\-force " or " \-\-dry\-run ,
+and
+.B \-\-json
+cannot be combined with the interactive
+.BR \-\-select ")."
+.TP
+.BR \-\-quiet ", " \-q
+Suppress hints, progress indicators, and trailing summary lines; print
+only essential output. May also be enabled with the
+.B SOKO_QUIET
+environment variable (an explicit flag always wins over the variable).
+.TP
+.B \-\-perf
+After a parallel command, report per-repository and aggregate timing.
+May also be enabled with the
+.B SOKO_PERF
+environment variable (an explicit flag always wins).
+.TP
+.BR \-\-help ", " \-h
+Show help for soko or any subcommand and exit.
+.\" ----------------------------------------------------------------------
+.SH "COMMON OPTIONS"
+Several options recur across many commands and share identical meaning.
+.TP
+.BI \-\-tag " tag"
+Restrict the command to repositories carrying the given tag. Repeatable;
+multiple
+.B \-\-tag
+values combine with logical OR. A worktree inherits its parent
+repository's tags for filtering. Supported by
+.BR init ", " scan ", " status ", " remotes ", " diff ", " stash ", "
+.BR list ", " fetch ", " pull ", " sync ", " branch ", " exec ", " grep ", "
+.BR apply ", " open ", " report ", " stats ", " health ", " clean ", "
+.BR prune ", " go ", " ui ", " "ctx save" ", " "snapshot save" ", and "
+.BR "discover on" .
+.TP
+.BI \-\-meta " key=value"
+Restrict to repositories whose metadata matches. Repeatable; multiple
+values combine with logical AND. Supported by
+.BR list " and " status .
+See
+.BR "soko annotate" .
+.TP
+.B \-\-no\-worktrees
+Skip linked-worktree entries and operate only on parent repositories.
+Supported by
+.BR fetch ", " pull ", " sync ", " exec ", " grep ", and " apply .
+.TP
+.B \-\-select
+Open the interactive picker (the same one
+.B soko go
+uses) with every matched repository pre-checked, so you can deselect the
+ones to spare before the operation runs. It can only narrow the set,
+never widen it, making it strictly safer than the all-or-nothing
+default. Requires a TTY; in a pipe or CI it is ignored and the command
+runs on the full set. Supported by
+.BR clean ", " prune ", and " "remove \-\-all" .
+.\" ----------------------------------------------------------------------
+.SH "REGISTRY COMMANDS"
+Commands that register, list, and forget repositories.
+.\" ----------------------------------
+.TP
+.B soko init
+Register the git repository in the current working directory. The path
+is resolved through symlinks for consistent matching with
+.BR scan .
+Run inside a linked worktree without
+.BR \-\-worktree ,
+it resolves to and registers the main repository instead (and hints at
+.BR \-\-worktree );
+if the repository is already registered it warns and exits successfully.
+Options:
+.RS
+.TP
+.BI \-\-tag " tag"
+Apply a tag to the repository (repeatable).
+.TP
+.B \-\-worktree
+Register the current directory as a linked worktree (named
+.IR parent/branch )
+instead of resolving to the main repository, auto-registering the parent
+if needed.
+.RE
+.\" ----------------------------------
+.TP
+.B soko scan <directory>
+Walk a directory tree and register every git repository found. The
+directory is resolved to an absolute, symlink-free path and must exist.
+Hidden directories are skipped (except the root); traversal is bounded
+by
+.BR \-\-depth .
+Already-registered repositories are reported and not re-added. Options:
+.RS
+.TP
+.BI \-\-tag " tag"
+Apply tags to newly discovered repositories (repeatable).
+.TP
+.BI \-\-depth " n"
+Maximum directory depth to scan (default 5).
+.TP
+.B \-\-worktrees
+Also enumerate and register each repository's linked worktrees as
+.I parent/branch
+entries.
+.TP
+.B \-\-dry\-run
+Show what would be registered without writing the config.
+.RE
+.\" ----------------------------------
+.TP
+.B soko discover <on|off|status>
+Manage auto-discovery, which registers a repository the first time you
+.B cd
+into it. It is opt-in and driven by the shell hook (see
+.BR "soko shell-init" );
+with discovery enabled the hook fires on each directory change.
+Enabling or disabling changes what
+.B soko shell-init
+emits, so open a new shell or re-run the hook afterward. With no
+subcommand it prints the current status. Discovery is conservative: the
+hook runs only in interactive shells, and it skips submodules, the home
+directory, and
+.IR node_modules / vendor
+trees. Subcommands:
+.RS
+.TP
+.B on
+Enable auto-discovery. Options:
+.BI \-\-root " dir"
+(only discover under these directories, repeatable, each must exist),
+.BI \-\-tag " tag"
+(tag everything discovered, repeatable),
+.BI \-\-ignore " glob"
+(skip paths matching a
+.BR filepath.Match (3)
+glob, repeatable).
+.TP
+.B off
+Disable auto-discovery.
+.TP
+.B status
+Print whether discovery is on and, when on, its roots, tags, and ignore
+patterns. Honors
+.BR \-\-json .
+.RE
+.\" ----------------------------------
+.TP
+.B soko list
+List all registered repositories as a NAME / PATH table (a TAGS column
+appears when any repository is tagged). Worktrees show their parent as
+.IR "path \-> parent" .
+Options:
+.BI \-\-tag " tag"
+(filter, OR),
+.BI \-\-meta " key=value"
+(filter, AND),
+.B \-\-group
+(render a tree grouped by effective tag, with inherited tags marked).
+Honors
+.BR \-\-json .
+.\" ----------------------------------
+.TP
+.B soko remove [name]
+Remove a repository from the registry by name; removing a parent
+cascades to its linked worktrees. Options:
+.RS
+.TP
+.BI \-\-path " dir"
+Remove by absolute path instead of by name.
+.TP
+.B \-\-all
+Remove every registered repository (prompts first).
+.TP
+.B \-\-force
+Skip the confirmation prompt.
+.TP
+.B \-\-select
+With
+.BR \-\-all ,
+interactively choose which repositories to unregister.
+.RE
+.\" ----------------------------------
+.TP
+.B soko prune
+Remove repositories whose directories no longer exist on disk. Options:
+.B \-\-dry\-run
+(preview without removing),
+.B \-\-force
+(skip confirmation),
+.BI \-\-tag " tag"
+(filter, OR),
+.B \-\-select
+(interactively choose which missing repositories to drop). With
+.BR \-\-json ,
+requires
+.BR \-\-force " or " \-\-dry\-run .
+.\" ----------------------------------------------------------------------
+.SH "STATUS AND INSPECTION"
+Read-only commands. None of these fetch (unless asked) or mutate a
+repository.
+.\" ----------------------------------
+.TP
+.B soko status [repos...]
+Show each repository's branch, dirty state, ahead/behind counts, and
+last commit. Options:
+.RS
+.TP
+.B \-\-fetch
+Fetch from remotes before collecting status.
+.TP
+.B \-\-dirty
+Show only repositories with uncommitted changes.
+.TP
+.B \-\-clean
+Show only clean repositories in sync with their remote.
+.TP
+.B \-\-ahead
+Show only repositories ahead of their remote.
+.TP
+.B \-\-behind
+Show only repositories behind their remote.
+.TP
+.B \-\-group
+Group repositories by tag in a tree view.
+.TP
+.B \-\-all
+Show all repositories without truncation.
+.TP
+.BI \-\-tag " tag"
+Filter by tag (OR).
+.TP
+.BI \-\-meta " key=value"
+Filter by metadata (AND).
+.RE
+.\" ----------------------------------
+.TP
+.B soko remotes [repos...]
+The read-only sibling of
+.BR status :
+show each repository's origin URL and upstream tracking branch, flagging
+the two problem cases \(em no remote (never pushed) and no upstream (a
+local-only branch or detached HEAD) \(em in yellow. Runs no network
+operations. Options:
+.BI \-\-tag " tag"
+(filter, OR),
+.B \-\-missing\-upstream
+(show only repositories with no remote or no upstream).
+.\" ----------------------------------
+.TP
+.B soko diff [repos...]
+Show uncommitted file changes across repositories. Option:
+.BI \-\-tag " tag" .
+.\" ----------------------------------
+.TP
+.B soko stash [repos...]
+Stash uncommitted changes (including untracked files) across
+repositories under a soko-tagged stash message. Option:
+.BI \-\-tag " tag" .
+The subcommand
+.B "soko stash pop"
+pops only the most recent stash of each repository when its message
+contains
+.IR "soko stash" ,
+skipping others; it also accepts
+.BI \-\-tag " tag" .
+.\" ----------------------------------
+.TP
+.B soko branch [name] [repos...]
+With no argument, show the current branch of every repository. With a
+.IR name ,
+show which repositories contain that branch. Option:
+.BI \-\-tag " tag" .
+Subcommands:
+.RS
+.TP
+.B switch <name> [repos...]
+Check out
+.I name
+in every repository that has it. Options:
+.BR \-\-create / \-b
+(create the branch from the default branch where missing),
+.BI \-\-tag " tag" .
+.TP
+.B stale [repos...]
+List unmerged branches with no commit for too long. Options:
+.BI \-\-days " n"
+(staleness threshold, default 90),
+.BI \-\-tag " tag" .
+.RE
+.\" ----------------------------------
+.TP
+.B soko report [repos...]
+Summarize recent commit activity across repositories. Options:
+.BI \-\-days " n"
+(look-back window, default 7),
+.BI \-\-author " name"
+(substring filter; defaults to your own commits),
+.B \-\-all\-authors
+(show everyone's commits),
+.BI \-\-max " n"
+(max commits per repository, default 5, 0 for all),
+.BI \-\-tag " tag" .
+.\" ----------------------------------
+.TP
+.B soko stats
+Show workspace-level statistics and health metrics: total size, commit
+and branch counts, clean/dirty/behind/stale/no-remote/missing signals,
+and recent activity over a fixed 30-day window (a branch is stale after
+90 days). Collected concurrently. Option:
+.BI \-\-tag " tag" .
+Honors
+.BR \-\-json .
+.\" ----------------------------------
+.TP
+.B soko health
+Score every repository on a single urgency scale and list them
+worst-first, so the most neglected repository is obvious. Reuses the
+.B stats
+signals but ranks repositories individually rather than aggregating.
+Strictly read-only. Each repository gets a numeric score and a severity
+of
+.IR ok ", " warn ", or " crit
+(conflicts, detached HEAD, or being significantly behind force
+.IR crit ).
+Options:
+.BI \-\-top " n"
+(keep only the N highest-scoring repositories, 0 = all),
+.BI \-\-threshold " level"
+(minimum severity to display:
+.IR warn " or " crit ),
+.BI \-\-tag " tag" .
+.\" ----------------------------------------------------------------------
+.SH "SYNCING"
+Network commands that update local repositories. All run in parallel and
+accept
+.BR \-\-tag ", " \-\-no\-worktrees ", and " \-\-json .
+.\" ----------------------------------
+.TP
+.B soko fetch [repos...]
+Fetch all (or the named) repositories from their remotes. Option:
+.B \-\-prune
+(pass
+.B \-\-prune
+to
+.B git fetch
+to clean up stale remote-tracking refs).
+.\" ----------------------------------
+.TP
+.B soko pull [repos...]
+Pull all (or the named) repositories. Uses
+.B \-\-ff\-only
+by default, so it never creates a surprise merge commit and reports a
+clear failure on any diverged repository; repositories whose branch has
+no upstream are skipped rather than failed. Option:
+.B \-\-rebase
+(replay local commits onto the upstream instead of fast-forward-only).
+.\" ----------------------------------
+.TP
+.B soko sync [repos...]
+The one-command morning routine: fetch every repository, then
+fast-forward only the ones where it is provably safe \(em clean working
+tree, an upstream, and no divergence. Everything else is reported, never
+touched (dirty repositories show
+.IR "dirty (skipped pull)" ,
+diverged branches show
+.IR "diverged (needs rebase)" ).
+Never creates merge commits, never rebases, never risks uncommitted
+work. Option:
+.B \-\-fetch\-only
+(fetch every repository but never pull).
+.\" ----------------------------------------------------------------------
+.SH "BULK OPERATIONS"
+.\" ----------------------------------
+.TP
+.B soko exec \-\- <command> [args...]
+Run an arbitrary command in every registered repository (in parallel),
+collecting per-repository exit codes and output. Use
+.B \-\-
+to separate soko's flags from the command. Options:
+.B \-\-seq
+(run sequentially, one repository at a time),
+.BR \-\-no\-worktrees ", "
+.BI \-\-tag " tag" .
+Honors
+.BR \-\-json .
+.\" ----------------------------------
+.TP
+.B soko grep <pattern> [repos...]
+Run
+.B git grep
+across the selected repositories in parallel and group matches by
+repository; repositories with no match drop out silently. Read-only;
+honors each repository's tracked-file set and
+.IR .gitignore .
+The pattern is a fixed string by default. Options:
+.RS
+.TP
+.BR \-\-ignore\-case ", " \-i
+Case-insensitive match.
+.TP
+.BR \-\-regexp ", " \-e
+Treat the pattern as a POSIX extended regular expression.
+.TP
+.B \-\-files\-only
+List matching file paths only, not lines.
+.TP
+.BR \-\-no\-worktrees ", " \-\-tag
+As described in COMMON OPTIONS.
+.RE
+.\" ----------------------------------
+.TP
+.B soko apply <source-file> [repos...]
+Copy one source file into many repositories, diff-first. By default it
+is a dry run that shows a per-repository unified diff and writes
+nothing. Writes are local file operations only \(em apply never touches
+git or the network. Options:
+.RS
+.TP
+.BI \-\-to " path"
+Destination path relative to each repository root (required).
+.TP
+.B \-\-write
+Write the files after a confirmation prompt (default is the dry-run
+diff).
+.TP
+.B \-\-force
+With
+.BR \-\-write ,
+skip the confirmation prompt.
+.TP
+.BR \-\-no\-worktrees ", " \-\-tag
+As described in COMMON OPTIONS.
+.RE
+.\" ----------------------------------
+.TP
+.B soko clean [repos...]
+Delete merged branches across repositories. Options:
+.B \-\-dry\-run
+(preview without deleting),
+.B \-\-prune
+(also prune stale remote-tracking refs),
+.B \-\-force
+(skip confirmation),
+.B \-\-select
+(interactively narrow the set),
+.BI \-\-tag " tag" .
+.\" ----------------------------------
+.TP
+.B soko undo
+Revert the last destructive soko operation (for example a
+.B clean
+or a
+.B ui
+pull), using the undo journal. Option:
+.B \-\-list
+(show the undo journal without reverting anything).
+.\" ----------------------------------------------------------------------
+.SH "WORKSPACE STATE"
+Commands that capture and restore the state of many repositories at
+once.
+.\" ----------------------------------
+.TP
+.B soko ctx <save|switch|list|show|drop>
+Save and restore workspace
+.IR contexts :
+the branch each repository is on, plus a stash of any dirty trees. When
+an interrupt arrives mid-feature,
+.B "ctx save"
+records the whole arrangement so
+.B "ctx switch"
+can bring it back later. Subcommands:
+.RS
+.TP
+.B save <name> [repos...]
+Record the branch per repository and stash dirty repositories (including
+untracked files) under a per-context stash message. Options:
+.B \-\-force
+(overwrite an existing context),
+.BI \-\-tag " tag" .
+.TP
+.B switch <name>
+Restore the saved branches and pop the stashes. Refuses to touch any
+repository that is dirty right now \(em save the current state under
+another name first. A manually-popped stash degrades to a note, never an
+error.
+.TP
+.B list
+List saved contexts with age and stash counts.
+.TP
+.B show <name>
+Show per-repository branch and stash detail for a context.
+.TP
+.B drop <name>
+Forget a context (its stashes stay in their repositories). Option:
+.B \-\-force
+(skip confirmation).
+.RE
+.\" ----------------------------------
+.TP
+.B soko snapshot <save|restore|list|show|drop>
+Pin exact positions \(em branch and HEAD SHA per repository. Where
+.B ctx
+moves work-in-progress between branches,
+.B snapshot
+records precise commits to return to before a risky bulk operation.
+Snapshots never touch uncommitted work, and
+.B restore
+refuses dirty repositories. Subcommands:
+.RS
+.TP
+.B save <name> [repos...]
+Record branch and HEAD SHA per repository. Options:
+.B \-\-force
+(overwrite an existing snapshot),
+.BI \-\-tag " tag" .
+.TP
+.B restore <name>
+Move each repository back to its recorded branch and commit, rewinding
+branches that moved and recreating branches that were deleted.
+.TP
+.B list
+List saved snapshots.
+.TP
+.B show <name>
+Show per-repository detail for a snapshot.
+.TP
+.B drop <name>
+Delete a snapshot. Option:
+.B \-\-force
+(skip confirmation).
+.RE
+.\" ----------------------------------
+.TP
+.B soko worktree <add|list|rm>
+Create, list, and remove git worktrees with registry bookkeeping.
+Subcommands:
+.RS
+.TP
+.B add <repo> <branch>
+Create a worktree of
+.I repo
+for
+.I branch
+and register it. Options:
+.BR \-\-path / \-p
+(directory for the new worktree; default is a sibling of the main
+repository),
+.BR \-\-create\-branch / \-b
+(create the branch if it does not exist),
+.BI \-\-tag " tag"
+(tags for the new worktree entry, repeatable).
+.TP
+.B list
+List registered worktrees across repositories.
+.TP
+.B rm <worktree>
+Remove a worktree and unregister it. Option:
+.B \-\-force
+(remove even if the worktree has uncommitted changes).
+.RE
+.\" ----------------------------------------------------------------------
+.SH "NAVIGATION"
+These commands change your shell's working directory and therefore
+require the shell integration (see
+.BR "SHELL INTEGRATION" ")."
+.\" ----------------------------------
+.TP
+.B soko cd <name>
+Jump to a registered repository by name (prefix match), including
+.I parent/branch
+worktree names.
+.\" ----------------------------------
+.TP
+.B soko go [filter]
+Open an interactive picker to choose a repository and navigate to it.
+Option:
+.BI \-\-tag " tag"
+(filter the picker by tag).
+.\" ----------------------------------
+.TP
+.B soko open [name]
+Open a repository in the browser. Auto-detects GitHub, GitLab, or
+Bitbucket from the remote URL. With
+.BI \-\-tag " tag"
+it opens every matching repository. Page options:
+.BR \-\-prs " (pull/merge requests), "
+.BR \-\-issues ", "
+.BR \-\-actions " (CI/CD), "
+.BR \-\-branches ", "
+.BR \-\-settings .
+.\" ----------------------------------------------------------------------
+.SH "TAGS, METADATA, AND ALIASES"
+.\" ----------------------------------
+.TP
+.B soko tag [tags...]
+With tag arguments, a shorthand to tag the current repository. With no
+arguments, prints help. Subcommands:
+.RS
+.TP
+.B add <tags...>
+Add tags to the current repository, or to the repository named by
+.BR \-\-repo / \-r .
+.TP
+.B remove <tags...>
+Remove tags from the current repository, or from the
+.BR \-\-repo / \-r
+target. On a worktree this removes only the worktree's own tags and
+errors on tags inherited from the parent.
+.TP
+.B list
+List all tags in use with repository counts.
+.RE
+.\" ----------------------------------
+.TP
+.B soko annotate [repo]
+Attach free-form
+.I key=value
+metadata to a repository. Owner, status, priority, and note are
+well-known keys, but any key works. With a repository name and no flags,
+show that repository's metadata. Then filter
+.B list
+and
+.B status
+with
+.BR \-\-meta .
+Options:
+.RS
+.TP
+.BI \-\-set " key=value"
+Set a metadata key (repeatable).
+.TP
+.BI \-\-unset " key"
+Remove a metadata key (repeatable).
+.TP
+.B \-\-clear
+Remove all metadata from the repository.
+.TP
+.B \-\-list
+List every repository that has metadata.
+.TP
+.BR \-\-repo ", " \-r
+Target repository by name (defaults to the current directory).
+.RE
+.\" ----------------------------------
+.TP
+.B soko alias <set|remove|list>
+Manage user-defined command shortcuts, stored in the config and expanded
+transparently when invoked. An alias name may not shadow a built-in
+command. Subcommands:
+.B "set <name> <command>"
+(create or update; the name must be a single word),
+.B "remove <name>"
+,
+.B list
+(show all aliases, honors
+.BR \-\-json ")."
+For example,
+.B soko alias set morning "sync \-\-tag work"
+makes
+.B soko morning
+run
+.BR "soko sync \-\-tag work" .
+.\" ----------------------------------------------------------------------
+.SH "INTERACTIVE DASHBOARD"
+.TP
+.B soko ui
+Open a full-screen, auto-refreshing dashboard of the workspace: each
+repository's branch, dirty state, ahead/behind, last-commit age, and a
+health badge. Local state refreshes every 5 seconds (cheap, no network);
+it is meant to live in a
+.BR tmux (1)
+pane all day. Options:
+.BI \-\-tag " tag"
+(filter) and
+.BI \-\-fetch " duration"
+(fetch from remotes in the background on the given interval, e.g.\&
+.BR "\-\-fetch 5m" ;
+the minimum is 30 seconds, 0 disables).
+.PP
+The only mutating keys are
+.B P
+(pull) and
+.B u
+(undo); a pull is fast-forward-only, confirmed, and recorded in the
+journal so it can be reverted.
+.SS "Key bindings (normal mode)"
+.TP
+.BR j ", " k ", " Down ", " Up
+Move the cursor down / up one row.
+.TP
+.BR g ", " G ", " Home ", " End
+Jump to the top / bottom.
+.TP
+.BR Ctrl-d ", " Ctrl-u ", " PgDn ", " PgUp
+Move a half page / full page down or up.
+.TP
+.BR s ", " S
+Cycle the sort mode forward / backward
+.RI ( name " \[->] " dirty " \[->] " behind " \[->] " health ).
+.TP
+.BR f ", " F
+Cycle the filter forward / backward
+.RI ( all " \[->] " dirty " \[->] " behind " \[->] " ahead " \[->] " conflicts ).
+.TP
+.BR t ", " T
+Cycle the tag filter forward / backward (all tags, then each tag).
+.TP
+.B b
+Toggle the group-by-tag view.
+.TP
+.B /
+Enter search mode (filter by name, branch, or tag).
+.TP
+.B space
+Mark / unmark the repository under the cursor for a batch action, then
+advance.
+.TP
+.B *
+Mark all visible repositories, or unmark them all if every one is already
+marked.
+.TP
+.B P
+Pull (fast-forward-only, after a
+.RB [ y/N ]
+confirmation). Acts on the marked repositories if any are marked,
+otherwise the repository under the cursor. A batch pull is one journal
+entry, so
+.B u
+rewinds the whole batch.
+.TP
+.B u
+Undo the last recorded pull (after confirmation), resetting each pulled
+repository to its pre-pull commit.
+.TP
+.B r
+Re-fetch all repositories from their remotes now.
+.TP
+.B R
+Fetch only the repository under the cursor.
+.TP
+.B y
+Copy the cursor repository's path to the system clipboard.
+.TP
+.BR o ", " p ", " i ", " a
+Open the cursor repository in the browser: home, pull requests, issues,
+or actions.
+.TP
+.B Enter
+Select the cursor repository, write the shell navigation file, and quit
+(the actual
+.B cd
+requires shell integration).
+.TP
+.B ?
+Toggle the full key-binding help overlay.
+.TP
+.BR q ", " Esc
+Quit.
+.B Esc
+first unwinds one level of state \(em it clears an active search, then
+resets active filters \(em before quitting. While a pull is in flight,
+the first
+.B q
+warns and a second confirms.
+.TP
+.B Ctrl-c
+Quit immediately from any mode.
+.PP
+In search mode, type to filter live; press
+.B Enter
+or
+.B Tab
+to commit the query and return to normal mode, or
+.B Esc
+to cancel and clear it.
+.\" ----------------------------------------------------------------------
+.SH "CONFIGURATION AND SETUP"
+.\" ----------------------------------
+.TP
+.B soko config <path|edit|get|set|list>
+View and manage configuration. Subcommands:
+.RS
+.TP
+.B path
+Print the resolved config file path.
+.TP
+.B edit
+Open the config file in
+.BR $EDITOR .
+.TP
+.B set <key> <value>
+Set a config value and save. The documented key is
+.I git_path
+(path to a custom git binary; defaults to
+.B git
+on
+.BR $PATH ).
+.TP
+.B get <key>
+Print a config value.
+.TP
+.B list
+Show the effective config:
+.IR git_path ,
+alias count, discovery status, and repository count.
+.RE
+All
+.B config
+subcommands honor
+.BR \-\-json .
+.\" ----------------------------------
+.TP
+.B soko shell-init
+Print a shell hook that enables
+.BR "soko cd" ", " "soko go" ,
+and
+.BR "soko ui" 's
+.B Enter
+to change your working directory, and exports
+.BR SOKO_SHELL_INTEGRATION=1 .
+The hook runs after each command and consumes a single-shot navigation
+file written by soko. When auto-discovery is enabled, a directory-change
+discovery block is appended. Default output is bash/zsh; use
+.B \-\-fish
+for fish or
+.B \-\-pwsh
+for PowerShell. Install it with, respectively:
+.RS
+.PP
+.nf
+.B eval "$(soko shell-init)"          # bash / zsh
+.B soko shell-init \-\-fish | source     # fish
+.B soko shell-init \-\-pwsh | Invoke-Expression   # PowerShell
+.fi
+.RE
+.\" ----------------------------------
+.TP
+.B soko doc
+Run health checks on the soko setup and print pass / warning / error
+results: git is installed, the config loads, every registered repository
+exists and is a git repository with an origin remote, no duplicate names
+or paths, shell integration is configured, and discovery status. Option:
+.B \-\-fix
+(remove repositories whose paths no longer exist or are no longer git
+repositories). Honors
+.BR \-\-json .
+.\" ----------------------------------
+.TP
+.B soko completion <shell>
+Generate a shell autocompletion script for
+.IR bash ", " zsh ", " fish ", or " powershell .
+.\" ----------------------------------
+.TP
+.B soko version
+Print the soko version string.
+.\" ----------------------------------------------------------------------
+.SH ENVIRONMENT
+.TP
+.B SOKO_QUIET
+Fallback for
+.BR \-\-quiet ;
+applied only when the flag is not passed. Treated as
+.I on
+only when its lowercased, trimmed value is
+.IR 1 ", " true ", or " yes ;
+anything else (including empty,
+.IR 0 ", " false ", " no ,
+or a typo) is
+.IR off .
+.TP
+.B SOKO_PERF
+Fallback for
+.BR \-\-perf ,
+with the same truthy parsing as
+.BR SOKO_QUIET .
+.TP
+.B SOKO_SHELL_INTEGRATION
+Set to
+.I 1
+by the
+.B soko shell-init
+hook and read by soko to detect that the integration is installed. When
+unset,
+.B soko ui
+cannot make
+.B Enter
+change directory and prints a one-time hint instead.
+.TP
+.B EDITOR
+Editor launched by
+.BR "soko config edit" .
+When unset, falls back to
+.B vi
+on Unix or
+.B notepad
+on Windows.
+.TP
+.B XDG_CONFIG_HOME
+When set, the config (and the journal, snapshots, and navigation file)
+lives under
+.IR $XDG_CONFIG_HOME/soko/ .
+.TP
+.BR LOCALAPPDATA ", " USERPROFILE
+Windows config base directories, used when
+.B XDG_CONFIG_HOME
+is unset.
+.TP
+.B NO_COLOR
+When set, disables ANSI color. Honored automatically by the color
+library; soko does not parse it directly.
+.\" ----------------------------------------------------------------------
+.SH "EXIT STATUS"
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Failure. Any error returned by a command is printed to standard error as
+.RI "  \[u2717] " message
+and the process exits 1. There are no other process exit codes.
+.PP
+Per-repository JSON failures additionally carry a stable
+.I error_code
+string field \(em one of
+.IR path_missing ", " no_upstream ", " dirty_tree ", "
+.IR not_fast_forward ", " merge_conflict ", " auth_failed ", "
+.IR git_failure ", or " unknown .
+These appear only inside JSON output and are not process exit codes.
+.\" ----------------------------------------------------------------------
+.SH FILES
+.TP
+.I ~/.config/soko/config.yaml
+The configuration file and repository registry. The path is resolved in
+order:
+.IR $XDG_CONFIG_HOME/soko/config.yaml ;
+else, on Windows,
+.IR %LOCALAPPDATA%\esoko\econfig.yaml ;
+else
+.IR ~/.config/soko/config.yaml .
+The directory is created mode 0700 and the file written atomically mode
+0600. It stores the repository registry (name, path, tags,
+.IR worktree_of ,
+and free-form metadata),
+.IR git_path ,
+aliases, saved contexts, and discovery settings.
+.TP
+.I ~/.config/soko/journal.yaml
+The capped undo journal of recent destructive operations, used by
+.BR "soko undo" .
+.TP
+.I ~/.config/soko/snapshots/<name>.yaml
+One file per named snapshot of repository branch / HEAD / dirty state.
+.TP
+.I ~/.config/soko/.nav
+A single-shot path written by
+.BR "soko cd" / "soko go"
+for the shell hook to
+.B cd
+into, then deleted.
+.\" ----------------------------------------------------------------------
+.SH "COLOR"
+Color is enabled when writing to an interactive terminal and disabled
+automatically when output is piped or redirected, or when
+.B NO_COLOR
+is set. JSON output (\fB\-\-json\fR) is never colorized.
+.\" ----------------------------------------------------------------------
+.SH EXAMPLES
+Enable shell integration, then register and inspect a workspace:
+.PP
+.RS
+.nf
+.B eval "$(soko shell-init)"
+.B soko scan ~/projects \-\-tag work
+.B soko status
+.fi
+.RE
+.PP
+Show only the backend repositories that are behind their remote:
+.PP
+.RS
+.nf
+.B soko status \-\-tag backend \-\-behind
+.fi
+.RE
+.PP
+The morning routine \(em fetch everything and fast-forward what is safe:
+.PP
+.RS
+.nf
+.B soko sync
+.fi
+.RE
+.PP
+Search every repository for a symbol, case-insensitively:
+.PP
+.RS
+.nf
+.B soko grep handleAuth \-i
+.fi
+.RE
+.PP
+Run a command across only the tagged repositories:
+.PP
+.RS
+.nf
+.B soko exec \-\-tag go \-\- go mod tidy
+.fi
+.RE
+.PP
+Save the current branch arrangement before handling an interrupt, then
+restore it:
+.PP
+.RS
+.nf
+.B soko ctx save client-a
+.B soko ctx switch client-a
+.fi
+.RE
+.PP
+Copy a CI workflow into every Go repository, reviewing the diff first:
+.PP
+.RS
+.nf
+.B soko apply ci.yml \-\-to .github/workflows/ci.yml \-\-tag go
+.B soko apply ci.yml \-\-to .github/workflows/ci.yml \-\-tag go \-\-write
+.fi
+.RE
+.\" ----------------------------------------------------------------------
+.SH "SEE ALSO"
+.BR git (1),
+.BR git-worktree (1),
+.BR git-grep (1),
+.BR tmux (1)
+.PP
+Project home and full documentation:
+.B https://github.com/CelikE/soko
+.\" ----------------------------------------------------------------------
+.SH AUTHOR
+Written by Emil Celik.
+.\" ----------------------------------------------------------------------
+.SH COPYRIGHT
+Copyright \(co 2026 Emil Celik. Released under the MIT License.
