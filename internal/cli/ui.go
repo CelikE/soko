@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,7 +45,8 @@ Keys: j/k move · g/G top/bottom · ctrl+d/u half page · enter cd (needs shell
 integration, see soko shell-init) · / search across name, branch, and tags
 (enter keeps the filter) · s/S cycle sort · f/F cycle filter · t/T cycle tag
 filter · b group by tag · space mark (* marks all visible) · o open home
-(p/i/a for PRs/issues/actions) · P pull the marked or selected repos ·
+(p/i/a for PRs/issues/actions) · L list the repo's open pull requests (enter
+opens one) · P pull the marked or selected repos ·
 u undo the last pull · r re-fetch all (R just the selected repo) · y copy the
 repo path · esc clear search/filters · ? help · q quit. The mouse works too:
 wheel scrolls, click selects.
@@ -88,6 +91,8 @@ from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 				OnUndo:       undoLastPullForUI(cmd.Context()),
 				OnFetchRepo:  fetchRepoForUI(cmd.Context()),
 				OnCopy:       copyToClipboard,
+				OnListPRs:    listPRsForUI(cmd.Context()),
+				OnOpenURL:    browser.Open,
 				RefreshEvery: uiRefreshInterval,
 				FetchEvery:   fetchEvery,
 			})
@@ -294,6 +299,53 @@ func fetchRepoForUI(ctx context.Context) func(path string) error {
 			return fmt.Errorf("fetch failed: %s", gitErrDetail(err))
 		}
 		return nil
+	}
+}
+
+// listPRsForUI returns the ui's pull-request list callback (L key). It shells
+// out to the GitHub CLI (gh) for the repo's open PRs — gh handles auth and the
+// host/owner/name resolution from the repo's remotes.
+func listPRsForUI(ctx context.Context) func(path string) ([]ui.PullRequest, error) {
+	return func(path string) ([]ui.PullRequest, error) {
+		if !commandExists("gh") {
+			return nil, fmt.Errorf("gh CLI not found — install it to list pull requests")
+		}
+		c := exec.CommandContext(ctx, "gh", "pr", "list",
+			"--state", "open", "--limit", "50",
+			"--json", "number,title,headRefName,state,url")
+		c.Dir = path
+		var stdout, stderr bytes.Buffer
+		c.Stdout = &stdout
+		c.Stderr = &stderr
+		if err := c.Run(); err != nil {
+			detail := strings.TrimSpace(stderr.String())
+			if detail == "" {
+				detail = err.Error()
+			}
+			return nil, fmt.Errorf("gh pr list: %s", detail)
+		}
+
+		var raw []struct {
+			Number      int    `json:"number"`
+			Title       string `json:"title"`
+			HeadRefName string `json:"headRefName"`
+			State       string `json:"state"`
+			URL         string `json:"url"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &raw); err != nil {
+			return nil, fmt.Errorf("parsing gh output: %w", err)
+		}
+		prs := make([]ui.PullRequest, len(raw))
+		for i, p := range raw {
+			prs[i] = ui.PullRequest{
+				Number: p.Number,
+				Title:  p.Title,
+				Branch: p.HeadRefName,
+				State:  p.State,
+				URL:    p.URL,
+			}
+		}
+		return prs, nil
 	}
 }
 

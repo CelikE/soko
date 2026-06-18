@@ -66,6 +66,15 @@ type PullTarget struct {
 	Path string
 }
 
+// PullRequest is one open pull request of a repo, as shown in the PR overlay.
+type PullRequest struct {
+	Number int
+	Title  string
+	Branch string
+	State  string
+	URL    string
+}
+
 // Config wires the model to its side effects. Everything I/O-bound is injected
 // so the model stays a pure state machine for tests.
 type Config struct {
@@ -77,6 +86,8 @@ type Config struct {
 	OnUndo       func() (string, error)                     // u — undo the last recorded pull
 	OnFetchRepo  func(path string) error                    // R — fetch one repo from its remotes
 	OnCopy       func(text string) error                    // y — copy the repo path to the clipboard
+	OnListPRs    func(path string) ([]PullRequest, error)   // L — list the repo's open pull requests
+	OnOpenURL    func(url string) error                     // enter (in PR overlay) — open a PR in a browser
 	RefreshEvery time.Duration                              // local state refresh cadence
 	FetchEvery   time.Duration                              // background fetch cadence; 0 disables
 }
@@ -189,6 +200,8 @@ type Model struct {
 	onUndo      func() (string, error)
 	onFetchRepo func(path string) error
 	onCopy      func(text string) error
+	onListPRs   func(path string) ([]PullRequest, error)
+	onOpenURL   func(url string) error
 
 	all  []Row // last collected, in config order
 	view []Row // all after filter + search + sort (+ group ordering)
@@ -217,6 +230,14 @@ type Model struct {
 	msgSetAt  time.Time // when statusMsg/lastErr was set; expires after statusTTL
 
 	showHelp bool
+
+	// PR overlay: a per-repo list of open pull requests, opened with L.
+	prMode    bool          // overlay is showing
+	prLoading bool          // PRs are being fetched
+	prRepo    string        // name of the repo whose PRs are shown
+	prList    []PullRequest // loaded pull requests
+	prCursor  int           // selected PR in the overlay
+	prErr     error         // load error, shown in the overlay
 
 	width, height int
 	refreshEvery  time.Duration
@@ -250,6 +271,8 @@ func New(cfg *Config) Model {
 		onUndo:       cfg.OnUndo,
 		onFetchRepo:  cfg.OnFetchRepo,
 		onCopy:       cfg.OnCopy,
+		onListPRs:    cfg.OnListPRs,
+		onOpenURL:    cfg.OnOpenURL,
 		marked:       map[string]bool{},
 		refreshEvery: refresh,
 		fetchEvery:   cfg.FetchEvery,
@@ -279,6 +302,14 @@ type actionDoneMsg struct {
 // fetchRepoDoneMsg reports a single-repo fetch (R key).
 type fetchRepoDoneMsg struct {
 	name string
+	err  error
+}
+
+// prListMsg carries the result of loading a repo's pull requests (L key). repo
+// pins which repo was requested so a stale load can't populate the wrong list.
+type prListMsg struct {
+	repo string
+	prs  []PullRequest
 	err  error
 }
 
@@ -380,6 +411,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.refreshCmd(false)
 		return m, cmd
 
+	case prListMsg:
+		// Ignore a load that resolved after the overlay was closed or retargeted.
+		if !m.prMode || msg.repo != m.prRepo {
+			return m, nil
+		}
+		m.prLoading = false
+		m.prErr = msg.err
+		m.prList = msg.prs
+		m.prCursor = 0
+		return m, nil
+
 	case tea.MouseMsg:
 		return m.handleMouse(tea.MouseEvent(msg))
 
@@ -392,7 +434,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleMouse maps wheel scrolling to cursor movement and a left click to
 // selecting the clicked row.
 func (m *Model) handleMouse(ev tea.MouseEvent) (tea.Model, tea.Cmd) {
-	if m.showHelp || m.searching || m.pending != pendingNone {
+	if m.showHelp || m.searching || m.prMode || m.pending != pendingNone {
 		return m, nil
 	}
 	switch {
@@ -421,6 +463,10 @@ func (m *Model) handleKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.prMode {
+		return m.handlePRKey(key)
+	}
+
 	if m.pending != pendingNone {
 		return m.handleConfirmKey(key)
 	}
@@ -430,6 +476,76 @@ func (m *Model) handleKey(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m.handleNormalKey(key)
+}
+
+// handlePRKey drives the pull-request overlay: j/k navigate, enter opens the
+// selected PR in a browser, esc/q (and ctrl+c) close it.
+func (m *Model) handlePRKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "esc", "q":
+		m.closePRs()
+		return m, nil
+	case "j", "down":
+		if m.prCursor < len(m.prList)-1 {
+			m.prCursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.prCursor > 0 {
+			m.prCursor--
+		}
+		return m, nil
+	case "g", "home":
+		m.prCursor = 0
+		return m, nil
+	case "G", "end":
+		m.prCursor = max(len(m.prList)-1, 0)
+		return m, nil
+	case "enter", "o":
+		if m.prCursor >= 0 && m.prCursor < len(m.prList) && m.onOpenURL != nil {
+			if err := m.onOpenURL(m.prList[m.prCursor].URL); err != nil {
+				m.setError(err)
+			}
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// closePRs dismisses the PR overlay and drops its state.
+func (m *Model) closePRs() {
+	m.prMode = false
+	m.prLoading = false
+	m.prList = nil
+	m.prErr = nil
+	m.prCursor = 0
+	m.prRepo = ""
+}
+
+// openPRs opens the overlay for the cursor's repo and kicks off an async load.
+func (m *Model) openPRs() (tea.Model, tea.Cmd) {
+	r, ok := m.current()
+	if !ok || m.onListPRs == nil {
+		return m, nil
+	}
+	if r.Missing {
+		m.setError(errMissing(&r))
+		return m, nil
+	}
+	m.prMode = true
+	m.prLoading = true
+	m.prRepo = r.Name
+	m.prList = nil
+	m.prErr = nil
+	m.prCursor = 0
+	onList, path, name := m.onListPRs, r.Path, r.Name
+	return m, func() tea.Msg {
+		prs, err := onList(path)
+		return prListMsg{repo: name, prs: prs, err: err}
+	}
 }
 
 // handleConfirmKey resolves a pending mutation: y/enter runs it, anything else
@@ -720,6 +836,9 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		return m.openCurrent(browser.PageIssues)
 	case "a":
 		return m.openCurrent(browser.PageActions)
+
+	case "L":
+		return m.openPRs()
 
 	case "enter":
 		return m.selectCurrent()

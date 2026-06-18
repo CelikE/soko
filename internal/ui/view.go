@@ -36,6 +36,9 @@ func (m *Model) View() string {
 	if m.showHelp {
 		return m.helpOverlay()
 	}
+	if m.prMode {
+		return m.prOverlay()
+	}
 
 	var b strings.Builder
 
@@ -505,7 +508,7 @@ func (m *Model) footer(start, end int) string {
 
 // helpLine is the bottom keybinding cheatsheet (the short form; ? opens full).
 func (m *Model) helpLine() string {
-	help := "  j/k move · enter cd · / search · s/S sort · f/F filter · t/T tag · b group · space mark · P pull · u undo · o open · r/R fetch · y copy · ? help · q quit"
+	help := "  j/k move · enter cd · / search · s/S sort · f/F filter · t/T tag · b group · space mark · P pull · u undo · o open · L prs · r/R fetch · y copy · ? help · q quit"
 	return styleDim.Render(help)
 }
 
@@ -529,6 +532,7 @@ func (m *Model) helpOverlay() string {
 		{"*", "mark all visible repos (again to clear)"},
 		{"o", "open the repo home page in a browser"},
 		{"p / i / a", "open pull requests / issues / actions"},
+		{"L", "list the repo's open pull requests (enter opens one)"},
 		{"P", "pull the marked repos, or the selected one (confirmed, undoable)"},
 		{"u", "undo the last pull (resets to the pre-pull commit)"},
 		{"r / R", "re-fetch all repos / just the selected one"},
@@ -552,6 +556,48 @@ func (m *Model) helpOverlay() string {
 	b.WriteString("\n" + styleDim.Render("  confirmations: y or enter runs · any other key cancels"))
 	b.WriteString("\n" + styleDim.Render("  press any key to close"))
 	return b.String()
+}
+
+// prOverlay renders the pull-request list for the cursor's repo: one row per
+// open PR (#number, title, branch), with the selection highlighted. enter opens
+// the selected PR in a browser.
+func (m *Model) prOverlay() string {
+	var b strings.Builder
+	b.WriteString("  " + styleTitle.Render("pull requests") + "  " + styleDim.Render(m.prRepo) + "\n\n")
+
+	switch {
+	case m.prLoading:
+		b.WriteString("  " + styleDim.Render("loading…") + "\n")
+	case m.prErr != nil:
+		b.WriteString("  " + styleErr.Render("error: "+m.prErr.Error()) + "\n")
+	case len(m.prList) == 0:
+		b.WriteString("  " + styleDim.Render("no open pull requests") + "\n")
+	default:
+		numW := 0
+		for i := range m.prList {
+			numW = max(numW, len(fmt.Sprintf("#%d", m.prList[i].Number)))
+		}
+		for i := range m.prList {
+			pr := &m.prList[i]
+			marker := "  "
+			if i == m.prCursor {
+				marker = styleCursor.Render("› ")
+			}
+			num := pad(fmt.Sprintf("#%d", pr.Number), numW)
+			branch := ""
+			if pr.Branch != "" {
+				branch = styleDim.Render("  " + pr.Branch)
+			}
+			line := num + "  " + pr.Title + branch
+			if i == m.prCursor {
+				line = styleCursor.Render(num+"  "+pr.Title) + branch
+			}
+			b.WriteString(marker + line + "\n")
+		}
+	}
+
+	b.WriteString("\n" + styleDim.Render("  j/k move · enter/o open in browser · esc/q back"))
+	return clampWidth(b.String(), m.width)
 }
 
 // truncate cuts s to maxW display cells with an ellipsis, never splitting a
