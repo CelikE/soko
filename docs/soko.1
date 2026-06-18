@@ -322,6 +322,20 @@ operations. Options:
 (show only repositories with no remote or no upstream).
 .\" ----------------------------------
 .TP
+.B soko pr [repos...]
+Gather open pull request information using the GitHub CLI
+.RB ( gh ).
+With no argument (or a tag filter) print a per-repository summary of how
+many pull requests are open; given a single repository, list that
+repository's open pull requests (number, title, branch, author). Option:
+.BI \-\-tag " tag"
+(filter, OR). Honors
+.BR \-\-json .
+Requires
+.B gh
+to be installed and authenticated.
+.\" ----------------------------------
+.TP
 .B soko diff [repos...]
 Show uncommitted file changes across repositories. Option:
 .BI \-\-tag " tag" .
