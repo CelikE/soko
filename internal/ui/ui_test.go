@@ -1159,3 +1159,61 @@ func isQuit(cmd tea.Cmd) bool {
 	_, ok := cmd().(tea.QuitMsg)
 	return ok
 }
+
+func TestPRListOverlay(t *testing.T) {
+	prs := []PullRequest{
+		{Number: 7, Title: "fix login", Branch: "fix/login", State: "OPEN", URL: "https://x/pull/7"},
+		{Number: 9, Title: "add cache", Branch: "feat/cache", State: "OPEN", URL: "https://x/pull/9"},
+	}
+	var listedPath, openedURL string
+	m := New(&Config{
+		OnListPRs: func(p string) ([]PullRequest, error) { listedPath = p; return prs, nil },
+		OnOpenURL: func(u string) error { openedURL = u; return nil },
+	})
+	m.Update(rowsMsg{rows: sampleRows()})
+
+	// L opens the overlay and kicks off the async load.
+	_, cmd := m.handleKey("L")
+	if !m.prMode {
+		t.Fatal("L did not enter PR overlay")
+	}
+	if !m.prLoading {
+		t.Fatal("overlay should be loading before the msg arrives")
+	}
+	if cmd == nil {
+		t.Fatal("L returned no load command")
+	}
+	m.Update(cmd())
+	if listedPath != "/a" {
+		t.Fatalf("listed path = %q, want /a", listedPath)
+	}
+	if m.prLoading || len(m.prList) != 2 {
+		t.Fatalf("PRs not loaded: loading=%v n=%d", m.prLoading, len(m.prList))
+	}
+
+	// Navigate and open the selected PR.
+	m.handleKey("j")
+	if m.prCursor != 1 {
+		t.Fatalf("cursor = %d, want 1", m.prCursor)
+	}
+	m.handleKey("enter")
+	if openedURL != "https://x/pull/9" {
+		t.Fatalf("opened %q, want the second PR url", openedURL)
+	}
+
+	// esc closes the overlay.
+	m.handleKey("esc")
+	if m.prMode {
+		t.Fatal("esc did not close the PR overlay")
+	}
+}
+
+func TestPRListStaleMsgIgnored(t *testing.T) {
+	m := New(&Config{OnListPRs: func(string) ([]PullRequest, error) { return nil, nil }})
+	m.Update(rowsMsg{rows: sampleRows()})
+	m.handleKey("L") // targets the alpha repo
+	m.Update(prListMsg{repo: "other", prs: []PullRequest{{Number: 1}}})
+	if len(m.prList) != 0 {
+		t.Fatal("stale PR msg for a different repo was applied")
+	}
+}
