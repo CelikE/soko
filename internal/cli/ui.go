@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -302,45 +300,23 @@ func fetchRepoForUI(ctx context.Context) func(path string) error {
 	}
 }
 
-// listPRsForUI returns the ui's pull-request list callback (L key). It shells
-// out to the GitHub CLI (gh) for the repo's open PRs — gh handles auth and the
-// host/owner/name resolution from the repo's remotes.
+// listPRsForUI returns the ui's pull-request list callback (L key). It reuses
+// fetchOpenPRs (the GitHub CLI) and maps the result into the ui's PR type.
 func listPRsForUI(ctx context.Context) func(path string) ([]ui.PullRequest, error) {
 	return func(path string) ([]ui.PullRequest, error) {
 		if !commandExists("gh") {
 			return nil, fmt.Errorf("gh CLI not found — install it to list pull requests")
 		}
-		c := exec.CommandContext(ctx, "gh", "pr", "list",
-			"--state", "open", "--limit", "50",
-			"--json", "number,title,headRefName,state,url")
-		c.Dir = path
-		var stdout, stderr bytes.Buffer
-		c.Stdout = &stdout
-		c.Stderr = &stderr
-		if err := c.Run(); err != nil {
-			detail := strings.TrimSpace(stderr.String())
-			if detail == "" {
-				detail = err.Error()
-			}
-			return nil, fmt.Errorf("gh pr list: %s", detail)
+		items, err := fetchOpenPRs(ctx, path)
+		if err != nil {
+			return nil, err
 		}
-
-		var raw []struct {
-			Number      int    `json:"number"`
-			Title       string `json:"title"`
-			HeadRefName string `json:"headRefName"`
-			State       string `json:"state"`
-			URL         string `json:"url"`
-		}
-		if err := json.Unmarshal(stdout.Bytes(), &raw); err != nil {
-			return nil, fmt.Errorf("parsing gh output: %w", err)
-		}
-		prs := make([]ui.PullRequest, len(raw))
-		for i, p := range raw {
+		prs := make([]ui.PullRequest, len(items))
+		for i, p := range items {
 			prs[i] = ui.PullRequest{
 				Number: p.Number,
 				Title:  p.Title,
-				Branch: p.HeadRefName,
+				Branch: p.Branch,
 				State:  p.State,
 				URL:    p.URL,
 			}
