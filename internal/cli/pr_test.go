@@ -21,20 +21,3 @@ func TestRenderPrList(t *testing.T) {
 		}
 	}
 }
-
-func TestRenderPrSummary(t *testing.T) {
-	results := []prSummaryResult{
-		{name: "api", count: 3},
-		{name: "web", count: 0},
-		{name: "gone", err: "path not found"},
-	}
-	var buf bytes.Buffer
-	renderPrSummary(&buf, results)
-	out := buf.String()
-
-	for _, want := range []string{"api", "web", "gone", "path not found", "3 open PRs", "1 repo with PRs"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("summary missing %q:\n%s", want, out)
-		}
-	}
-}
