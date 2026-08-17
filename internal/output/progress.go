@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"golang.org/x/term"
@@ -19,7 +20,12 @@ type Progress struct {
 	total   int
 	current atomic.Int32
 	active  bool
-	lineLen int // length of last written line, for clearing
+
+	// mu serializes the display update. Increment is called concurrently from
+	// the errgroup workers in fetch/pull/grep/sync, so render and Done — which
+	// mutate lineLen and write to w — must not run in parallel (issue #195).
+	mu      sync.Mutex
+	lineLen int // length of last written line, for clearing; guarded by mu
 }
 
 // NewProgress creates a progress indicator that writes to w.
@@ -56,6 +62,8 @@ func (p *Progress) Done() {
 	if !p.active {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// Overwrite with spaces, then return to start of line.
 	blank := "\r" + strings.Repeat(" ", p.lineLen) + "\r"
 	_, _ = fmt.Fprint(p.w, blank)
@@ -63,6 +71,8 @@ func (p *Progress) Done() {
 
 func (p *Progress) render(n int) {
 	line := fmt.Sprintf("\r  %s %s... %d/%d", Dim("·"), p.msg, n, p.total)
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.lineLen = len(line) - 1 // subtract \r
 	_, _ = fmt.Fprint(p.w, line)
 }
