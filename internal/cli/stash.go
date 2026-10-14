@@ -34,6 +34,7 @@ Use "soko stash pop" to restore only stashes created by soko.`,
 		Example: `  soko stash
   soko stash auth
   soko stash pop
+  soko stash pop auth
   soko stash --tag backend`,
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: repoNameCompletionFunc(),
@@ -50,9 +51,14 @@ Use "soko stash pop" to restore only stashes created by soko.`,
 
 func newStashPopCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pop",
+		Use:   "pop [repos...]",
 		Short: "Pop soko-created stashes across repos",
-		RunE:  runStashPop,
+		Long: `Restore only stashes created by soko. Repos without a soko stash on top are skipped.
+Filter repos by name or prefix, optionally combined with --tag. With no repo names,
+restore stashes across all repos matching the tag filter.`,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: repoNameCompletionFunc(),
+		RunE:              runStashPop,
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
@@ -180,13 +186,21 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runStashPop(cmd *cobra.Command, _ []string) error {
+func runStashPop(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	w := cmd.OutOrStdout()
 
 	cfg, repos, err := loadReposWithTagFilter(cmd)
 	if err != nil {
 		return err
+	}
+
+	if len(args) > 0 {
+		repos = findReposMatching(repos, args)
+		if len(repos) == 0 {
+			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
+			return nil
+		}
 	}
 
 	if len(repos) == 0 {

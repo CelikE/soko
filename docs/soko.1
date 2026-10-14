@@ -363,12 +363,14 @@ Stash uncommitted changes (including untracked files) across
 repositories under a soko-tagged stash message. Option:
 .BI \-\-tag " tag" .
 The subcommand
-.B "soko stash pop"
+.B "soko stash pop [repos...]"
 pops only the most recent stash of each repository when its message
 contains
 .IR "soko stash" ,
-skipping others; it also accepts
+skipping others. Repository names or prefixes limit which stashes are
+restored; it also accepts
 .BI \-\-tag " tag" .
+When both are given, only repositories matching both filters are touched.
 .\" ----------------------------------
 .TP
 .B soko branch [name] [repos...]

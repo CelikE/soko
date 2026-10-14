@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Serialize terminal progress updates during parallel fetch, pull, grep, and sync operations to prevent data races, interleaved output, and backwards progress counts.
+- Honor repository name and prefix filters in `soko stash pop [repos...]`, including when combined with `--tag`, so restoring a targeted stash leaves unrelated repositories untouched.
 
 ## v0.22.0 — 2026-10-14
 
