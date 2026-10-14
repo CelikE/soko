@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,7 +10,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
+	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/output"
+	"github.com/CelikE/soko/internal/worktree"
 )
 
 // newTagCmd creates the cobra command for soko tag.
@@ -27,7 +30,7 @@ func newTagCmd() *cobra.Command {
 		Short: "Manage repo tags",
 		Long: `Add tags to the current repo, or use subcommands for more control.
 
-Running soko tag <tags...> in a registered repo adds the given tags.
+Running soko tag <tags...> anywhere inside a registered repo adds the given tags.
 Use subcommands add, remove, and list for explicit operations.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -36,7 +39,7 @@ Use subcommands add, remove, and list for explicit operations.`,
 			}
 
 			// Shorthand: soko tag backend go → add tags to current repo.
-			repoName, err := resolveCurrentRepo()
+			repoName, err := resolveCurrentRepo(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -73,8 +76,8 @@ Use subcommands add, remove, and list for explicit operations.`,
 	return cmd
 }
 
-// resolveCurrentRepo finds the repo name for the current working directory.
-func resolveCurrentRepo() (string, error) {
+// resolveCurrentRepo finds the registered checkout containing the current directory.
+func resolveCurrentRepo(ctx context.Context) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("getting working directory: %w", err)
@@ -85,8 +88,13 @@ func resolveCurrentRepo() (string, error) {
 		return "", fmt.Errorf("loading config: %w", err)
 	}
 
-	entry, err := config.FindRepoByPath(cfg, dir)
+	root, err := git.Toplevel(ctx, dir)
 	if err != nil {
+		return "", fmt.Errorf("resolving current repository: %w", err)
+	}
+
+	entry := worktree.FindByPath(cfg, root)
+	if entry == nil {
 		return "", fmt.Errorf("current directory is not a registered repo — run soko init first")
 	}
 
@@ -99,7 +107,7 @@ func resolveRepoName(cmd *cobra.Command) (string, error) {
 	if repoFlag != "" {
 		return repoFlag, nil
 	}
-	return resolveCurrentRepo()
+	return resolveCurrentRepo(cmd.Context())
 }
 
 func newTagAddCmd() *cobra.Command {
