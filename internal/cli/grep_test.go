@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -159,6 +160,68 @@ func TestIntegration_GrepFilesOnlyJSON(t *testing.T) {
 	// Files-only mode carries only file: line is 0 and text is empty.
 	if m.Line != 0 || m.Text != "" {
 		t.Errorf("files-only json should carry only file, got line=%d text=%q", m.Line, m.Text)
+	}
+}
+
+func TestIntegration_GrepJSONPreservesFilenames(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "repo")
+	initRepo(t, dir)
+	files := map[string]string{
+		"päth.txt":             "before\nneedle: https://example.com:8080/path\n",
+		"file with spaces.txt": "needle here\n",
+	}
+	if runtime.GOOS != "windows" {
+		files["a:b.txt"] = "needle here\n"
+		files["line\nbreak.txt"] = "needle here\n"
+	}
+	writeAndCommit(t, dir, files)
+	c := exec.CommandContext(context.Background(), "git", "config", "core.quotePath", "true")
+	c.Dir = dir
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v\n%s", err, out)
+	}
+	runSokoInit(t, dir)
+
+	for _, filesOnly := range []bool{false, true} {
+		args := []string{"grep", "needle", "--json"}
+		if filesOnly {
+			args = append(args, "--files-only")
+		}
+		out := runSoko(t, args...)
+		var entries []struct {
+			Repo    string `json:"repo"`
+			Matches []struct {
+				File string `json:"file"`
+				Line int    `json:"line"`
+				Text string `json:"text"`
+			} `json:"matches"`
+		}
+		if err := json.Unmarshal([]byte(out), &entries); err != nil {
+			t.Fatalf("json unmarshal: %v\noutput: %s", err, out)
+		}
+		if len(entries) != 1 || entries[0].Repo != "repo" || len(entries[0].Matches) != len(files) {
+			t.Fatalf("filesOnly=%v: entries = %+v, want repo with %d matches", filesOnly, entries, len(files))
+		}
+		seen := make(map[string]bool)
+		for _, m := range entries[0].Matches {
+			content, ok := files[m.File]
+			if !ok || seen[m.File] {
+				t.Errorf("filesOnly=%v: unexpected or duplicate filename %q", filesOnly, m.File)
+				continue
+			}
+			seen[m.File] = true
+			if filesOnly {
+				if m.Line != 0 || m.Text != "" {
+					t.Errorf("files-only match = %+v, want filename only", m)
+				}
+			} else {
+				lines := strings.Split(content, "\n")
+				if m.Line < 1 || m.Line > len(lines) || m.Text != lines[m.Line-1] {
+					t.Errorf("match = %+v, want exact source line", m)
+				}
+			}
+		}
 	}
 }
 

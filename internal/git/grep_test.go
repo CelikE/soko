@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -162,5 +164,74 @@ func TestGrepColonInText(t *testing.T) {
 	}
 	if want := "https://example.com:8080/path"; !strings.Contains(matches[0].Text, want) {
 		t.Errorf("match text = %q, want to contain %q", matches[0].Text, want)
+	}
+}
+
+func TestGrepPreservesFilenames(t *testing.T) {
+	tests := []struct {
+		name      string
+		file      string
+		posixOnly bool
+	}{
+		{name: "non-ASCII", file: "päth.txt"},
+		{name: "nested Unicode", file: "sub/日本語.txt"},
+		{name: "spaces", file: "file with spaces.txt"},
+		{name: "colon", file: "a:b.txt", posixOnly: true},
+		{name: "newline", file: "line\nbreak.txt", posixOnly: true},
+		{name: "tab", file: "tab\tname.txt", posixOnly: true},
+		{name: "quote", file: "quote\"name.txt", posixOnly: true},
+		{name: "backslash", file: "back\\slash.txt", posixOnly: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.posixOnly && runtime.GOOS == "windows" {
+				t.Skip("filename is not supported on Windows")
+			}
+			ctx := context.Background()
+			text := "needle: https://example.com:8080/path \t "
+			dir := initRepoWithFiles(t, map[string]string{
+				tt.file: "before\n" + text + "\nneedle again\n",
+			})
+			if _, err := Run(ctx, dir, "config", "core.quotePath", "true"); err != nil {
+				t.Fatalf("git config: %v", err)
+			}
+			for _, filesOnly := range []bool{false, true} {
+				matches, err := Grep(ctx, dir, "needle", false, false, filesOnly)
+				if err != nil {
+					t.Fatalf("Grep(filesOnly=%v): %v", filesOnly, err)
+				}
+				want := []Match{
+					{File: tt.file, Line: 2, Text: text},
+					{File: tt.file, Line: 3, Text: "needle again"},
+				}
+				if filesOnly {
+					want = []Match{{File: tt.file}}
+				}
+				if !reflect.DeepEqual(matches, want) {
+					t.Errorf("Grep(filesOnly=%v) = %#v, want %#v", filesOnly, matches, want)
+				}
+			}
+		})
+	}
+}
+
+func TestGrepBinaryMatches(t *testing.T) {
+	ctx := context.Background()
+	dir := initRepoWithFiles(t, map[string]string{
+		"a.bin": "needle\x00binary data\n",
+		"b.txt": "needle text\n",
+	})
+	for _, filesOnly := range []bool{false, true} {
+		matches, err := Grep(ctx, dir, "needle", false, false, filesOnly)
+		if err != nil {
+			t.Fatalf("Grep(filesOnly=%v): %v", filesOnly, err)
+		}
+		want := []Match{{File: "b.txt", Line: 1, Text: "needle text"}}
+		if filesOnly {
+			want = []Match{{File: "a.bin"}, {File: "b.txt"}}
+		}
+		if !reflect.DeepEqual(matches, want) {
+			t.Errorf("Grep(filesOnly=%v) = %#v, want %#v", filesOnly, matches, want)
+		}
 	}
 }
