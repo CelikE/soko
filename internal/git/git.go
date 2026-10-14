@@ -76,11 +76,13 @@ type Match struct {
 // exit into an error and discards stdout, whereas Grep must distinguish exit 1
 // from exit >= 2 and keep stdout.
 func Grep(ctx context.Context, dir, pattern string, regex, ignoreCase, filesOnly bool) ([]Match, error) {
-	args := []string{"grep", "--color=never"}
+	args := []string{"grep", "--color=never", "--null"}
 	if filesOnly {
 		args = append(args, "-l")
 	} else {
-		args = append(args, "--line-number")
+		// Binary summaries have no source line or NUL delimiter. Skip them
+		// in line mode so they cannot become part of the next match's path.
+		args = append(args, "--line-number", "-I")
 	}
 	if ignoreCase {
 		args = append(args, "-i")
@@ -110,28 +112,35 @@ func Grep(ctx context.Context, dir, pattern string, regex, ignoreCase, filesOnly
 	return parseGrep(stdout.String(), filesOnly), nil
 }
 
-// parseGrep turns `git grep` stdout into matches. Line mode rows are
-// "path:line:text" (split on the first two colons so colons in the text — URLs,
-// timestamps — survive); files-only rows are bare paths.
+// parseGrep turns `git grep --null` stdout into matches. Line mode records are
+// "path\x00line\x00text\n"; files-only records are "path\x00". Read each path
+// through its NUL terminator before splitting the row, since paths can contain
+// colons and newlines and are never quoted in this format.
 func parseGrep(out string, filesOnly bool) []Match {
 	var matches []Match
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
+	for out != "" {
+		file, rest, ok := strings.Cut(out, "\x00")
+		if !ok {
+			break // incomplete record
 		}
+		out = rest
 		if filesOnly {
-			matches = append(matches, Match{File: line})
+			if file != "" {
+				matches = append(matches, Match{File: file})
+			}
 			continue
 		}
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) < 3 {
+		var row string
+		row, out, _ = strings.Cut(out, "\n")
+		line, text, ok := strings.Cut(row, "\x00")
+		if !ok || file == "" {
 			continue // malformed — skip defensively
 		}
-		n, err := strconv.Atoi(parts[1])
+		n, err := strconv.Atoi(line)
 		if err != nil {
 			continue
 		}
-		matches = append(matches, Match{File: parts[0], Line: n, Text: parts[2]})
+		matches = append(matches, Match{File: file, Line: n, Text: text})
 	}
 	return matches
 }
