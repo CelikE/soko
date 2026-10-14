@@ -77,4 +77,8 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  disable: true
+  use: github-native
+
+release:
+  header: |
+    See [CHANGELOG.md](https://github.com/CelikE/soko/blob/{{ .Tag }}/CHANGELOG.md) for feature details and upgrade notes.

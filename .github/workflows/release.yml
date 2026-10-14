@@ -33,17 +33,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
-
-      - name: Generate release notes
-        id: notes
-        uses: codested/chagg-github-actions/release@efac42e8b97c293f6498c1bf7b17bbc6771e4425 # v0
-        with:
-          api_key: ${{ secrets.CHAGG_API_KEY }}
-
-      - name: Update release notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHANGELOG: ${{ steps.notes.outputs.changelog }}
-        run: |
-          gh release edit "${{ github.ref_name }}" \
-            --notes "$CHANGELOG"

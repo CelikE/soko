@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   check:
@@ -28,6 +27,12 @@ jobs:
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 
+      - name: Validate release configuration
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: "v2.15.2"
+          args: check
+
   windows:
     runs-on: windows-latest
     steps:
@@ -38,14 +43,3 @@ jobs:
       - name: Verify worktree registration and PowerShell navigation
         shell: pwsh
         run: ./.github/scripts/windows-worktree-smoke.ps1
-
-  changelog:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
-
-      - uses: codested/chagg-github-actions/ci@efac42e8b97c293f6498c1bf7b17bbc6771e4425 # v0
-        with:
-          api_key: ${{ secrets.CHAGG_API_KEY }}

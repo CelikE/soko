@@ -7,7 +7,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 MANPREFIX ?= /usr/local/share/man
 
-.PHONY: build install man man-check uninstall-man test test-v lint fmt tidy check clean changelog changelog-check changelog-add
+.PHONY: build install man man-check uninstall-man test test-v lint fmt tidy check clean release-check
 
 ## build: Compile the binary
 build:
@@ -59,17 +59,9 @@ check: fmt lint test
 clean:
 	rm -f $(BINARY)
 
-## changelog: Generate changelog
-changelog:
-	chagg generate
-
-## changelog-check: Validate change entries
-changelog-check:
-	chagg check
-
-## changelog-add: Add a new change entry
-changelog-add:
-	chagg add
+## release-check: Validate code, manual, and release configuration
+release-check: lint test man-check
+	goreleaser check
 
 ## help: Show this help
 help:
