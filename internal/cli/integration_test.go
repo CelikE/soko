@@ -20,6 +20,7 @@ func testEnv(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("SOKO_NAV_SESSION", "")
 	return dir
 }
 

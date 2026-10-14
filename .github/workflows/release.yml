@@ -20,6 +20,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Sync Windows manifest fork before publishing
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: gh api --method POST repos/CelikE/winget-pkgs/merge-upstream -f branch=master
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:

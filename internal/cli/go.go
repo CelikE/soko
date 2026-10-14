@@ -27,7 +27,8 @@ editable — backspace to broaden, type to refine, esc to clear.
 
 Requires shell integration. See: soko shell-init --help
 
-Use --tag to filter the picker to repos with specific tags.`,
+Use --tag to filter by tags, or --repo api to browse a base repo and its
+worktrees. --repo . selects the family of the current checkout.`,
 		Args: cobra.MaximumNArgs(1),
 		// Tab-completion is prefix-based (cobra), while the runtime [filter]
 		// arg matches case-insensitive substrings (filterReposByName). The
@@ -91,6 +92,9 @@ Use --tag to filter the picker to repos with specific tags.`,
 			}
 
 			selected := repos[idx]
+			if !pathExists(selected.Path) {
+				return fmt.Errorf("%s: path not found: %s", selected.Name, selected.Path)
+			}
 
 			if jsonFlag {
 				return writeGoJSON(w, &selected)
@@ -109,6 +113,7 @@ Use --tag to filter the picker to repos with specific tags.`,
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	addFamilyFlag(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 
 	return cmd
@@ -117,6 +122,9 @@ Use --tag to filter the picker to repos with specific tags.`,
 // goNonInteractive handles the case when stdin is not a terminal.
 func goNonInteractive(repos []config.RepoEntry, jsonOut bool, w, stderr io.Writer) error {
 	if len(repos) == 1 {
+		if !pathExists(repos[0].Path) {
+			return fmt.Errorf("%s: path not found: %s", repos[0].Name, repos[0].Path)
+		}
 		if jsonOut {
 			return writeGoJSON(w, &repos[0])
 		}

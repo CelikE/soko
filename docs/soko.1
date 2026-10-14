@@ -1,6 +1,6 @@
 .\" Manpage for soko.
 .\" Contact: https://github.com/CelikE/soko
-.TH SOKO 1 "2026-06-15" "soko 0.21.0" "soko Manual"
+.TH SOKO 1 "2026-10-14" "soko 0.22.0" "soko Manual"
 .\" ----------------------------------------------------------------------
 .SH NAME
 soko \- all your git repositories, one command
@@ -97,6 +97,21 @@ Show help for soko or any subcommand and exit.
 .SH "COMMON OPTIONS"
 Several options recur across many commands and share identical meaning.
 .TP
+.BI \-\-repo " repo"
+Limit to a base repository and its registered worktrees. A worktree alias
+selects its base family; a dot selects the family of the current checkout,
+including from a subdirectory. Intersects with tag filters. Supported by
+.BR list ", " status ", " go ", " ui ", " "worktree list" ", and " "worktree adopt" .
+.TP
+.BI \-\-group\-by " mode"
+Group by
+.IR none ", " tag ", or " repo
+(the base checkout and its linked worktrees). Supported by
+.BR list ", " status ", and " ui .
+The existing
+.B \-\-group
+option on list and status remains shorthand for tag grouping.
+.TP
 .BI \-\-tag " tag"
 Restrict the command to repositories carrying the given tag. Repeatable;
 multiple
@@ -137,7 +152,8 @@ Commands that register, list, and forget repositories.
 .TP
 .B soko init
 Register the git repository in the current working directory. The path
-is resolved through symlinks for consistent matching with
+is normalized to its checkout root and resolved through symlinks for
+consistent matching with
 .BR scan .
 Run inside a linked worktree without
 .BR \-\-worktree ,
@@ -155,6 +171,9 @@ Register the current directory as a linked worktree (named
 .IR parent/branch )
 instead of resolving to the main repository, auto-registering the parent
 if needed.
+Detached checkouts use the directory name instead of a branch. Aliases are
+unique and remain stable when branches change. Bare bases are unsupported;
+register a separate-Git-directory base checkout before its linked worktrees.
 .RE
 .\" ----------------------------------
 .TP
@@ -618,8 +637,8 @@ Delete a snapshot. Option:
 .RE
 .\" ----------------------------------
 .TP
-.B soko worktree <add|list|rm>
-Create, list, and remove git worktrees with registry bookkeeping.
+.B soko worktree <add|adopt|list|rm>
+Create, adopt, list, and remove git worktrees with registry bookkeeping.
 Subcommands:
 .RS
 .TP
@@ -638,7 +657,25 @@ repository),
 (tags for the new worktree entry, repeatable).
 .TP
 .B list
-List registered worktrees across repositories.
+List registered and Git-known unregistered worktrees across repositories.
+JSON includes registration, locked, prunable, and error information.
+An existing directory that is no longer a checkout of its parent is
+marked stale.
+Supports repository-family and tag filters.
+.TP
+.B adopt [repos...]
+Register live linked checkouts created outside soko, including detached
+worktrees.
+Without arguments, inspect all registered bases. Existing aliases, tags, and
+metadata are preserved; repeated adoption is a no-op. Options:
+.B \-\-dry\-run
+(preview without saving),
+.BI \-\-tag " tag"
+(filter bases),
+.BI \-\-tag\-with " tag"
+(tags for newly adopted entries), and
+.BI \-\-repo " repo"
+(family filter). JSON affects output only, not persistence.
 .TP
 .B rm <worktree>
 Remove a worktree and unregister it. Option:
@@ -656,6 +693,8 @@ require the shell integration (see
 Jump to a registered repository by name (prefix match), including
 .I parent/branch
 worktree names.
+Navigation never checks out branches or stashes files, and dirty worktrees
+remain navigable. Missing targets fail before a navigation request is written.
 .\" ----------------------------------
 .TP
 .B soko go [filter]
@@ -663,6 +702,11 @@ Open an interactive picker to choose a repository and navigate to it.
 Option:
 .BI \-\-tag " tag"
 (filter the picker by tag).
+Use
+.BI \-\-repo " repo"
+to limit the picker to a repository family, or
+.B \-\-repo .
+for the current checkout's family.
 .\" ----------------------------------
 .TP
 .B soko open [name]
@@ -763,6 +807,10 @@ pane all day. Options:
 (fetch from remotes in the background on the given interval, e.g.\&
 .BR "\-\-fetch 5m" ;
 the minimum is 30 seconds, 0 disables).
+Also supports
+.BI \-\-repo " repo"
+and
+.BI \-\-group\-by " mode" .
 .PP
 The only mutating keys are
 .B P
@@ -794,6 +842,9 @@ Cycle the tag filter forward / backward (all tags, then each tag).
 .TP
 .B b
 Toggle the group-by-tag view.
+.TP
+.B B
+Toggle the repository-family view, with the base checkout first.
 .TP
 .B /
 Enter search mode (filter by name, branch, or tag).
@@ -995,6 +1046,12 @@ on Unix or
 .B notepad
 on Windows.
 .TP
+.B SOKO_NAV_SESSION
+Set by shell integration to the shell process ID. Navigation requests are
+scoped to this session so concurrent shells do not consume each other's
+targets. Re-evaluate shell integration after upgrading to activate this
+behavior.
+.TP
 .B XDG_CONFIG_HOME
 When set, the config (and the journal, snapshots, and navigation file)
 lives under
@@ -1051,12 +1108,12 @@ The capped undo journal of recent destructive operations, used by
 .I ~/.config/soko/snapshots/<name>.yaml
 One file per named snapshot of repository branch / HEAD / dirty state.
 .TP
-.I ~/.config/soko/.nav
+.I ~/.config/soko/.nav.<session>
 A single-shot path written by
 .BR "soko cd" / "soko go"
 for the shell hook to
 .B cd
-into, then deleted.
+into, then deleted. Without a session ID, the legacy .nav path is used.
 .\" ----------------------------------------------------------------------
 .SH "COLOR"
 Color is enabled when writing to an interactive terminal and disabled

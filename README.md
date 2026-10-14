@@ -102,7 +102,7 @@ man -l docs/soko.1       # preview without installing
 | `soko sync [repos...]` | Fetch all repos, fast-forward the safe ones, report the rest |
 | `soko ctx` | Save and restore workspace contexts (branches + stashes) |
 | `soko snapshot` | Save and restore exact repo positions (branch + commit) |
-| `soko worktree` | Create, list, and remove git worktrees with registry bookkeeping |
+| `soko worktree` | Create, adopt, list, and remove git worktrees with registry bookkeeping |
 | `soko branch [name]` | Current branch per repo, or where a branch exists; `switch`/`stale` subcommands |
 | `soko cd` | Navigate to a repo by name |
 | `soko go` | Interactive repo picker |
@@ -154,6 +154,9 @@ man -l docs/soko.1       # preview without installing
 | `--dry-run` | `scan`, `clean`, `prune` | Preview what would happen without making changes |
 | `--depth` | `scan` | Maximum directory depth to scan (default: 5) |
 | `--group` | `status`, `list` | Group repos by tag in a tree view |
+| `--group-by` | `status`, `list`, `ui` | Group by `none`, `tag`, or `repo` (base repo and its worktrees) |
+| `--repo`, `-r` | `status`, `list`, `go`, `ui`, `worktree list`, `worktree adopt` | Limit to a base repo and its worktrees; `.` selects the current family |
+| `--tag-with` | `worktree adopt` | Tags to apply to newly adopted worktrees (repeatable) |
 | `--all` | `status` | Show all repos without truncation |
 | `--prune` | `fetch`, `clean` | Prune stale remote tracking refs |
 | `--force` | `remove`, `clean`, `prune`, `apply --write` | Skip confirmation prompt |
@@ -454,6 +457,8 @@ Then navigate directly:
 soko cd auth                        # jump by name (prefix match)
 soko go                             # interactive picker
 soko go --tag backend               # picker filtered by tag
+soko go --repo api                  # base checkout and worktrees of api
+soko go --repo .                    # family of the current checkout
 ```
 
 ### Live dashboard
@@ -467,13 +472,14 @@ live in a tmux pane all day.
 soko ui                             # the whole workspace
 soko ui --tag backend               # only backend repos
 soko ui --fetch 5m                  # also fetch from remotes every 5 minutes
+soko ui --repo api --group-by repo  # browse one repository family
 ```
 
 Keys: `j`/`k` move · `enter` cd into the repo (needs shell integration) ·
-`/` search by name · `s` cycle sort · `f` cycle filter
-(all/dirty/behind/ahead/conflicts) · `t` cycle tag filter · `G` group by tag ·
-`o` open in browser (`p`/`i`/`a` for PRs/issues/actions) · `P` pull ·
-`g` re-fetch now · `?` help · `q` quit.
+`/` search by name, branch, or tag · `s`/`S` cycle sort · `f`/`F` cycle filter
+(all/dirty/behind/ahead/conflicts) · `t`/`T` cycle tag filter · `b` group by tag ·
+`B` group by repository family · `o` open in browser (`p`/`i`/`a` for PRs/issues/actions) · `P` pull ·
+`r` re-fetch now · `?` help · `q` quit.
 
 The only mutating key is `P`: a fast-forward pull of the selected repo, after a
 confirmation prompt, recorded in the journal so `soko undo` can rewind it to
@@ -596,6 +602,13 @@ soko list
 # Jump to a worktree
 soko cd api/feat                    # prefix match on parent/branch
 soko go                             # pick interactively
+soko go --repo api                  # only api and its registered worktrees
+soko go --repo .                    # same family from any checkout/subdirectory
+
+# Group by base repository, independently of tags
+soko list --group-by repo
+soko status --group-by repo
+soko ui --group-by repo             # B toggles this view; b toggles tag grouping
 
 # Status works per-worktree
 soko status --dirty
@@ -615,6 +628,35 @@ matches a worktree whose parent is tagged `backend`, and retagging the parent
 instantly re-scopes its worktrees. `soko tag remove` on a worktree only removes
 the worktree's own tags and errors on inherited ones — remove those on the
 parent.
+
+Worktrees created with plain Git can be adopted without scanning a directory:
+
+```bash
+soko worktree list                  # also shows Git-known unregistered worktrees
+soko worktree adopt api --dry-run   # preview registration for one base
+soko worktree adopt api             # register its existing linked checkouts
+soko worktree adopt                 # reconcile all registered bases
+soko worktree adopt --tag backend --tag-with wip
+```
+
+`adopt` is idempotent and preserves existing names, tags, and metadata. It
+registers live checkouts, including detached worktrees; missing directories
+are left for inspection with `worktree list` and cleanup with `soko prune`.
+Both `adopt` and `scan --worktrees` support `--json` and `--dry-run`; JSON
+changes output only, while dry-run prevents registry writes.
+
+Each checkout is registered at its Git working-tree root, even when `init`
+runs from a subdirectory. Aliases default to `parent/branch`; detached
+checkouts use `parent/directory`, and collisions receive a numeric suffix.
+Aliases remain stable if you later change a checkout's branch. Separate
+clones of the same remote remain separate repository families. With a
+separate Git directory, register the base checkout before its linked
+worktrees. Bare repository bases are rejected explicitly.
+
+Switching worktrees is directory navigation: it does not check out a branch,
+stash files, or require a clean working tree. Shell integration isolates
+navigation requests per shell. After upgrading, re-run `soko shell-init` or
+open a new shell to activate the updated hook.
 
 Beyond tracking, `soko worktree` manages the lifecycle — create, inspect, and
 tear down worktrees without leaving the registry stale:

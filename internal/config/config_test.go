@@ -192,13 +192,13 @@ func TestAddRepo(t *testing.T) {
 			wantErr: ErrRepoAlreadyExists,
 		},
 		{
-			name: "allows same name different path",
+			name: "rejects same name different path",
 			initial: []RepoEntry{
 				{Name: "my-repo", Path: "/home/dev/my-repo"},
 			},
 			entry:   RepoEntry{Name: "my-repo", Path: "/home/dev/other-location"},
-			wantLen: 2,
-			wantErr: nil,
+			wantLen: 1,
+			wantErr: ErrRepoNameExists,
 		},
 	}
 

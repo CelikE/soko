@@ -81,6 +81,42 @@ func TestRefreshPopulates(t *testing.T) {
 	}
 }
 
+func TestRepositoryFamilyGrouping(t *testing.T) {
+	m := New(&Config{GroupBy: "repo"})
+	m.Update(rowsMsg{rows: []Row{
+		{Name: "review", Path: "/review", WorktreeOf: "api", Tags: []string{"wip"}},
+		{Name: "other", Path: "/other", Tags: []string{"backend"}},
+		{Name: "api", Path: "/api", Tags: []string{"backend"}},
+		{Name: "api/feat/oauth", Path: "/oauth", WorktreeOf: "api", Tags: []string{"backend"}},
+	}})
+	if !m.grouped || !m.repoGrouped || !eq(viewNames(m.view), []string{"api", "api/feat/oauth", "review", "other"}) {
+		t.Fatalf("family grouping = %v", viewNames(m.view))
+	}
+	items := m.buildItems()
+	var headers []string
+	for _, item := range items {
+		if item.row == -1 {
+			headers = append(headers, item.group)
+		}
+	}
+	if !eq(headers, []string{"api", "other"}) || !strings.Contains(m.View(), "api (3)") {
+		t.Fatalf("family headers = %v\n%s", headers, m.View())
+	}
+	m.handleKey("B")
+	if m.grouped {
+		t.Fatal("B did not disable family grouping")
+	}
+	m.handleKey("b")
+	if !m.grouped || m.repoGrouped {
+		t.Fatal("existing b binding did not enable tag grouping")
+	}
+	m.handleKey("B")
+	m.handleKey("b")
+	if !m.grouped || m.repoGrouped {
+		t.Fatal("b did not switch repository grouping to tag grouping")
+	}
+}
+
 // TestSortCycle checks `s` rotates name → dirty → behind → health → name.
 func TestSortCycle(t *testing.T) {
 	m := loadedModel(t, nil, nil)

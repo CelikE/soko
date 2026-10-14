@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -15,6 +14,7 @@ import (
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/output"
+	"github.com/CelikE/soko/internal/worktree"
 )
 
 // newScanCmd creates the cobra command for soko scan.
@@ -66,18 +66,16 @@ Skips hidden directories and repos already registered.`,
 				return nil
 			}
 
-			if jsonFlag {
-				return renderScanJSON(w, found)
-			}
-
-			registered, existing, wtCount := renderScanTable(w, found, root, maxDepth, worktreesFlag, tags, dryRun)
-
-			// Save unless dry-run.
-			if !dryRun && registered > 0 {
+			// Persist before either rendering path; --json changes output only.
+			if !dryRun {
 				if saveErr := config.Save(cfg); saveErr != nil {
 					return fmt.Errorf("saving config: %w", saveErr)
 				}
 			}
+			if jsonFlag {
+				return renderScanJSON(w, found)
+			}
+			registered, existing, wtCount := renderScanTable(w, found, root, maxDepth, worktreesFlag, tags, dryRun)
 
 			renderScanSummary(w, found, registered, existing, wtCount, dryRun)
 
@@ -96,8 +94,33 @@ Skips hidden directories and repos already registered.`,
 
 // discoverRepos walks root and discovers git repos, optionally registering them.
 func discoverRepos(ctx context.Context, root string, cfg *config.Config, tags []string, maxDepth int, dryRun, worktrees bool) ([]scanResult, error) {
+	if dryRun {
+		copyCfg := *cfg
+		copyCfg.Repos = append([]config.RepoEntry(nil), cfg.Repos...)
+		cfg = &copyCfg
+	}
 	rootDepth := strings.Count(root, string(os.PathSeparator))
 	var found []scanResult
+	seen := make(map[string]bool)
+	addResult := func(entry config.RepoEntry, existing bool) {
+		if seen[entry.Path] {
+			return
+		}
+		seen[entry.Path] = true
+		found = append(found, scanResult{Name: entry.Name, Path: entry.Path,
+			IsWorktree: entry.IsWorktreeEntry(), WorktreeOf: entry.WorktreeOf, Registered: !existing, AlreadyRegistered: existing})
+	}
+	register := func(path string) {
+		result, err := worktree.Register(ctx, cfg, path, tags, worktrees)
+		if err != nil {
+			found = append(found, scanResult{Path: path, Name: filepath.Base(path), Error: err.Error()})
+			return
+		}
+		if result.ParentAdded {
+			addResult(result.Parent, false)
+		}
+		addResult(result.Entry, result.Existing)
+	}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -122,27 +145,29 @@ func discoverRepos(ctx context.Context, root string, cfg *config.Config, tags []
 		// Check if this directory is a git repo.
 		gitDir := filepath.Join(path, ".git")
 		info, statErr := os.Stat(gitDir)
-		if os.IsNotExist(statErr) {
+		if statErr != nil {
 			return nil // not a repo, keep walking
 		}
 
-		// A linked worktree has a .git *file* (not directory). Skip it
-		// to avoid registering the same repo multiple times.
-		if !info.IsDir() {
+		// Git files can denote linked checkouts or submodules. Worktree scans
+		// include linked checkouts, but submodules remain part of their parent.
+		if !info.IsDir() && (!worktrees || git.Superproject(ctx, path) != "") {
 			return fs.SkipDir
 		}
 
-		name := git.RepoName(ctx, path)
-		found = append(found, classifyRepo(cfg, name, path, "", tags, dryRun))
+		register(path)
 
 		// Discover linked worktrees if flag is set.
 		if worktrees {
 			wts, wtErr := git.WorktreeList(ctx, path)
 			if wtErr == nil {
 				for _, wt := range wts {
-					wtName := name + "/" + wt.Branch
-					found = append(found, classifyRepo(cfg, wtName, wt.Path, name, tags, dryRun))
+					if pathExists(wt.Path) {
+						register(wt.Path)
+					}
 				}
+			} else {
+				found = append(found, scanResult{Name: filepath.Base(path), Path: path, Error: wtErr.Error()})
 			}
 		}
 
@@ -150,36 +175,6 @@ func discoverRepos(ctx context.Context, root string, cfg *config.Config, tags []
 	})
 
 	return found, err
-}
-
-// classifyRepo determines whether a repo should be registered, is already registered, or had an error.
-func classifyRepo(cfg *config.Config, name, path, worktreeOf string, tags []string, dryRun bool) scanResult {
-	r := scanResult{Name: name, Path: path, IsWorktree: worktreeOf != ""}
-
-	if dryRun {
-		for _, existing := range cfg.Repos {
-			if existing.Path == path {
-				r.AlreadyRegistered = true
-				return r
-			}
-		}
-		r.Registered = true
-		return r
-	}
-
-	entry := config.RepoEntry{Name: name, Path: path, Tags: tags, WorktreeOf: worktreeOf}
-	_, addErr := config.AddRepo(cfg, &entry)
-	if addErr != nil {
-		if errors.Is(addErr, config.ErrRepoAlreadyExists) {
-			r.AlreadyRegistered = true
-		} else {
-			r.Error = addErr.Error()
-		}
-	} else {
-		r.Registered = true
-	}
-
-	return r
 }
 
 // renderScanTable prints the scan results as a table and returns counts.
@@ -265,6 +260,7 @@ type scanResult struct {
 	Registered        bool   `json:"registered"`
 	AlreadyRegistered bool   `json:"already_registered"`
 	IsWorktree        bool   `json:"is_worktree,omitempty"`
+	WorktreeOf        string `json:"worktree_of,omitempty"`
 	Error             string `json:"error,omitempty"`
 }
 

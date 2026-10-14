@@ -78,6 +78,7 @@ type PullRequest struct {
 // Config wires the model to its side effects. Everything I/O-bound is injected
 // so the model stays a pure state machine for tests.
 type Config struct {
+	GroupBy      string // initial grouping: none, tag, or repo
 	Ctx          context.Context
 	Collect      Collector
 	OnSelect     func(path string) error                    // enter — write the shell nav file
@@ -209,12 +210,13 @@ type Model struct {
 	cursor     int
 	cursorPath string // path of the repo under the cursor; keeps the cursor on
 	// the same repo when a refresh re-sorts or re-filters the view
-	offset    int // first visible line item (viewport scroll position)
-	sort      sortMode
-	filter    filterMode
-	tagFilter string // "" = all tags
-	allTags   []string
-	grouped   bool
+	offset      int // first visible line item (viewport scroll position)
+	sort        sortMode
+	filter      filterMode
+	tagFilter   string // "" = all tags
+	allTags     []string
+	grouped     bool
+	repoGrouped bool
 
 	searching bool
 	query     string
@@ -263,6 +265,8 @@ func New(cfg *Config) Model {
 		refresh = defaultRefresh
 	}
 	return Model{
+		grouped:      cfg.GroupBy == "tag" || cfg.GroupBy == "repo",
+		repoGrouped:  cfg.GroupBy == "repo",
 		ctx:          ctx,
 		collect:      cfg.Collect,
 		onSelect:     cfg.OnSelect,
@@ -738,7 +742,14 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "b":
-		m.grouped = !m.grouped
+		m.grouped = !m.grouped || m.repoGrouped
+		m.repoGrouped = false
+		m.rebuild()
+		return m, nil
+
+	case "B":
+		m.repoGrouped = !m.grouped || !m.repoGrouped
+		m.grouped = m.repoGrouped
 		m.rebuild()
 		return m, nil
 
@@ -1034,7 +1045,17 @@ func (m *Model) rebuild() {
 	}
 	sortRows(rows, m.sort)
 	if m.grouped {
-		groupRows(rows)
+		if m.repoGrouped {
+			sort.SliceStable(rows, func(i, j int) bool {
+				gi, gj := m.groupKey(&rows[i]), m.groupKey(&rows[j])
+				if gi != gj {
+					return gi < gj
+				}
+				return rows[i].WorktreeOf == "" && rows[j].WorktreeOf != ""
+			})
+		} else {
+			groupRows(rows)
+		}
 	}
 	m.view = rows
 
@@ -1049,6 +1070,16 @@ func (m *Model) rebuild() {
 		}
 	}
 	m.setCursor(m.cursor)
+}
+
+func (m *Model) groupKey(r *Row) string {
+	if m.repoGrouped {
+		if r.WorktreeOf != "" {
+			return r.WorktreeOf
+		}
+		return r.Name
+	}
+	return r.firstTag()
 }
 
 // matchesQuery reports whether a lowercase query matches the row's name,
