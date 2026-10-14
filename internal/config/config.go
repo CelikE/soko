@@ -22,6 +22,9 @@ var (
 	// is already registered in the config.
 	ErrRepoAlreadyExists = errors.New("repo already exists")
 
+	// ErrRepoNameExists is returned when a different path owns the requested name.
+	ErrRepoNameExists = errors.New("repo name already exists")
+
 	// ErrRepoNotFound is returned when attempting to remove a repo that is not
 	// registered in the config.
 	ErrRepoNotFound = errors.New("repo not found")
@@ -330,6 +333,11 @@ func AddRepo(cfg *Config, entry *RepoEntry) (*Config, error) {
 			return cfg, ErrRepoAlreadyExists
 		}
 	}
+	for _, r := range cfg.Repos {
+		if r.Name == entry.Name {
+			return cfg, ErrRepoNameExists
+		}
+	}
 
 	cfg.Repos = append(cfg.Repos, *entry)
 	return cfg, nil
@@ -614,10 +622,14 @@ func FilterNoWorktrees(repos []RepoEntry) []RepoEntry {
 // match on Name, then falls back to prefix matching. Returns all matches.
 func FindRepo(cfg *Config, query string) []RepoEntry {
 	// Exact match.
+	var exact []RepoEntry
 	for _, r := range cfg.Repos {
 		if r.Name == query {
-			return []RepoEntry{r}
+			exact = append(exact, r)
 		}
+	}
+	if len(exact) > 0 {
+		return exact
 	}
 
 	// Prefix match.
@@ -629,4 +641,30 @@ func FindRepo(cfg *Config, query string) []RepoEntry {
 	}
 
 	return matches
+}
+
+// UniqueRepoName allocates a readable alias without changing existing names.
+func UniqueRepoName(cfg *Config, name string) string {
+	candidate := name
+	for suffix := 2; ; suffix++ {
+		used := false
+		for _, r := range cfg.Repos {
+			if r.Name == candidate {
+				used = true
+				break
+			}
+		}
+		if !used {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d", name, suffix)
+	}
+}
+
+// RepoFamily returns the base alias for a registered checkout.
+func RepoFamily(r *RepoEntry) string {
+	if r.WorktreeOf != "" {
+		return r.WorktreeOf
+	}
+	return r.Name
 }

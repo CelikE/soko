@@ -13,6 +13,7 @@ import (
 	"github.com/CelikE/soko/internal/config"
 	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/output"
+	"github.com/CelikE/soko/internal/worktree"
 )
 
 // newWorktreeCmd creates the cobra command for soko worktree and subcommands.
@@ -20,19 +21,21 @@ func newWorktreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worktree",
 		Short: "Manage git worktrees across repos",
-		Long: `Create, list, and remove linked git worktrees with automatic registry
+		Long: `Create, adopt, list, and remove linked git worktrees with automatic registry
 bookkeeping. soko already tracks worktrees (scan --worktrees, init --worktree);
 this command manages their lifecycle: one step instead of git worktree add,
 cd, soko init --worktree, and the reverse on teardown.`,
 		Example: `  soko worktree add api feat-x        # create + register, print the path
   soko worktree add api feat-x -b     # create the branch too
   soko worktree list                  # all worktrees across repos
+  soko worktree adopt api             # register Git-created worktrees
   soko worktree rm api/feat-x         # remove + unregister`,
 	}
 
 	cmd.AddCommand(newWorktreeAddCmd())
 	cmd.AddCommand(newWorktreeListCmd())
 	cmd.AddCommand(newWorktreeRmCmd())
+	cmd.AddCommand(newWorktreeAdoptCmd())
 
 	return cmd
 }
@@ -137,10 +140,11 @@ func runWorktreeAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	tags, _ := cmd.Flags().GetStringSlice("tag")
-	entry := config.RepoEntry{Name: entryName, Path: wtPath, Tags: tags, WorktreeOf: parent.Name}
-	if cfg, err = config.AddRepo(cfg, &entry); err != nil {
-		return fmt.Errorf("registering worktree: %w", err)
+	registration, err := worktree.Register(ctx, cfg, wtPath, tags, true)
+	if err != nil {
+		return fmt.Errorf("worktree created at %s but registration failed (recover with soko init --worktree there): %w", wtPath, err)
 	}
+	entryName, wtPath = registration.Entry.Name, registration.Entry.Path
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
@@ -196,67 +200,68 @@ func branchExistsLocally(cmd *cobra.Command, dir, branch string) bool {
 }
 
 type worktreeRow struct {
-	index   int
-	Name    string `json:"name"`
-	Parent  string `json:"parent"`
-	Branch  string `json:"branch"`
-	Status  string `json:"status"`
-	Path    string `json:"path"`
-	missing bool
-	dirty   bool
+	index      int
+	Name       string `json:"name"`
+	Parent     string `json:"parent"`
+	Branch     string `json:"branch"`
+	Status     string `json:"status"`
+	Path       string `json:"path"`
+	Registered bool   `json:"registered"`
+	Locked     bool   `json:"locked,omitempty"`
+	Prunable   bool   `json:"prunable,omitempty"`
+	Error      string `json:"error,omitempty"`
+	missing    bool
+	dirty      bool
 }
 
 func newWorktreeListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List registered worktrees across repos",
+		Short: "List registered and Git-known worktrees across repos",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
 
-			cfg, err := config.Load()
+			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
 				return err
 			}
 
 			var entries []config.RepoEntry
-			for i := range cfg.Repos {
-				if cfg.Repos[i].IsWorktreeEntry() {
-					entries = append(entries, cfg.Repos[i])
+			for i := range repos {
+				if repos[i].IsWorktreeEntry() {
+					entries = append(entries, repos[i])
 				}
 			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
-			if len(entries) == 0 {
-				if jsonFlag {
-					_, _ = fmt.Fprintln(w, "[]")
-					return nil
-				}
-				output.Info(w, "no worktrees registered — create one with: soko worktree add <repo> <branch>")
-				return nil
-			}
-
 			rows := make([]worktreeRow, 0, len(entries))
 			var mu sync.Mutex
 			g, gctx := errgroup.WithContext(ctx)
 			g.SetLimit(maxConcurrency)
 			for i, e := range entries {
 				g.Go(func() error {
-					row := worktreeRow{index: i, Name: e.Name, Parent: e.WorktreeOf, Path: e.Path}
+					row := worktreeRow{index: i, Name: e.Name, Parent: e.WorktreeOf, Path: e.Path, Registered: true}
 					switch {
 					case !pathExists(e.Path):
 						row.missing = true
 						row.Branch = "—"
 						row.Status = "missing"
 					default:
-						branch, branchErr := git.Run(gctx, e.Path, "rev-parse", "--abbrev-ref", "HEAD")
+						branch, detached, branchErr := git.CurrentBranch(gctx, e.Path)
 						if branchErr != nil {
-							branch = "—"
+							row.Branch, row.Status, row.Error = "—", "error", branchErr.Error()
+							break
+						}
+						if detached {
+							branch = "(detached)"
 						}
 						row.Branch = branch
 						row.Status = "clean"
-						if st, stErr := git.Run(gctx, e.Path, "status", "--porcelain"); stErr == nil && st != "" {
+						if st, stErr := git.Run(gctx, e.Path, "status", "--porcelain"); stErr != nil {
+							row.Status, row.Error = "error", stErr.Error()
+						} else if st != "" {
 							row.dirty = true
 							row.Status = "dirty"
 						}
@@ -273,24 +278,102 @@ func newWorktreeListCmd() *cobra.Command {
 			for i := range rows {
 				ordered[rows[i].index] = rows[i]
 			}
-
-			if jsonFlag {
-				return output.RenderJSON(w, ordered)
+			// Plan against a copy: listing must never mutate the registry.
+			planned := *cfg
+			planned.Repos = append([]config.RepoEntry(nil), cfg.Repos...)
+			parents := config.FilterNoWorktrees(repos)
+			var inventoryFailures int
+			for _, parent := range parents {
+				inventory, invErr := git.WorktreeList(ctx, parent.Path)
+				if invErr != nil {
+					inventoryFailures++
+					ordered = append(ordered, worktreeRow{Name: parent.Name, Parent: parent.Name,
+						Path: parent.Path, Branch: "—", Status: "error", Registered: true, Error: invErr.Error()})
+					continue
+				}
+				baseCommon, commonErr := git.CommonDir(ctx, parent.Path)
+				if commonErr != nil {
+					return commonErr
+				}
+				known := make(map[string]git.WorktreeInfo)
+				for _, wt := range inventory {
+					known[worktree.CanonicalPath(wt.Path)] = wt
+					if worktree.FindByPath(cfg, wt.Path) != nil {
+						continue
+					}
+					branch := wt.Branch
+					alias := branch
+					if wt.Detached {
+						branch, alias = "(detached)", filepath.Base(wt.Path)
+					}
+					name := config.UniqueRepoName(&planned, parent.Name+"/"+alias)
+					planned.Repos = append(planned.Repos, config.RepoEntry{Name: name, Path: wt.Path})
+					state := "unregistered"
+					if !pathExists(wt.Path) {
+						state = "missing"
+					}
+					ordered = append(ordered, worktreeRow{Name: name, Parent: parent.Name, Path: wt.Path,
+						Branch: branch, Status: state, Locked: wt.Locked, Prunable: wt.Prunable})
+				}
+				for i := range ordered {
+					row := &ordered[i]
+					if row.Parent != parent.Name || !row.Registered {
+						continue
+					}
+					if wt, ok := known[worktree.CanonicalPath(row.Path)]; ok {
+						row.Locked, row.Prunable = wt.Locked, wt.Prunable
+						if !row.missing && row.Error == "" {
+							checkoutCommon, checkErr := git.CommonDir(ctx, row.Path)
+							if checkErr != nil || worktree.CanonicalPath(checkoutCommon) != worktree.CanonicalPath(baseCommon) {
+								row.Status, row.Error = "stale", "directory no longer belongs to its registered base repository"
+								row.dirty = false
+								if checkErr != nil {
+									row.Error = checkErr.Error()
+								}
+							}
+						}
+					} else if !row.missing {
+						row.Status, row.Error = "stale", "checkout is not in its base repository's worktree inventory"
+					}
+				}
 			}
 
-			renderWorktreeTable(w, ordered)
-			var missing int
+			switch {
+			case jsonFlag:
+				if err := output.RenderJSON(w, ordered); err != nil {
+					return err
+				}
+			case len(ordered) == 0:
+				output.Info(w, "no worktrees found — create one with: soko worktree add <repo> <branch>")
+			default:
+				renderWorktreeTable(w, ordered)
+			}
+
+			var missing, unregistered int
 			for i := range ordered {
 				if ordered[i].missing {
 					missing++
 				}
+				if ordered[i].Status == "unregistered" {
+					unregistered++
+				}
 			}
-			if missing > 0 {
+			if missing > 0 && !jsonFlag {
 				output.Warn(w, fmt.Sprintf("%d %s missing on disk — run soko prune", missing, output.Plural(missing, "worktree")))
+			}
+			if unregistered > 0 && !jsonFlag {
+				output.Info(w, fmt.Sprintf("%d unregistered — run soko worktree adopt", unregistered))
+			}
+			if inventoryFailures > 0 {
+				return fmt.Errorf("could not inspect %d repository families", inventoryFailures)
 			}
 			return nil
 		},
 	}
+	addFamilyFlag(cmd)
+	cmd.Flags().StringSlice("tag", nil, "filter by tag (repeatable)")
+	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
+	return cmd
 }
 
 func renderWorktreeTable(w io.Writer, rows []worktreeRow) {
@@ -324,8 +407,10 @@ func renderWorktreeTable(w io.Writer, rows []worktreeRow) {
 		line := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
 			cName, r.Name, cParent, r.Parent, cBranch, r.Branch, cStatus, r.Status, r.Path)
 		switch {
-		case r.missing:
+		case r.missing || r.Error != "":
 			_, _ = fmt.Fprintln(w, output.Red(line))
+		case !r.Registered:
+			_, _ = fmt.Fprintln(w, output.Dim(line))
 		case r.dirty:
 			_, _ = fmt.Fprintln(w, output.Yellow(line))
 		default:

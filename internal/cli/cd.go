@@ -14,6 +14,7 @@ import (
 func newCdCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "cd <name>",
+		Args:              cobra.MaximumNArgs(1),
 		Short:             "Navigate to a registered repo by name",
 		ValidArgsFunction: repoNameCompletionFunc(),
 		Long: `Navigate to a registered repo by name. Supports exact and prefix matching.
@@ -52,6 +53,9 @@ func cdByQuery(cfg *config.Config, query string, jsonOut bool, w, stderr io.Writ
 	case 0:
 		return notFoundWithSuggestions(query, cfg.Repos)
 	case 1:
+		if !pathExists(matches[0].Path) {
+			return fmt.Errorf("%s: path not found: %s", matches[0].Name, matches[0].Path)
+		}
 		if jsonOut {
 			return writeCdJSON(w, &matches[0])
 		}

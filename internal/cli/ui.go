@@ -42,7 +42,7 @@ tmux pane all day.
 Keys: j/k move · g/G top/bottom · ctrl+d/u half page · enter cd (needs shell
 integration, see soko shell-init) · / search across name, branch, and tags
 (enter keeps the filter) · s/S cycle sort · f/F cycle filter · t/T cycle tag
-filter · b group by tag · space mark (* marks all visible) · o open home
+filter · b group by tag · B group by repository family · space mark (* marks all visible) · o open home
 (p/i/a for PRs/issues/actions) · L list the repo's open pull requests (enter
 opens one) · P pull the marked or selected repos ·
 u undo the last pull · r re-fetch all (R just the selected repo) · y copy the
@@ -60,6 +60,10 @@ from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 			stderr := cmd.ErrOrStderr()
+			mode, err := groupingMode(cmd)
+			if err != nil {
+				return err
+			}
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
@@ -68,6 +72,10 @@ from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 			if len(repos) == 0 {
 				output.Info(w, noReposMessage(len(cfg.Repos)))
 				return nil
+			}
+			selectedRepos := append([]config.RepoEntry(nil), repos...)
+			for i := range selectedRepos {
+				selectedRepos[i].Tags = config.EffectiveTags(cfg, &selectedRepos[i])
 			}
 
 			// Degrade gracefully without a terminal — a full-screen TUI needs one.
@@ -81,8 +89,9 @@ from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 			}
 
 			model := ui.New(&ui.Config{
+				GroupBy:      mode,
 				Ctx:          cmd.Context(),
-				Collect:      func(_ context.Context, fetch bool) []ui.Row { return collectUIRows(cmd, repos, fetch) },
+				Collect:      func(_ context.Context, fetch bool) []ui.Row { return collectUIRows(cmd, selectedRepos, fetch) },
 				OnSelect:     writeNavFile,
 				OnOpen:       openRepoInBrowser(cmd.Context()),
 				OnPull:       pullReposForUI(cmd.Context()),
@@ -112,6 +121,8 @@ from remotes in the background on an interval (e.g. --fetch 5m, minimum 30s).`,
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
+	addFamilyFlag(cmd)
+	addGroupingFlag(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Duration("fetch", 0, "fetch from remotes in the background every interval (e.g. 5m); 0 disables")
 

@@ -32,6 +32,17 @@ func Binary() string {
 // Run executes git with the given arguments in the specified directory. It
 // returns the trimmed stdout on success, or an error that includes stderr.
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := run(ctx, dir, args...)
+	return strings.TrimSpace(out), err
+}
+
+// runPath removes only Git's line terminator, preserving whitespace in paths.
+func runPath(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := run(ctx, dir, args...)
+	return strings.TrimSuffix(out, "\n"), err
+}
+
+func run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
 
@@ -44,7 +55,7 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 // Match is one git grep hit: a file path, a 1-based line number, and the
@@ -135,7 +146,7 @@ func IsGitRepo(ctx context.Context, dir string) bool {
 // belongs to. For a linked worktree this is the worktree's own root, not the
 // main checkout.
 func Toplevel(ctx context.Context, dir string) (string, error) {
-	return Run(ctx, dir, "rev-parse", "--show-toplevel")
+	return runPath(ctx, dir, "rev-parse", "--show-toplevel")
 }
 
 // Superproject returns the working-tree root of the superproject when dir is
@@ -260,11 +271,11 @@ func Pull(ctx context.Context, dir string, rebase bool) (bool, error) {
 // IsWorktree returns true if dir is a linked git worktree (not the main
 // working tree). It compares --git-dir and --git-common-dir.
 func IsWorktree(ctx context.Context, dir string) bool {
-	gitDir, err := Run(ctx, dir, "rev-parse", "--git-dir")
+	gitDir, err := runPath(ctx, dir, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return false
 	}
-	commonDir, err := Run(ctx, dir, "rev-parse", "--git-common-dir")
+	commonDir, err := CommonDir(ctx, dir)
 	if err != nil {
 		return false
 	}
@@ -277,65 +288,110 @@ func IsWorktree(ctx context.Context, dir string) bool {
 // for the repository. In a linked worktree this resolves back to the primary
 // working tree; for a normal repo it returns the repo root.
 func MainRepoPath(ctx context.Context, dir string) (string, error) {
-	commonDir, err := Run(ctx, dir, "rev-parse", "--git-common-dir")
+	if !IsWorktree(ctx, dir) {
+		if root, err := Toplevel(ctx, dir); err == nil {
+			return root, nil
+		}
+	}
+	entries, err := AllWorktrees(ctx, dir)
 	if err != nil {
 		return "", err
 	}
-	// commonDir is the shared .git directory (absolute or relative to dir).
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(dir, commonDir)
+	if len(entries) == 0 {
+		return "", fmt.Errorf("repository has no primary worktree")
 	}
-	// The main repo is the parent of the .git directory.
-	mainRepo := filepath.Dir(filepath.Clean(commonDir))
-	return mainRepo, nil
+	if entries[0].Bare {
+		return "", fmt.Errorf("bare repository bases are not supported")
+	}
+	if root, err := Toplevel(ctx, entries[0].Path); err == nil && !IsWorktree(ctx, root) {
+		return root, nil
+	}
+	// A separate Git directory may not retain a reverse checkout pointer.
+	if path, err := Run(ctx, dir, "config", "--path", "--get", "core.worktree"); err == nil {
+		if !filepath.IsAbs(path) {
+			common, commonErr := CommonDir(ctx, dir)
+			if commonErr != nil {
+				return "", commonErr
+			}
+			path = filepath.Join(common, path)
+		}
+		if root, rootErr := Toplevel(ctx, path); rootErr == nil {
+			return root, nil
+		}
+	}
+	return "", fmt.Errorf("primary checkout cannot be resolved — register the base checkout first")
+}
+
+// CommonDir returns the absolute shared Git directory identifying a repository.
+func CommonDir(ctx context.Context, dir string) (string, error) {
+	return runPath(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 }
 
 // WorktreeInfo holds metadata about a single git worktree.
 type WorktreeInfo struct {
-	Path   string
-	Branch string
+	Path        string
+	HEAD        string
+	Branch      string
+	Bare        bool
+	Detached    bool
+	Locked      bool
+	LockReason  string
+	Prunable    bool
+	PruneReason string
 }
 
 // WorktreeList returns all linked worktrees for the repo at dir.
 // The main working tree is excluded from the results.
 func WorktreeList(ctx context.Context, dir string) ([]WorktreeInfo, error) {
-	out, err := Run(ctx, dir, "worktree", "list", "--porcelain")
+	entries, err := AllWorktrees(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
-
-	var worktrees []WorktreeInfo
-	var current WorktreeInfo
-	isFirst := true
-
-	for _, line := range strings.Split(out, "\n") {
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			if !isFirst && current.Path != "" {
-				worktrees = append(worktrees, current)
-			}
-			isFirst = false
-			current = WorktreeInfo{Path: strings.TrimPrefix(line, "worktree ")}
-		case strings.HasPrefix(line, "branch "):
-			ref := strings.TrimPrefix(line, "branch ")
-			// Strip refs/heads/ prefix to get the short branch name.
-			current.Branch = strings.TrimPrefix(ref, "refs/heads/")
-		case line == "bare":
-			current.Branch = "(bare)"
-		case line == "detached":
-			current.Branch = "(detached)"
-		}
-	}
-	// Append last entry.
-	if current.Path != "" && !isFirst {
-		worktrees = append(worktrees, current)
-	}
-
-	// The first entry is always the main worktree — skip it.
-	if len(worktrees) > 1 {
-		return worktrees[1:], nil
+	if len(entries) > 1 {
+		return entries[1:], nil
 	}
 	return nil, nil
+}
+
+// AllWorktrees enumerates Git's worktree inventory, including the primary entry.
+// NUL delimiters preserve paths containing whitespace, quotes, and newlines.
+func AllWorktrees(ctx context.Context, dir string) ([]WorktreeInfo, error) {
+	out, err := Run(ctx, dir, "worktree", "list", "--porcelain", "-z")
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktrees(out), nil
+}
+
+func parseWorktrees(out string) []WorktreeInfo {
+	var entries []WorktreeInfo
+	var current WorktreeInfo
+	for _, field := range strings.Split(out, "\x00") {
+		key, value, _ := strings.Cut(field, " ")
+		switch key {
+		case "worktree":
+			if current.Path != "" {
+				entries = append(entries, current)
+			}
+			current = WorktreeInfo{Path: value}
+		case "HEAD":
+			current.HEAD = value
+		case "branch":
+			current.Branch = strings.TrimPrefix(value, "refs/heads/")
+		case "bare":
+			current.Bare = true
+		case "detached":
+			current.Detached = true
+		case "locked":
+			current.Locked, current.LockReason = true, value
+		case "prunable":
+			current.Prunable, current.PruneReason = true, value
+		}
+	}
+	if current.Path != "" {
+		entries = append(entries, current)
+	}
+	return entries
 }
 
 // nameFromURL extracts a repository name from a git remote URL. It handles

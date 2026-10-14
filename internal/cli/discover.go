@@ -323,6 +323,7 @@ func discoverHook(cmd *cobra.Command, dir string) {
 	if _, findErr := config.FindRepoByPath(fresh, top); findErr == nil {
 		return
 	}
+	entry.Name = config.UniqueRepoName(fresh, entry.Name)
 	if _, addErr := config.AddRepo(fresh, &entry); addErr != nil {
 		return
 	}
@@ -330,7 +331,7 @@ func discoverHook(cmd *cobra.Command, dir string) {
 		return
 	}
 
-	output.Confirm(stderr, fmt.Sprintf("discovered %s (%s)", name, shortenHome(top)))
+	output.Confirm(stderr, fmt.Sprintf("discovered %s (%s)", entry.Name, shortenHome(top)))
 }
 
 // normalizeRoot resolves a root directory to an absolute, symlink-free path so

@@ -29,6 +29,10 @@ func newStatusCmd() *cobra.Command {
 		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
+			mode, err := groupingMode(cmd)
+			if err != nil {
+				return err
+			}
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
@@ -49,7 +53,12 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			fetchFlag, _ := cmd.Flags().GetBool("fetch")
-			filteredCfg := &config.Config{Repos: repos}
+			// Materialize effective tags while the full parent registry is available.
+			selected := append([]config.RepoEntry(nil), repos...)
+			for i := range selected {
+				selected[i].Tags = config.EffectiveTags(cfg, &selected[i])
+			}
+			filteredCfg := &config.Config{Repos: selected}
 			collected, wall := collectAll(cmd, filteredCfg, fetchFlag)
 			missingCount := len(findMissingRepos(repos))
 
@@ -88,12 +97,14 @@ func newStatusCmd() *cobra.Command {
 				totalChanges += r.changes
 			}
 
-			groupFlag, _ := cmd.Flags().GetBool("group")
 			allFlag, _ := cmd.Flags().GetBool("all")
 
 			switch {
-			case groupFlag:
+			case mode != "none":
 				groups := buildStatusGroups(collected)
+				if mode == "repo" {
+					groups = buildStatusFamilies(collected)
+				}
 				output.RenderStatusGrouped(w, groups)
 			case allFlag:
 				output.RenderStatusTableN(w, rows, 0)
@@ -115,6 +126,8 @@ func newStatusCmd() *cobra.Command {
 
 	cmd.Flags().Bool("fetch", false, "fetch from remotes before collecting status")
 	cmd.Flags().Bool("group", false, "group repos by tag in a tree view")
+	addFamilyFlag(cmd)
+	addGroupingFlag(cmd)
 	cmd.Flags().Bool("all", false, "show all repos without truncation")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	cmd.Flags().StringSlice("meta", nil, "filter by metadata key=value (repeatable, combines with AND)")
@@ -125,6 +138,34 @@ func newStatusCmd() *cobra.Command {
 	cmd.Flags().Bool("behind", false, "show only repos behind remote")
 
 	return cmd
+}
+
+func buildStatusFamilies(results []statusResult) []output.StatusGroup {
+	groups := make(map[string][]output.StatusRow)
+	for i := range results {
+		name := results[i].worktreeOf
+		if name == "" {
+			name = results[i].row.Name
+		}
+		groups[name] = append(groups[name], results[i].row)
+	}
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]output.StatusGroup, 0, len(names))
+	for _, name := range names {
+		rows := groups[name]
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i].Name == name || rows[j].Name == name {
+				return rows[i].Name == name && rows[j].Name != name
+			}
+			return rows[i].Name < rows[j].Name
+		})
+		out = append(out, output.StatusGroup{Tag: name, Rows: rows})
+	}
+	return out
 }
 
 type statusResult struct {

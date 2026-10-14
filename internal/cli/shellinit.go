@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -17,9 +18,10 @@ const shellInitScript = `# soko shell integration
 
 # Lets soko detect the integration (e.g. soko ui's cd-on-enter hint).
 export SOKO_SHELL_INTEGRATION=1
+export SOKO_NAV_SESSION=$$
 
 __soko_nav_hook() {
-  local nav_file="${XDG_CONFIG_HOME:-$HOME/.config}/soko/.nav"
+  local nav_file="${XDG_CONFIG_HOME:-$HOME/.config}/soko/.nav.$SOKO_NAV_SESSION"
   if [[ -f "$nav_file" ]]; then
     local target
     target=$(cat "$nav_file")
@@ -45,6 +47,7 @@ const fishInitScript = `# soko shell integration for fish
 
 # Lets soko detect the integration (e.g. soko ui's cd-on-enter hint).
 set -gx SOKO_SHELL_INTEGRATION 1
+set -gx SOKO_NAV_SESSION $fish_pid
 
 function __soko_nav_hook --on-event fish_postexec
   if set -q XDG_CONFIG_HOME
@@ -52,7 +55,7 @@ function __soko_nav_hook --on-event fish_postexec
   else
     set -l base $HOME/.config
   end
-  set -l nav_file $base/soko/.nav
+  set -l nav_file $base/soko/.nav.$SOKO_NAV_SESSION
 
   if test -f $nav_file
     set -l target (string trim -- (cat $nav_file))
@@ -70,14 +73,17 @@ const pwshInitScript = `# soko shell integration for PowerShell
 
 # Lets soko detect the integration (e.g. soko ui's cd-on-enter hint).
 $env:SOKO_SHELL_INTEGRATION = "1"
+$env:SOKO_NAV_SESSION = "$PID"
 
 function __soko_nav_hook {
-    if ($env:LOCALAPPDATA) {
+    if ($env:XDG_CONFIG_HOME) {
+        $base = $env:XDG_CONFIG_HOME
+    } elseif ($env:LOCALAPPDATA) {
         $base = $env:LOCALAPPDATA
     } else {
         $base = Join-Path $env:USERPROFILE ".config"
     }
-    $navFile = Join-Path (Join-Path $base "soko") ".nav"
+    $navFile = Join-Path (Join-Path $base "soko") ".nav.$env:SOKO_NAV_SESSION"
 
     if (Test-Path $navFile) {
         $target = (Get-Content $navFile -Raw).Trim()
@@ -223,16 +229,22 @@ PowerShell:
 
 // navFilePath returns the path to the navigation file.
 func navFilePath() string {
-	if runtime.GOOS == "windows" {
+	name := ".nav"
+	if session := os.Getenv("SOKO_NAV_SESSION"); session != "" {
+		if id, err := strconv.ParseUint(session, 10, 64); err == nil && id > 0 {
+			name += "." + session
+		}
+	}
+	if runtime.GOOS == "windows" && os.Getenv("XDG_CONFIG_HOME") == "" {
 		localAppData := os.Getenv("LOCALAPPDATA")
 		if localAppData != "" {
-			return filepath.Join(localAppData, "soko", ".nav")
+			return filepath.Join(localAppData, "soko", name)
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return ""
 		}
-		return filepath.Join(home, ".config", "soko", ".nav")
+		return filepath.Join(home, ".config", "soko", name)
 	}
 
 	dir := os.Getenv("XDG_CONFIG_HOME")
@@ -243,12 +255,19 @@ func navFilePath() string {
 		}
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "soko", ".nav")
+	return filepath.Join(dir, "soko", name)
 }
 
 // writeNavFile writes a path to the navigation file so the shell hook
 // can pick it up and cd into it.
 func writeNavFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("navigation target: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("navigation target is not a directory: %s", path)
+	}
 	navPath := navFilePath()
 	if navPath == "" {
 		return fmt.Errorf("could not determine nav file path")

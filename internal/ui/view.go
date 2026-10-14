@@ -131,7 +131,7 @@ func (m *Model) buildItems() []lineItem {
 	lastGroup := "\x00" // sentinel so the first group always gets a header
 	for i := range m.view {
 		if m.grouped {
-			if g := m.view[i].firstTag(); g != lastGroup {
+			if g := m.groupKey(&m.view[i]); g != lastGroup {
 				lastGroup = g
 				items = append(items, lineItem{row: -1, group: g})
 			}
@@ -351,7 +351,7 @@ func (m *Model) groupHeader(group string) string {
 
 	var count, dirty, crit int
 	for i := range m.view {
-		if m.view[i].firstTag() != group {
+		if m.groupKey(&m.view[i]) != group {
 			continue
 		}
 		count++
@@ -441,7 +441,7 @@ func (m *Model) tagLegend() string {
 			untagged++
 			continue
 		}
-		if m.grouped {
+		if m.grouped && !m.repoGrouped {
 			// Count by first tag so the legend matches the group headers.
 			counts[m.all[i].firstTag()]++
 			continue
@@ -508,7 +508,7 @@ func (m *Model) footer(start, end int) string {
 
 // helpLine is the bottom keybinding cheatsheet (the short form; ? opens full).
 func (m *Model) helpLine() string {
-	help := "  j/k move · enter cd · / search · s/S sort · f/F filter · t/T tag · b group · space mark · P pull · u undo · o open · L prs · r/R fetch · y copy · ? help · q quit"
+	help := "  j/k move · enter cd · / search · s/S sort · f/F filter · t/T tag · b/B group · space mark · P pull · u undo · o open · L prs · r/R fetch · y copy · ? help · q quit"
 	return styleDim.Render(help)
 }
 
@@ -527,7 +527,7 @@ func (m *Model) helpOverlay() string {
 		{"s / S", "cycle sort forward/back: name → dirty → behind → health"},
 		{"f / F", "cycle filter forward/back: all → dirty → behind → ahead → conflicts"},
 		{"t / T", "cycle tag filter forward/back through your tags"},
-		{"b", "toggle group-by-tag view"},
+		{"b / B", "toggle group-by-tag / repository-family view"},
 		{"space", "mark/unmark the repo for batch actions"},
 		{"*", "mark all visible repos (again to clear)"},
 		{"o", "open the repo home page in a browser"},

@@ -20,6 +20,10 @@ func newListCmd() *cobra.Command {
 		Short: "List all registered repos",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
+			mode, err := groupingMode(cmd)
+			if err != nil {
+				return err
+			}
 
 			cfg, repos, err := loadReposWithTagFilter(cmd)
 			if err != nil {
@@ -32,14 +36,17 @@ func newListCmd() *cobra.Command {
 			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
-			groupFlag, _ := cmd.Flags().GetBool("group")
 
 			if jsonFlag {
 				return renderListJSON(w, repos)
 			}
 
-			if groupFlag {
-				renderListTree(w, cfg, repos)
+			if mode != "none" {
+				if mode == "repo" {
+					renderListFamilies(w, repos)
+				} else {
+					renderListTree(w, cfg, repos)
+				}
 				renderMissingHint(w, len(findMissingRepos(repos)))
 				return nil
 			}
@@ -53,9 +60,40 @@ func newListCmd() *cobra.Command {
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
 	cmd.Flags().StringSlice("meta", nil, "filter by metadata key=value (repeatable, combines with AND)")
 	cmd.Flags().Bool("group", false, "group repos by tag in a tree view")
+	addFamilyFlag(cmd)
+	addGroupingFlag(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 
 	return cmd
+}
+
+func renderListFamilies(w io.Writer, repos []config.RepoEntry) {
+	groups := make(map[string][]config.RepoEntry)
+	width := len("NAME") + 2
+	for i := range repos {
+		family := config.RepoFamily(&repos[i])
+		groups[family] = append(groups[family], repos[i])
+		width = max(width, len(repos[i].Name)+2)
+	}
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for i, name := range names {
+		if i > 0 {
+			_, _ = fmt.Fprintln(w)
+		}
+		_, _ = fmt.Fprintln(w, "  "+output.Dim(name))
+		entries := groups[name]
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].IsWorktreeEntry() != entries[j].IsWorktreeEntry() {
+				return !entries[i].IsWorktreeEntry()
+			}
+			return entries[i].Name < entries[j].Name
+		})
+		renderTreeEntries(w, "", entries, width)
+	}
 }
 
 type listEntry struct {
