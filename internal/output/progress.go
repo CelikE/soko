@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"golang.org/x/term"
@@ -19,7 +20,12 @@ type Progress struct {
 	total   int
 	current atomic.Int32
 	active  bool
-	lineLen int // length of last written line, for clearing
+
+	// mu serializes the display update. Increment is called concurrently from
+	// the errgroup workers in fetch/pull/grep/sync, so render and Done — which
+	// mutate lineLen and write to w — must not run in parallel (issue #195).
+	mu      sync.Mutex
+	lineLen int // length of last written line, for clearing; guarded by mu
 }
 
 // NewProgress creates a progress indicator that writes to w.
@@ -37,7 +43,7 @@ func NewProgress(w io.Writer, msg string, total int) *Progress {
 	}
 
 	if p.active {
-		p.render(0)
+		p.render()
 	}
 
 	return p
@@ -45,9 +51,9 @@ func NewProgress(w io.Writer, msg string, total int) *Progress {
 
 // Increment advances the counter by one and refreshes the display.
 func (p *Progress) Increment() {
-	n := int(p.current.Add(1))
+	p.current.Add(1)
 	if p.active {
-		p.render(n)
+		p.render()
 	}
 }
 
@@ -56,13 +62,19 @@ func (p *Progress) Done() {
 	if !p.active {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// Overwrite with spaces, then return to start of line.
 	blank := "\r" + strings.Repeat(" ", p.lineLen) + "\r"
 	_, _ = fmt.Fprint(p.w, blank)
 }
 
-func (p *Progress) render(n int) {
-	line := fmt.Sprintf("\r  %s %s... %d/%d", Dim("·"), p.msg, n, p.total)
+func (p *Progress) render() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Read the latest count under the display lock so a delayed worker cannot
+	// overwrite a newer progress count with an older one.
+	line := fmt.Sprintf("\r  %s %s... %d/%d", Dim("·"), p.msg, p.current.Load(), p.total)
 	p.lineLen = len(line) - 1 // subtract \r
 	_, _ = fmt.Fprint(p.w, line)
 }

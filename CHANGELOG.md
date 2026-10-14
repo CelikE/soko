@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+- Serialize terminal progress updates during parallel fetch, pull, grep, and sync operations to prevent data races, interleaved output, and backwards progress counts.
+
 ## v0.22.0 — 2026-10-14
 
 ### Features
