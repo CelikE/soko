@@ -1,6 +1,39 @@
 # Changelog
 
-## Unreleased
+## v0.22.0 — 2026-10-14
+
+### Features
+
+- Adopt existing Git-created worktrees with `soko worktree adopt`, including dry-run, JSON, repository-family filtering, and tags for newly registered entries.
+- Browse base repositories and their worktrees with `--repo <name>` or `--repo .` on list, status, go, ui, and worktree list/adopt. Group list, status, and dashboard views with `--group-by repo`; dashboard `B` toggles family grouping and `b` retains tag grouping.
+- Show unregistered worktrees and Git/registry drift in `worktree list`, including locked/prunable metadata in JSON.
+- Add `soko pr` to list the current repository's open pull requests through the GitHub CLI, with JSON output; dashboard `L` opens an in-app PR list with browser navigation.
+- Mark dashboard repositories with space (`*` for all visible), batch-pull with one confirmed `P`, undo with `u`, fetch one repository with `R`, and copy its path with `y`.
+- Search dashboard names, branches, and tags; Enter/Tab commits the filter, Escape unwinds search and filters, and `S`/`F`/`T` cycle sorting and filters backwards.
+- Redesign grouped dashboard headers with repository counts and dirty/critical totals, indented rows, and aligned columns.
+- Add a complete `man soko` manual, installed by packages and `install.sh`, with `make man` for source checkouts.
+
+### Bug Fixes
+
+- Normalize registration to the checkout root, preserve existing aliases and metadata, and allocate unique aliases for detached worktrees and separate clones of the same remote. Separate-Git-directory bases are supported when registered first; bare bases are rejected explicitly.
+- Persist registrations in `scan --json`, discover families when scanning a linked checkout, and preserve registry state during dry-run.
+- Isolate shell navigation requests per session and reject missing targets; PowerShell navigation respects `XDG_CONFIG_HOME`.
+- Keep the dashboard cursor attached to its repository across refreshes and pin confirmed pull targets.
+- Add viewport scrolling, narrow-pane width clamping, jump/paging keys, and mouse selection; fetch uses `r` and tag grouping uses `b`.
+- Expire transient dashboard messages, preserve in-flight fetch indicators, pause overlapping refreshes, and show fetch age.
+- Guard actions on missing repositories, show selected-repository details and worktree markers, and make column alignment and truncation display-width aware.
+
+### Maintenance
+
+- Verify worktree registration and PowerShell navigation in native Windows CI, and sync the Windows manifest fork with Microsoft upstream before each release.
+- Retire Chagg CI and hosted release-note uploads. GoReleaser now generates GitHub-native release notes; `CHANGELOG.md` is maintained directly, and legacy `.changes` fragments remain an archive.
+- Document shell-integration activation and dashboard confirmation keys, and use typed browser pages and severity constants internally.
+
+### Upgrade Notes
+
+- Re-evaluate `soko shell-init` or open a new shell after upgrading to activate session-scoped navigation.
+
+## v0.21.0
 
 ### Features
 
