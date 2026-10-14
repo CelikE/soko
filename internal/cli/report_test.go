@@ -47,6 +47,11 @@ func TestIntegration_ReportNoActivity(t *testing.T) {
 	if !strings.Contains(out, "no activity") {
 		t.Errorf("report = %q, want 'no activity'", out)
 	}
+
+	out = runSoko(t, "report", "--days", "1", "--all-authors", "--json")
+	if strings.TrimSpace(out) != "[]" {
+		t.Errorf("report --json = %q, want empty array", out)
+	}
 }
 
 func TestIntegration_ReportAuthorFilter(t *testing.T) {

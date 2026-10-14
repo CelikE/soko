@@ -118,6 +118,7 @@ func gitUserName(ctx context.Context) string {
 
 // collectReport gathers commit activity across repos.
 func collectReport(ctx context.Context, repos []config.RepoEntry, since, author string) (active []reportResult, inactive []string) {
+	active = make([]reportResult, 0)
 	for _, repo := range repos {
 		if !pathExists(repo.Path) {
 			continue

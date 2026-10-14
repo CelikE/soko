@@ -8,6 +8,7 @@
 - Honor repository name and prefix filters in `soko stash pop [repos...]`, including when combined with `--tag`, so restoring a targeted stash leaves unrelated repositories untouched.
 - Resolve the registered checkout root for `soko tag`, `tag add`, and `tag remove` when run from a repository or linked-worktree subdirectory.
 - Preserve exact filenames in `soko grep` results, including non-ASCII characters, colons, and embedded newlines, in line and files-only output.
+- Return an empty JSON array from `soko report --json` when registered repositories have no activity in the requested period.
 
 ## v0.22.0 — 2026-10-14
 
