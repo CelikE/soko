@@ -85,17 +85,6 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				timingRows[i] = output.TimingRow{Name: results[i].name, Duration: results[i].elapsed}
 			}
 
-			if jsonFlag {
-				return renderExecJSON(w, results, timingRows, wall)
-			}
-
-			// For parallel, print buffered output now.
-			if !seqFlag {
-				for i := range results {
-					printExecResult(w, &results[i])
-				}
-			}
-
 			var succeeded, failed int
 			for i := range results {
 				if results[i].exitCode == 0 && results[i].err == "" {
@@ -105,8 +94,21 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				}
 			}
 
-			output.RenderActionSummary(w, len(results), succeeded, failed)
-			output.RenderTiming(w, timingRows, wall, maxConcurrency)
+			if jsonFlag {
+				if err := renderExecJSON(w, results, timingRows, wall); err != nil {
+					return err
+				}
+			} else {
+				// For parallel, print buffered output now.
+				if !seqFlag {
+					for i := range results {
+						printExecResult(w, &results[i])
+					}
+				}
+
+				output.RenderActionSummary(w, len(results), succeeded, failed)
+				output.RenderTiming(w, timingRows, wall, maxConcurrency)
+			}
 
 			if failed > 0 {
 				return fmt.Errorf("%d %s failed", failed, output.Plural(failed, "repo"))
