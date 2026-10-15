@@ -13,7 +13,8 @@ soko (倉庫 — "storehouse") is a fast, lightweight CLI for managing multiple 
 ## Prerequisites
 
 - **Git** — soko shells out to `git` for all repository operations
-- **Go 1.26+** — only needed if installing from source or via `go install`
+- **Go 1.27.2+** — only needed if installing from source or via `go install`
+- **macOS 13 Ventura+** — required for macOS binaries and source builds
 
 ## Install
 
@@ -31,7 +32,7 @@ winget install CelikE.soko
 scoop bucket add soko https://github.com/CelikE/homebrew-tap
 scoop install soko
 
-# From source (requires Go 1.26+)
+# From source (requires Go 1.27.2+)
 go install github.com/CelikE/soko/cmd/soko@latest
 ```
 
@@ -799,12 +800,18 @@ as before.
 
 ## Building from source
 
+Go 1.27.2 or newer is required. The `go` directive in `go.mod` sets the minimum
+supported Go version; it does not pin builds to exactly that toolchain.
+
 ```bash
 git clone https://github.com/CelikE/soko.git
 cd soko
 make build
 make test
 ```
+
+Development linting uses **golangci-lint v2.14.0**, built with Go 1.27 or newer,
+matching CI. Run `make lint` to check the code before submitting changes.
 
 ## Dependencies
 
