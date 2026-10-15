@@ -20,6 +20,14 @@
 - Return an empty JSON array from `soko report --json` when registered repositories have no activity in the requested period.
 - Count staged and unstaged file type changes as modified so `soko status` and its dirty/clean filters no longer report those repositories as clean.
 
+### Maintenance
+
+- Raise the minimum Go version to 1.27.2 and pin CI linting to golangci-lint v2.14.0 with Go 1.27 support.
+
+### Upgrade Notes
+
+- Source installs require Go 1.27.2 or newer. macOS binaries and source builds now require macOS 13 Ventura or newer; macOS 12 is no longer supported.
+
 ## v0.22.0 — 2026-10-14
 
 ### Features
