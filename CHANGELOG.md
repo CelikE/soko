@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Remove broken registry entries by their exact paths in `soko doc --fix`, preserving healthy repositories with the same name in legacy or hand-edited configurations.
 - Cascade registry removal to linked worktrees when removing a parent by path or through `soko remove --all --select`, counting cascaded entries before confirmation and including them in text and JSON results.
 - Preserve commas and quotes in `soko annotate --set` values and `soko list` / `status --meta` filters instead of splitting them as CSV, preventing rejected notes and unintended metadata changes; repeat flags for multiple keys.
 - Match report authors as literal substrings, including the default Git user name, so regex characters neither hide activity nor include unrelated authors regardless of Git's pattern configuration.

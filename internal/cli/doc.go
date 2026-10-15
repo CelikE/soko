@@ -48,11 +48,11 @@ func newDocCmd() *cobra.Command {
 
 			// Apply fixes.
 			if fixFlag && len(toRemove) > 0 && cfg != nil {
-				for _, name := range toRemove {
+				for _, path := range toRemove {
 					var removeErr error
-					cfg, _, removeErr = config.RemoveRepo(cfg, name)
+					cfg, _, removeErr = config.RemoveRepoByPath(cfg, path)
 					if removeErr != nil {
-						return fmt.Errorf("fixing %s: %w", name, removeErr)
+						return fmt.Errorf("fixing %s: %w", path, removeErr)
 					}
 				}
 				if saveErr := config.Save(cfg); saveErr != nil {
@@ -74,7 +74,7 @@ func newDocCmd() *cobra.Command {
 	return cmd
 }
 
-// runDocChecks performs all health checks and returns results, the loaded config, and names to remove.
+// runDocChecks performs all health checks and returns results, the loaded config, and paths to remove.
 func runDocChecks(ctx context.Context, fixFlag bool) ([]checkResult, *config.Config, []string) {
 	var results []checkResult
 
@@ -157,7 +157,7 @@ func checkGit(ctx context.Context) []checkResult {
 	}}
 }
 
-// checkRepos validates each registered repo and returns results plus names to remove.
+// checkRepos validates each registered repo and returns results plus paths to remove.
 func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results []checkResult, toRemove []string) {
 	for _, repo := range cfg.Repos {
 		if !pathExists(repo.Path) {
@@ -170,7 +170,7 @@ func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results 
 			if fixFlag {
 				r.Fixed = true
 				r.Message += " — removed from config"
-				toRemove = append(toRemove, repo.Name)
+				toRemove = append(toRemove, repo.Path)
 			} else {
 				r.Message += fmt.Sprintf("\n    → run: soko remove %s", repo.Name)
 			}
@@ -188,7 +188,7 @@ func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results 
 			if fixFlag {
 				r.Fixed = true
 				r.Message += " — removed from config"
-				toRemove = append(toRemove, repo.Name)
+				toRemove = append(toRemove, repo.Path)
 			} else {
 				r.Message += fmt.Sprintf("\n    → run: soko remove %s", repo.Name)
 			}
