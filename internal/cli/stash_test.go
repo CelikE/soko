@@ -12,6 +12,132 @@ import (
 	"github.com/CelikE/soko/internal/git"
 )
 
+func TestIntegration_StashIncludesUntrackedFiles(t *testing.T) {
+	for _, trackedChanges := range []bool{false, true} {
+		for _, format := range []string{"text", "json"} {
+			name := "untracked-only/" + format
+			if trackedChanges {
+				name = "tracked-and-untracked/" + format
+			}
+			t.Run(name, func(t *testing.T) {
+				testEnv(t)
+				repo := filepath.Join(t.TempDir(), "stash-repo")
+				initRepo(t, repo)
+				runSokoInit(t, repo)
+				gitOut := func(args ...string) string {
+					t.Helper()
+					out, err := git.Run(t.Context(), repo, args...)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return out
+				}
+
+				// An older soko stash must remain below the newly saved work.
+				readme := filepath.Join(repo, "README.md")
+				if err := os.WriteFile(readme, []byte("# older work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				gitOut("stash", "push", "-m", "soko stash")
+				olderStash := gitOut("rev-parse", "refs/stash")
+
+				if err := os.MkdirAll(filepath.Join(repo, "notes"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				files := map[string]string{
+					"notes/draft.txt":   "untracked draft\n",
+					"ignored.log":       "ignored contents\n",
+					".git/info/exclude": "ignored.log\n",
+				}
+				for path, content := range files {
+					if err := os.WriteFile(filepath.Join(repo, path), []byte(content), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				wantReadme := "# test\n"
+				if trackedChanges {
+					if err := os.WriteFile(readme, []byte("# staged work\n"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+					gitOut("add", "README.md")
+					wantReadme = "# working tree changes\n"
+					if err := os.WriteFile(readme, []byte(wantReadme), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				pushArgs := []string{"stash"}
+				popArgs := []string{"stash", "pop"}
+				if format == "json" {
+					pushArgs = append(pushArgs, "--json")
+					popArgs = append(popArgs, "--json")
+				}
+				checkOutput := func(out, action, status string) {
+					t.Helper()
+					if format == "json" {
+						var entries []struct {
+							Name   string `json:"name"`
+							Action string `json:"action"`
+							Status string `json:"status"`
+						}
+						if err := json.Unmarshal([]byte(out), &entries); err != nil {
+							t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+						}
+						if len(entries) != 1 || entries[0].Name != "stash-repo" || entries[0].Action != action || entries[0].Status != status {
+							t.Errorf("stash %s output = %s, want stash-repo/%s", action, out, status)
+						}
+					} else if !strings.Contains(out, "stash-repo — "+status) {
+						t.Errorf("stash %s output = %q, want stash-repo — %s", action, out, status)
+					}
+				}
+
+				checkOutput(runSoko(t, pushArgs...), "push", "stashed")
+				if status := gitOut("status", "--porcelain"); status != "" {
+					t.Fatalf("status after stash = %q, want clean working tree", status)
+				}
+				stashes := strings.Split(gitOut("stash", "list", "--format=%H"), "\n")
+				if len(stashes) != 2 || stashes[0] == olderStash || stashes[1] != olderStash {
+					t.Fatalf("stashes after push = %v, want new stash above %s", stashes, olderStash)
+				}
+				if _, err := os.Stat(filepath.Join(repo, "notes", "draft.txt")); !os.IsNotExist(err) {
+					t.Fatalf("untracked file still present after stash: %v", err)
+				}
+				if content, err := os.ReadFile(filepath.Join(repo, "ignored.log")); err != nil || string(content) != files["ignored.log"] {
+					t.Fatalf("ignored file after stash = %q, %v", content, err)
+				}
+
+				// A second push on the now-clean tree must not add another stash.
+				out := runSoko(t, pushArgs...)
+				if format == "json" {
+					if strings.TrimSpace(out) != "[]" {
+						t.Errorf("clean stash output = %q, want []", out)
+					}
+				} else if !strings.Contains(out, "all repos clean") {
+					t.Errorf("clean stash output = %q, want all repos clean", out)
+				}
+				if got := gitOut("stash", "list", "--format=%H"); got != strings.Join(stashes, "\n") {
+					t.Fatalf("clean push changed stash stack: %s", got)
+				}
+
+				checkOutput(runSoko(t, popArgs...), "pop", "restored")
+				for path, want := range map[string]string{
+					"README.md":       wantReadme,
+					"notes/draft.txt": files["notes/draft.txt"],
+					"ignored.log":     files["ignored.log"],
+				} {
+					content, err := os.ReadFile(filepath.Join(repo, path))
+					if err != nil || string(content) != want {
+						t.Errorf("%s after pop = %q, %v; want %q", path, content, err, want)
+					}
+				}
+				if got := gitOut("stash", "list", "--format=%H"); got != olderStash {
+					t.Errorf("stash after pop = %q, want untouched older stash %s", got, olderStash)
+				}
+			})
+		}
+	}
+}
+
 func TestIntegration_StashPopRepoFilters(t *testing.T) {
 	tests := []struct {
 		name    string
