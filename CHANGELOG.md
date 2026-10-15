@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Show final-newline changes in `soko apply` diff previews, including JSON output, with standard no-newline markers instead of an empty diff.
 - Serialize terminal progress updates during parallel fetch, pull, grep, and sync operations to prevent data races, interleaved output, and backwards progress counts.
 - Honor repository name and prefix filters in `soko stash pop [repos...]`, including when combined with `--tag`, so restoring a targeted stash leaves unrelated repositories untouched.
 - Resolve the registered checkout root for `soko tag`, `tag add`, and `tag remove` when run from a repository or linked-worktree subdirectory.

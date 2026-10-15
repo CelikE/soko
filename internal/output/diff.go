@@ -10,7 +10,7 @@ const diffContext = 3
 
 // DiffUnified returns a unified diff (with diffContext lines of context)
 // describing the change from old to new, headed with the given label. It
-// returns "" when old and new are byte-identical line-for-line. The diff is
+// returns "" when old and new are byte-identical. The diff is
 // line-based via a longest-common-subsequence walk; no external dependency.
 func DiffUnified(old, newContent []byte, label string) string {
 	oldLines := splitLines(string(old))
@@ -31,15 +31,18 @@ func DiffUnified(old, newContent []byte, label string) string {
 	return formatUnified(ops, label)
 }
 
-// splitLines splits s into lines without their trailing newline. An empty
-// string yields no lines; a trailing newline does not produce a spurious
-// empty final line.
+// splitLines splits s into lines, retaining newline terminators so an
+// unterminated final line compares differently. An empty string yields no
+// lines; a trailing newline does not produce a spurious empty final line.
 func splitLines(s string) []string {
 	if s == "" {
 		return nil
 	}
-	s = strings.TrimSuffix(s, "\n")
-	return strings.Split(s, "\n")
+	lines := strings.SplitAfter(s, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 // diffLine is one line of a diff: kind is ' ' (context), '-' (removed), or
@@ -164,7 +167,10 @@ func formatUnified(ops []diffLine, label string) string {
 		}
 		fmt.Fprintf(&sb, "@@ -%s +%s @@\n", hunkRange(oldStart, oldCount), hunkRange(newStart, newCount))
 		for k := s.start; k <= s.end; k++ {
-			fmt.Fprintf(&sb, "%c%s\n", ops[k].kind, ops[k].text)
+			fmt.Fprintf(&sb, "%c%s", ops[k].kind, ops[k].text)
+			if !strings.HasSuffix(ops[k].text, "\n") {
+				sb.WriteString("\n\\ No newline at end of file\n")
+			}
 		}
 	}
 	return sb.String()

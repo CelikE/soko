@@ -97,6 +97,62 @@ func TestIntegration_ApplyDryRunClassifies(t *testing.T) {
 	}
 }
 
+func TestIntegration_ApplyTrailingNewlineChange(t *testing.T) {
+	tests := []struct {
+		name string
+		old  string
+		new  string
+		want string
+	}{
+		{
+			name: "remove newline",
+			old:  "hello\nworld\n",
+			new:  "hello\nworld",
+			want: "-world\n+world\n\\ No newline at end of file\n",
+		},
+		{
+			name: "add newline",
+			old:  "hello\nworld",
+			new:  "hello\nworld\n",
+			want: "-world\n\\ No newline at end of file\n+world\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testEnv(t)
+			dir := filepath.Join(t.TempDir(), "r")
+			initRepo(t, dir)
+			runSokoInit(t, dir)
+			dest := filepath.Join(dir, "shared.txt")
+			if err := os.WriteFile(dest, []byte(tt.old), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			src := writeSrc(t, tt.new)
+
+			out := runSoko(t, "apply", src, "--to", "shared.txt")
+			for _, want := range []string{"(update)", "-world", "+world", "\\ No newline at end of file"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("dry-run output missing %q\n%s", want, out)
+				}
+			}
+
+			out = runSoko(t, "apply", src, "--to", "shared.txt", "--json")
+			e, ok := entryFor(applyEntries(t, out), "r")
+			if !ok || e.Action != "update" || !strings.Contains(e.Diff, tt.want) {
+				t.Errorf("JSON entry = %+v, want update with diff containing %q", e, tt.want)
+			}
+			if got, err := os.ReadFile(dest); err != nil || string(got) != tt.old {
+				t.Fatalf("dry run changed destination: got %q, err=%v, want %q", got, err, tt.old)
+			}
+
+			runSoko(t, "apply", src, "--to", "shared.txt", "--write", "--force")
+			if got, err := os.ReadFile(dest); err != nil || string(got) != tt.new {
+				t.Fatalf("written destination = %q, err=%v, want %q", got, err, tt.new)
+			}
+		})
+	}
+}
+
 func TestIntegration_ApplyWriteForce(t *testing.T) {
 	testEnv(t)
 	base := t.TempDir()
