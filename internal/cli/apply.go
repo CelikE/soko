@@ -107,7 +107,7 @@ Writes are local file operations — apply never touches git or the network.`,
 
 			results := planApply(ctx, repos, srcBytes, dest)
 
-			var create, update, unchanged, missing int
+			var create, update, unchanged, missing, planErrors int
 			for i := range results {
 				switch results[i].Action {
 				case applyCreate:
@@ -117,6 +117,7 @@ Writes are local file operations — apply never touches git or the network.`,
 				case applyUnchanged:
 					unchanged++
 				case applyError:
+					planErrors++
 					if results[i].Error == "path not found" {
 						missing++
 					}
@@ -137,7 +138,7 @@ Writes are local file operations — apply never touches git or the network.`,
 			}
 
 			changed := create + update
-			if changed == 0 {
+			if changed == 0 && planErrors == 0 {
 				if jsonFlag {
 					return output.RenderJSON(w, results)
 				}
@@ -146,7 +147,7 @@ Writes are local file operations — apply never touches git or the network.`,
 				return nil
 			}
 
-			if !force {
+			if !force && changed > 0 {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"\n  apply %s to %d %s (%d create, %d update)? [y/N] ",
 					filepath.Base(src), changed, output.Plural(changed, "repo"), create, update)
@@ -163,15 +164,11 @@ Writes are local file operations — apply never touches git or the network.`,
 
 			writeApply(ctx, results, srcBytes, srcMode)
 
-			if jsonFlag {
-				return output.RenderJSON(w, results)
-			}
-
 			var rows []output.ActionRow
 			var okCreate, okUpdate, failed int
 			for i := range results {
 				r := &results[i]
-				if r.Action != applyCreate && r.Action != applyUpdate {
+				if r.Action == applyUnchanged {
 					continue
 				}
 				if r.Written {
@@ -189,10 +186,16 @@ Writes are local file operations — apply never touches git or the network.`,
 				}
 			}
 
-			_, _ = fmt.Fprintln(w)
-			output.RenderActionResults(w, rows)
-			output.RenderApplySummary(w, okCreate, okUpdate, unchanged, len(results), true)
-			renderMissingHint(w, missing)
+			if jsonFlag {
+				if err := output.RenderJSON(w, results); err != nil {
+					return err
+				}
+			} else {
+				_, _ = fmt.Fprintln(w)
+				output.RenderActionResults(w, rows)
+				output.RenderApplySummary(w, okCreate, okUpdate, unchanged, len(results), true)
+				renderMissingHint(w, missing)
+			}
 
 			if failed > 0 {
 				return fmt.Errorf("%d %s failed to write", failed, output.Plural(failed, "repo"))
