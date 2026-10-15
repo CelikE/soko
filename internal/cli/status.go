@@ -130,7 +130,7 @@ func newStatusCmd() *cobra.Command {
 	addGroupingFlag(cmd)
 	cmd.Flags().Bool("all", false, "show all repos without truncation")
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
-	cmd.Flags().StringSlice("meta", nil, "filter by metadata key=value (repeatable, combines with AND)")
+	cmd.Flags().StringArray("meta", nil, "filter by metadata key=value (repeatable, combines with AND; commas are literal)")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("dirty", false, "show only repos with uncommitted changes")
 	cmd.Flags().Bool("clean", false, "show only clean repos in sync with remote")

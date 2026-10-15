@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Preserve commas and quotes in `soko annotate --set` values and `soko list` / `status --meta` filters instead of splitting them as CSV, preventing rejected notes and unintended metadata changes; repeat flags for multiple keys.
 - Match report authors as literal substrings, including the default Git user name, so regex characters neither hide activity nor include unrelated authors regardless of Git's pattern configuration.
 - Report missing paths and Git failures in `soko diff` instead of claiming all repositories are clean; preserve successful diffs, include per-repository JSON errors, suggest pruning missing entries, and return a non-zero exit status on failures.
 - Protect `soko undo` and dashboard pull undo from discarding edits or newer commits: require a clean checkout on the recorded branch at the pulled tip, use a non-clobbering reset, and refuse older journal entries without safety metadata.

@@ -34,6 +34,36 @@ func TestAnnotateSet(t *testing.T) {
 	}
 }
 
+func TestAnnotateSetLiteralValues(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		value string
+	}{
+		{name: "comma", value: "waiting, on legal"},
+		{name: "comma and assignment", value: "waiting,status=archived"},
+		{name: "quotes", value: `review "API", then proceed`},
+		{name: "empty", value: ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			saveConfig(t, config.RepoEntry{Name: "api", Path: "/x/api"})
+
+			if _, err := runRoot(t, "annotate", "api", "--set", "status=active", "--set", "note="+tt.value); err != nil {
+				t.Fatalf("annotate set: %v", err)
+			}
+
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("loading config: %v", err)
+			}
+			meta := cfg.Repos[0].Meta
+			if note, ok := meta["note"]; !ok || note != tt.value || meta["status"] != "active" || len(meta) != 2 {
+				t.Errorf("persisted metadata = %v, want literal note %q and status=active", meta, tt.value)
+			}
+		})
+	}
+}
+
 func TestAnnotateSetInvalidWritesNothing(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	saveConfig(t, config.RepoEntry{Name: "api", Path: "/x/api"})
@@ -232,5 +262,43 @@ func TestStatusMetaFilter(t *testing.T) {
 	}
 	if !strings.Contains(out, "api") || strings.Contains(out, "legacy") {
 		t.Errorf("status --meta did not narrow to api:\n%s", out)
+	}
+}
+
+func TestMetaFilterLiteralValues(t *testing.T) {
+	for _, command := range []string{"list", "status"} {
+		t.Run(command, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			const note = `waiting, on "legal"`
+			saveConfig(t,
+				config.RepoEntry{Name: "api", Path: "/x/api", Meta: map[string]string{"note": note, "status": "active"}},
+				config.RepoEntry{Name: "archived", Path: "/x/archived", Meta: map[string]string{"note": note, "status": "archived"}},
+				config.RepoEntry{Name: "partial", Path: "/x/partial", Meta: map[string]string{"note": "waiting", "status": "active"}},
+			)
+
+			for _, filters := range [][]string{
+				{"--meta", "note=" + note},
+				{"--meta", "note=" + note, "--meta", "status=active"},
+			} {
+				args := append([]string{command, "--json"}, filters...)
+				out, err := runRoot(t, args...)
+				if err != nil {
+					t.Fatalf("%v: %v", args, err)
+				}
+				var entries []struct {
+					Name string `json:"name"`
+				}
+				if err := json.Unmarshal([]byte(out), &entries); err != nil {
+					t.Fatalf("unmarshal %q: %v", out, err)
+				}
+				wantCount := 2
+				if len(filters) > 2 {
+					wantCount = 1
+				}
+				if len(entries) != wantCount || entries[0].Name != "api" || (wantCount == 2 && entries[1].Name != "archived") {
+					t.Errorf("%v = %+v, want %d exact matches starting with api", args, entries, wantCount)
+				}
+			}
+		})
 	}
 }
