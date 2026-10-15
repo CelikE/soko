@@ -125,6 +125,21 @@ u UU N... 100644 100644 100644 100644 abc123 def456 ghi789 also-conflicted.go`,
 			},
 		},
 		{
+			name: "unstaged type change counts as modified",
+			raw:  "1 .T N... 100644 100644 120000 abc123 abc123 link",
+			want: RepoStatus{Modified: 1},
+		},
+		{
+			name: "staged type change counts as modified",
+			raw:  "1 T. N... 100644 120000 120000 abc123 def456 link",
+			want: RepoStatus{Modified: 1},
+		},
+		{
+			name: "staged and unstaged type changes count once",
+			raw:  "1 TT N... 100644 120000 100644 abc123 def456 link",
+			want: RepoStatus{Modified: 1},
+		},
+		{
 			name: "rename entry",
 			raw: `# branch.oid abc123
 # branch.head main

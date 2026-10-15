@@ -182,6 +182,58 @@ func TestIntegration_StatusDirtyRepo(t *testing.T) {
 	}
 }
 
+func TestIntegration_StatusTypeChange(t *testing.T) {
+	for _, staged := range []bool{false, true} {
+		name := "unstaged"
+		if staged {
+			name = "staged"
+		}
+		t.Run(name, func(t *testing.T) {
+			testEnv(t)
+			dir := filepath.Join(t.TempDir(), "type-change-repo")
+			initRepo(t, dir)
+			runSokoInit(t, dir)
+
+			path := filepath.Join(dir, "README.md")
+			if err := os.Remove(path); err != nil {
+				t.Fatalf("removing tracked file: %v", err)
+			}
+			if err := os.Symlink("target", path); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			if staged {
+				cmd := exec.CommandContext(context.Background(), "git", "add", "README.md")
+				cmd.Dir = dir
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("git add: %v\n%s", err, out)
+				}
+			}
+
+			out := runSoko(t, "status")
+			if !strings.Contains(out, "1M") || !strings.Contains(out, "1 dirty") {
+				t.Errorf("status = %q, want one modified file and one dirty repo", out)
+			}
+
+			out = runSoko(t, "status", "--dirty", "--json")
+			var entries []struct {
+				Name     string `json:"name"`
+				Modified int    `json:"modified"`
+			}
+			if err := json.Unmarshal([]byte(out), &entries); err != nil {
+				t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+			}
+			if len(entries) != 1 || entries[0].Name != "type-change-repo" || entries[0].Modified != 1 {
+				t.Errorf("status --dirty --json = %+v, want type-change-repo with one modified file", entries)
+			}
+
+			out = runSoko(t, "status", "--clean")
+			if strings.Contains(out, "type-change-repo") {
+				t.Errorf("status --clean = %q, should exclude type-changed repo", out)
+			}
+		})
+	}
+}
+
 func TestIntegration_StatusFilterDirty(t *testing.T) {
 	testEnv(t)
 	base := t.TempDir()
