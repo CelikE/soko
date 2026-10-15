@@ -100,7 +100,7 @@ func parseChangedEntry(line string, rs *RepoStatus) {
 	// Check both index (xy[0]) and worktree (xy[1]) status.
 	for _, ch := range []byte{xy[0], xy[1]} {
 		switch ch {
-		case 'M', 'A', 'R', 'C':
+		case 'M', 'A', 'R', 'C', 'T':
 			rs.Modified++
 			return
 		case 'D':

@@ -9,6 +9,7 @@
 - Resolve the registered checkout root for `soko tag`, `tag add`, and `tag remove` when run from a repository or linked-worktree subdirectory.
 - Preserve exact filenames in `soko grep` results, including non-ASCII characters, colons, and embedded newlines, in line and files-only output.
 - Return an empty JSON array from `soko report --json` when registered repositories have no activity in the requested period.
+- Count staged and unstaged file type changes as modified so `soko status` and its dirty/clean filters no longer report those repositories as clean.
 
 ## v0.22.0 — 2026-10-14
 
