@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -22,7 +23,9 @@ capped journal of pre-images (refs, registry entries) that soko records as it
 works. Undo is for "oops, just now" — it reverts the latest entry, not history.
 
 Currently reverses: soko clean (recreates deleted branches at their SHAs) and
-fast-forward pulls from soko ui (resets the branch to its pre-pull SHA).`,
+fast-forward pulls from soko ui (resets the branch to its pre-pull SHA).
+Pull undo requires a clean checkout on the original branch at the recorded
+pulled tip. Older pull entries without this safety metadata cannot be undone.`,
 		Example: `  soko undo            # revert the last operation
   soko undo --list     # show the journal without changing anything`,
 		Args: cobra.NoArgs,
@@ -51,8 +54,7 @@ fast-forward pulls from soko ui (resets the branch to its pre-pull SHA).`,
 				return err
 			}
 
-			// The entry is consumed whether or not every sub-step succeeded — a
-			// re-run would otherwise try to recreate branches that already exist.
+			// Keep failed entries available; consume only a successful reversal.
 			if _, err := journal.PopLast(); err != nil {
 				return fmt.Errorf("updating journal: %w", err)
 			}
@@ -76,19 +78,13 @@ func revertEntry(ctx context.Context, w io.Writer, e *journal.Entry) error {
 	}
 }
 
-// undoPull resets each fast-forwarded repo back to its pre-pull SHA. Because the
-// pull was fast-forward only, the recorded SHA is an ancestor of HEAD, so the
-// reset cleanly rewinds the just-pulled commits.
+// undoPull rewinds fast-forwarded repos only while their checkouts still match
+// the recorded pull. Refused repos keep their work and journal entry intact.
 func undoPull(ctx context.Context, w io.Writer, e *journal.Entry) error {
 	var reset, failed int
 	for _, p := range e.Pulls {
-		if !pathExists(p.Path) {
-			output.Fail(w, fmt.Sprintf("%s: path not found, cannot reset", p.Repo))
-			failed++
-			continue
-		}
-		if _, err := git.Run(ctx, p.Path, "reset", "--hard", p.SHA); err != nil {
-			output.Fail(w, fmt.Sprintf("%s: failed to reset to %s: %v", p.Repo, shortSHA(p.SHA), err))
+		if err := resetPulledRepo(ctx, &p); err != nil {
+			output.Fail(w, fmt.Sprintf("%s: %v", p.Repo, err))
 			failed++
 			continue
 		}
@@ -102,6 +98,44 @@ func undoPull(ctx context.Context, w io.Writer, e *journal.Entry) error {
 	}
 	if reset == 0 {
 		output.Info(w, "nothing to reset")
+	}
+	return nil
+}
+
+// resetPulledRepo is shared by CLI and dashboard undo so neither can discard
+// edits, newer commits, or work on a different branch. Legacy entries lack the
+// post-pull identity needed to prove a reset is safe and must be refused.
+func resetPulledRepo(ctx context.Context, p *journal.PullRef) error {
+	if !pathExists(p.Path) {
+		return fmt.Errorf("path not found, cannot reset")
+	}
+	if p.Branch == "" || p.PostSHA == "" {
+		return fmt.Errorf("pull journal lacks branch or pulled tip; cannot safely undo this older entry")
+	}
+	branch, err := git.Run(ctx, p.Path, "symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return fmt.Errorf("cannot verify original branch: %w", err)
+	}
+	if branch != p.Branch {
+		return fmt.Errorf("branch changed since pull (expected %s)", strings.TrimPrefix(p.Branch, "refs/heads/"))
+	}
+	head, err := git.Run(ctx, p.Path, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("checking HEAD: %w", err)
+	}
+	if head != p.PostSHA {
+		return fmt.Errorf("HEAD changed since pull (expected %s, found %s)", shortSHA(p.PostSHA), shortSHA(head))
+	}
+	status, err := git.Run(ctx, p.Path, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none")
+	if err != nil {
+		return fmt.Errorf("checking working tree: %w", err)
+	}
+	if status != "" {
+		return fmt.Errorf("working tree is dirty; commit or stash changes before undoing")
+	}
+	// Unlike --hard, --keep also protects conflicting edits made after the check.
+	if _, err := git.Run(ctx, p.Path, "reset", "--keep", p.SHA); err != nil {
+		return fmt.Errorf("failed to reset to %s: %w", shortSHA(p.SHA), err)
 	}
 	return nil
 }

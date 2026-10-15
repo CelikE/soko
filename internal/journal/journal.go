@@ -40,11 +40,14 @@ type BranchRef struct {
 	SHA    string `yaml:"sha"`
 }
 
-// PullRef is a fast-forwarded repo that undo can reset to its pre-pull SHA.
+// PullRef records both ends of a fast-forward and the branch it advanced.
+// Undo requires the checkout to still match Branch and PostSHA.
 type PullRef struct {
-	Repo string `yaml:"repo"`
-	Path string `yaml:"path"`
-	SHA  string `yaml:"sha"`
+	Repo    string `yaml:"repo"`
+	Path    string `yaml:"path"`
+	SHA     string `yaml:"sha"`
+	Branch  string `yaml:"branch,omitempty"`
+	PostSHA string `yaml:"post_sha,omitempty"`
 }
 
 // Entry is one reversible operation.
