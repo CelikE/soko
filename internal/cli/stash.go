@@ -112,25 +112,20 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 			}
 
 			statusOut, err := git.Run(ctx, repo.Path, "status", "--porcelain")
-			if err != nil || statusOut == "" {
-				// Clean repo or error — skip.
-				mu.Lock()
-				results = append(results, r)
-				mu.Unlock()
-				return nil
-			}
-
-			if _, err := git.Run(ctx, repo.Path, "stash", "push", "--include-untracked", "-m", stashMessage); err != nil {
+			switch {
+			case err != nil:
 				r.message = err.Error()
 				r.errorCode = gitErrorCode(err)
-				mu.Lock()
-				results = append(results, r)
-				mu.Unlock()
-				return nil
+			case statusOut != "":
+				if _, err := git.Run(ctx, repo.Path, "stash", "push", "--include-untracked", "-m", stashMessage); err != nil {
+					r.message = err.Error()
+					r.errorCode = gitErrorCode(err)
+				} else {
+					r.success = true
+					r.message = "stashed"
+				}
 			}
 
-			r.success = true
-			r.message = "stashed"
 			mu.Lock()
 			results = append(results, r)
 			mu.Unlock()
@@ -162,23 +157,29 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if jsonFlag {
-		return renderStashJSON(w, visible)
-	}
-
 	var stashed, failed int
 	for _, r := range visible {
 		if r.success {
-			output.Confirm(w, fmt.Sprintf("%s — stashed", r.name))
+			if !jsonFlag {
+				output.Confirm(w, fmt.Sprintf("%s — stashed", r.name))
+			}
 			stashed++
 		} else {
-			output.Fail(w, fmt.Sprintf("%s — %s", r.name, r.message))
+			if !jsonFlag {
+				output.Fail(w, fmt.Sprintf("%s — %s", r.name, r.message))
+			}
 			failed++
 		}
 	}
 
-	_, _ = fmt.Fprintln(w)
-	output.Info(w, fmt.Sprintf("%d %s stashed", stashed, output.Plural(stashed, "repo")))
+	if jsonFlag {
+		if err := renderStashJSON(w, visible); err != nil {
+			return err
+		}
+	} else {
+		_, _ = fmt.Fprintln(w)
+		output.Info(w, fmt.Sprintf("%d %s stashed", stashed, output.Plural(stashed, "repo")))
+	}
 
 	if failed > 0 {
 		return fmt.Errorf("%d %s failed to stash", failed, output.Plural(failed, "repo"))
@@ -232,25 +233,20 @@ func runStashPop(cmd *cobra.Command, args []string) error {
 
 			// Check if top stash was created by soko.
 			msg, err := git.Run(ctx, repo.Path, "stash", "list", "-1")
-			if err != nil || !strings.Contains(msg, stashMessage) {
-				// No soko stash — skip.
-				mu.Lock()
-				results = append(results, r)
-				mu.Unlock()
-				return nil
-			}
-
-			if _, err := git.Run(ctx, repo.Path, "stash", "pop"); err != nil {
+			switch {
+			case err != nil:
 				r.message = err.Error()
 				r.errorCode = gitErrorCode(err)
-				mu.Lock()
-				results = append(results, r)
-				mu.Unlock()
-				return nil
+			case strings.Contains(msg, stashMessage):
+				if _, err := git.Run(ctx, repo.Path, "stash", "pop"); err != nil {
+					r.message = err.Error()
+					r.errorCode = gitErrorCode(err)
+				} else {
+					r.success = true
+					r.message = "restored"
+				}
 			}
 
-			r.success = true
-			r.message = "restored"
 			mu.Lock()
 			results = append(results, r)
 			mu.Unlock()
@@ -281,23 +277,29 @@ func runStashPop(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if jsonFlag {
-		return renderStashJSON(w, visible)
-	}
-
 	var restored, failed int
 	for _, r := range visible {
 		if r.success {
-			output.Confirm(w, fmt.Sprintf("%s — restored", r.name))
+			if !jsonFlag {
+				output.Confirm(w, fmt.Sprintf("%s — restored", r.name))
+			}
 			restored++
 		} else {
-			output.Fail(w, fmt.Sprintf("%s — %s", r.name, r.message))
+			if !jsonFlag {
+				output.Fail(w, fmt.Sprintf("%s — %s", r.name, r.message))
+			}
 			failed++
 		}
 	}
 
-	_, _ = fmt.Fprintln(w)
-	output.Info(w, fmt.Sprintf("%d %s restored", restored, output.Plural(restored, "repo")))
+	if jsonFlag {
+		if err := renderStashJSON(w, visible); err != nil {
+			return err
+		}
+	} else {
+		_, _ = fmt.Fprintln(w)
+		output.Info(w, fmt.Sprintf("%d %s restored", restored, output.Plural(restored, "repo")))
+	}
 
 	if failed > 0 {
 		return fmt.Errorf("%d %s failed to pop stash", failed, output.Plural(failed, "repo"))
