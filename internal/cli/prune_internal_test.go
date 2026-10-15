@@ -19,7 +19,7 @@ func TestPruneTargets_CascadesWorktrees(t *testing.T) {
 	// Only the parent's directory is missing; the worktree dir survives.
 	missing := []config.RepoEntry{cfg.Repos[0]}
 
-	targets := pruneTargets(cfg, missing)
+	targets := registryRemovalTargets(cfg, missing)
 	if len(targets) != 2 {
 		t.Fatalf("targets = %d, want 2 (parent + cascaded worktree)", len(targets))
 	}
@@ -32,7 +32,7 @@ func TestPruneTargets_CascadesWorktrees(t *testing.T) {
 		t.Errorf("targets = %v, want 'parent' and 'parent/feature'", names)
 	}
 
-	removePruneTargets(cfg, targets)
+	removeRegistryTargets(cfg, targets)
 	if len(cfg.Repos) != 1 || cfg.Repos[0].Name != "other" {
 		t.Errorf("remaining = %+v, want only 'other'", cfg.Repos)
 	}
@@ -51,7 +51,7 @@ func TestRemovePruneTargets_RemovesByIdentity(t *testing.T) {
 	// The tagged second entry is the identified prune target.
 	targets := []config.RepoEntry{cfg.Repos[1]}
 
-	removePruneTargets(cfg, targets)
+	removeRegistryTargets(cfg, targets)
 	if len(cfg.Repos) != 1 {
 		t.Fatalf("remaining = %d, want 1", len(cfg.Repos))
 	}

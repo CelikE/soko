@@ -64,7 +64,7 @@ Use --dry-run to preview what would be pruned.`,
 
 			// Targets = missing repos plus any worktrees orphaned by removing
 			// them, so no dangling worktree_of reference is left behind.
-			targets := pruneTargets(cfg, findMissingRepos(repos))
+			targets := registryRemovalTargets(cfg, findMissingRepos(repos))
 
 			if len(targets) == 0 {
 				if jsonFlag {
@@ -117,7 +117,7 @@ Use --dry-run to preview what would be pruned.`,
 				}
 			}
 
-			removePruneTargets(cfg, targets)
+			removeRegistryTargets(cfg, targets)
 
 			if err := config.Save(cfg); err != nil {
 				return fmt.Errorf("saving config: %w", err)
@@ -152,55 +152,6 @@ func findMissingRepos(repos []config.RepoEntry) []config.RepoEntry {
 		}
 	}
 	return missing
-}
-
-// entryKey identifies a registry entry by name, path, and worktree parent so
-// duplicate paths (only reachable via a hand-edited config) are not confused.
-func entryKey(e *config.RepoEntry) string {
-	return e.Name + "\x00" + e.Path + "\x00" + e.WorktreeOf
-}
-
-// pruneTargets returns the entries to remove: every missing repo plus any
-// linked worktrees that would be orphaned by removing it. The result is
-// de-duplicated and preserves discovery order. It does not mutate cfg.
-func pruneTargets(cfg *config.Config, missing []config.RepoEntry) []config.RepoEntry {
-	seen := make(map[string]bool, len(missing))
-	var targets []config.RepoEntry
-
-	add := func(e config.RepoEntry) {
-		if k := entryKey(&e); !seen[k] {
-			seen[k] = true
-			targets = append(targets, e)
-		}
-	}
-
-	for _, r := range missing {
-		add(r)
-		// Cascade to linked worktrees so no entry is left pointing at a parent
-		// that no longer exists in the registry — mirrors soko remove.
-		for _, wt := range config.FindWorktrees(cfg, r.Name) {
-			add(wt)
-		}
-	}
-
-	return targets
-}
-
-// removePruneTargets removes the given entries from cfg by identity.
-func removePruneTargets(cfg *config.Config, targets []config.RepoEntry) {
-	drop := make(map[string]bool, len(targets))
-	for _, t := range targets {
-		drop[entryKey(&t)] = true
-	}
-
-	kept := make([]config.RepoEntry, 0, len(cfg.Repos))
-	for _, e := range cfg.Repos {
-		if drop[entryKey(&e)] {
-			continue
-		}
-		kept = append(kept, e)
-	}
-	cfg.Repos = kept
 }
 
 // renderPruneTable prints the repos that will be pruned along with a summary.

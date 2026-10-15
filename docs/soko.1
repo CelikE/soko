@@ -255,8 +255,9 @@ Honors
 .\" ----------------------------------
 .TP
 .B soko remove [name]
-Remove a repository from the registry by name; removing a parent
-cascades to its linked worktrees. Options:
+Remove a repository from the registry without deleting its directory.
+Removing a parent by name, path, or interactive selection also unregisters
+its linked worktrees. Options:
 .RS
 .TP
 .BI \-\-path " dir"
@@ -271,7 +272,9 @@ Skip the confirmation prompt.
 .B \-\-select
 With
 .BR \-\-all ,
-interactively choose which repositories to unregister.
+interactively choose which repositories to unregister. Linked worktrees of
+selected parents are included even if deselected, and are counted before
+confirmation.
 .RE
 .\" ----------------------------------
 .TP

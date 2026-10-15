@@ -18,6 +18,9 @@ func newRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remove [name]",
 		Short: "Remove a repo from the registry",
+		Long: `Remove repos from the registry without deleting their directories.
+Linked worktrees are unregistered alongside a removed parent, including when
+removing by path or selecting a subset with --all --select.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 
@@ -62,47 +65,19 @@ func newRemoveCmd() *cobra.Command {
 }
 
 func removeByName(cfg *config.Config, name string, jsonOut bool, w io.Writer) error {
-	// Check for linked worktrees that would be orphaned.
-	worktrees := config.FindWorktrees(cfg, name)
-
-	cfg, removed, err := config.RemoveRepo(cfg, name)
-	if err != nil {
-		if errors.Is(err, config.ErrRepoNotFound) {
-			if s := suggestRepoNames(cfg.Repos, name); len(s) > 0 {
-				return fmt.Errorf("not found: %s — did you mean: %s?", name, strings.Join(s, ", "))
-			}
-			return fmt.Errorf("not found: %s", name)
-		}
-		return fmt.Errorf("removing repo: %w", err)
-	}
-
-	// Also remove linked worktrees.
-	var allRemoved []config.RepoEntry
-	allRemoved = append(allRemoved, removed)
-	for _, wt := range worktrees {
-		cfg, removed, err = config.RemoveRepo(cfg, wt.Name)
-		if err == nil {
-			allRemoved = append(allRemoved, removed)
+	for _, repo := range cfg.Repos {
+		if repo.Name == name {
+			return removeEntries(cfg, []config.RepoEntry{repo}, jsonOut, w)
 		}
 	}
-
-	if err := config.Save(cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
+	if s := suggestRepoNames(cfg.Repos, name); len(s) > 0 {
+		return fmt.Errorf("not found: %s — did you mean: %s?", name, strings.Join(s, ", "))
 	}
-
-	if jsonOut {
-		return writeRemovedJSON(w, allRemoved)
-	}
-
-	output.Confirm(w, fmt.Sprintf("removed %s (%s)", allRemoved[0].Name, allRemoved[0].Path))
-	for _, wt := range allRemoved[1:] {
-		output.Confirm(w, fmt.Sprintf("removed %s (%s)", wt.Name, wt.Path))
-	}
-	return nil
+	return fmt.Errorf("not found: %s", name)
 }
 
 func removeByPath(cfg *config.Config, path string, jsonOut bool, w io.Writer) error {
-	cfg, removed, err := config.RemoveRepoByPath(cfg, path)
+	repo, err := config.FindRepoByPath(cfg, path)
 	if err != nil {
 		if errors.Is(err, config.ErrRepoNotFound) {
 			return fmt.Errorf("not found: %s", path)
@@ -110,15 +85,24 @@ func removeByPath(cfg *config.Config, path string, jsonOut bool, w io.Writer) er
 		return fmt.Errorf("removing repo: %w", err)
 	}
 
+	return removeEntries(cfg, []config.RepoEntry{*repo}, jsonOut, w)
+}
+
+func removeEntries(cfg *config.Config, entries []config.RepoEntry, jsonOut bool, w io.Writer) error {
+	removed := registryRemovalTargets(cfg, entries)
+	removeRegistryTargets(cfg, removed)
+
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
 	if jsonOut {
-		return writeRemovedJSON(w, []config.RepoEntry{removed})
+		return writeRemovedJSON(w, removed)
 	}
 
-	output.Confirm(w, fmt.Sprintf("removed %s (%s)", removed.Name, removed.Path))
+	for _, repo := range removed {
+		output.Confirm(w, fmt.Sprintf("removed %s (%s)", repo.Name, repo.Path))
+	}
 	return nil
 }
 
@@ -129,8 +113,7 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut, selectFla
 		return nil
 	}
 
-	// Optional interactive refinement: pick exactly which repos to unregister.
-	// Narrow-only — the picker can never add a repo that was not registered.
+	// Pick initial targets; removing a parent also unregisters its worktrees.
 	targets := cfg.Repos
 	if selectFlag {
 		chosen, ok := selectRepos(cmd, "Select repos to remove from the registry:", cfg.Repos)
@@ -140,6 +123,15 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut, selectFla
 		}
 		targets = chosen
 	}
+
+	return removeSelectedRepos(cmd, cfg, targets, force, jsonOut, w)
+}
+
+func removeSelectedRepos(cmd *cobra.Command, cfg *config.Config, selected []config.RepoEntry, force, jsonOut bool, w io.Writer) error {
+	count := len(cfg.Repos)
+	// Expand before confirmation so the prompt counts every affected entry,
+	// including worktrees deselected while their parent remains selected.
+	targets := registryRemovalTargets(cfg, selected)
 
 	if !force {
 		prompt := fmt.Sprintf("remove all %d %s? [y/N] ", count, output.Plural(count, "repo"))
@@ -166,10 +158,7 @@ func removeAll(cmd *cobra.Command, cfg *config.Config, force, jsonOut, selectFla
 	if len(targets) == count {
 		cfg = config.Clear(cfg)
 	} else {
-		// Remove only the chosen entries, by path, leaving the rest registered.
-		for _, t := range targets {
-			cfg, _, _ = config.RemoveRepoByPath(cfg, t.Path)
-		}
+		removeRegistryTargets(cfg, targets)
 	}
 
 	if err := config.Save(cfg); err != nil {
