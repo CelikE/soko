@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Open repository URLs through the native Windows API instead of `cmd.exe`, preventing shell metacharacters in remote URLs from executing commands while preserving literal URL content.
 - Remove broken registry entries by their exact paths in `soko doc --fix`, preserving healthy repositories with the same name in legacy or hand-edited configurations.
 - Cascade registry removal to linked worktrees when removing a parent by path or through `soko remove --all --select`, counting cascaded entries before confirmation and including them in text and JSON results.
 - Preserve commas and quotes in `soko annotate --set` values and `soko list` / `status --meta` filters instead of splitting them as CSV, preventing rejected notes and unintended metadata changes; repeat flags for multiple keys.
