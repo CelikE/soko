@@ -91,7 +91,7 @@ man -l docs/soko.1       # preview without installing
 | `soko status [repos...]` | Show status of all (or specific) repos |
 | `soko remotes [repos...]` | Show each repo's remotes + upstream tracking, flag misconfig |
 | `soko diff [repos...]` | Show uncommitted file changes across repos |
-| `soko stash [repos...]` | Stash uncommitted changes across repos |
+| `soko stash [repos...]` | Stash tracked changes and untracked files across repos (ignored files stay untouched) |
 | `soko stash pop [repos...]` | Restore soko-created stashes, filtered by repo name/prefix and optionally `--tag` |
 | `soko clean [repos...]` | Delete merged branches across repos |
 | `soko undo` | Revert the last destructive soko operation (e.g. clean) |

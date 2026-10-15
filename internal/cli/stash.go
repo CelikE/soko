@@ -29,7 +29,8 @@ func newStashCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stash [repos...]",
 		Short: "Stash uncommitted changes across repos",
-		Long: `Stash all dirty repos in one command. Clean repos are silently skipped.
+		Long: `Stash tracked changes and untracked files across all dirty repos in one command.
+Clean repos are silently skipped. Ignored files are left untouched.
 Use "soko stash pop" to restore only stashes created by soko.`,
 		Example: `  soko stash
   soko stash auth
@@ -119,7 +120,7 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 
-			if _, err := git.Run(ctx, repo.Path, "stash", "push", "-m", stashMessage); err != nil {
+			if _, err := git.Run(ctx, repo.Path, "stash", "push", "--include-untracked", "-m", stashMessage); err != nil {
 				r.message = err.Error()
 				r.errorCode = gitErrorCode(err)
 				mu.Lock()
