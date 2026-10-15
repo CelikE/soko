@@ -340,10 +340,11 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 		len(results), output.Plural(len(results), "repo"))))
 }
 
-// deleteBranches deletes stale branches in parallel and returns the journal
-// refs for every branch it actually deleted (repo, path, branch, pre-delete
-// SHA) plus deleted/failed counts. The SHAs let soko undo recreate the
-// branches exactly where they were.
+// deleteBranches deletes stale branches in parallel across repositories, but
+// sequentially within each repository to avoid packed-ref lock contention.
+// It returns the journal refs for every branch it actually deleted (repo,
+// path, branch, pre-delete SHA) plus deleted/failed counts. The SHAs let
+// soko undo recreate the branches exactly where they were.
 func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.BranchRef, deleted, failed int) {
 	var mu sync.Mutex
 	g, ctx := errgroup.WithContext(ctx)
@@ -353,8 +354,8 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 		if r.Error != "" {
 			continue
 		}
-		for _, branch := range r.Branches {
-			g.Go(func() error {
+		g.Go(func() error {
+			for _, branch := range r.Branches {
 				// Capture the tip SHA before deleting so undo can restore it.
 				sha, _ := git.Run(ctx, r.Path, "rev-parse", branch)
 				_, err := git.Run(ctx, r.Path, "branch", "-d", branch)
@@ -373,9 +374,9 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 					}
 				}
 				mu.Unlock()
-				return nil
-			})
-		}
+			}
+			return nil
+		})
 	}
 
 	_ = g.Wait()

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CelikE/soko/internal/journal"
 )
 
 func initRepoWithBranches(t *testing.T, dir string, branches []string) {
@@ -101,6 +103,65 @@ func TestIntegration_CleanForce(t *testing.T) {
 	branches, _ := cmd.Output()
 	if strings.Contains(string(branches), "feat/done") {
 		t.Errorf("branch not deleted: %s", string(branches))
+	}
+}
+
+func TestIntegration_CleanPackedRefsAndUndo(t *testing.T) {
+	testEnv(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	branches := []string{"feat/one", "feat/two", "fix/three", "fix/four"}
+	wantRefs := make(map[string]string)
+	for _, name := range []string{"alpha", "bravo"} {
+		dir := filepath.Join(base, name)
+		initRepoWithBranches(t, dir, branches)
+		runSokoInit(t, dir)
+		for _, branch := range branches {
+			wantRefs[filepath.Join(dir, branch)] = gitIn(t, dir, "rev-parse", branch)
+		}
+		gitIn(t, dir, "pack-refs", "--all")
+		gitIn(t, dir, "config", "core.packedRefsTimeout", "0")
+
+		// Hold the packed-ref lock briefly so overlapping deletions fail
+		// reliably, rather than depending on filesystem timing.
+		hook := "#!/bin/sh\nif [ \"$1\" = prepared ]; then\n  sleep 0.1\nfi\n"
+		if err := os.WriteFile(filepath.Join(dir, ".git", "hooks", "reference-transaction"), []byte(hook), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := runSoko(t, "clean", "--force")
+	if !strings.Contains(out, "deleted 8 stale branches across 2 repos") {
+		t.Errorf("clean --force = %q, want all eight branches deleted", out)
+	}
+
+	j, err := journal.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := j.Last()
+	if !ok || entry.Op != journal.OpClean || len(entry.Branches) != len(wantRefs) {
+		t.Fatalf("clean journal = %+v, want all deleted branches", entry)
+	}
+	seen := make(map[string]bool)
+	for _, ref := range entry.Branches {
+		key := filepath.Join(ref.Path, ref.Branch)
+		if seen[key] || ref.SHA != wantRefs[key] || ref.Repo != filepath.Base(ref.Path) {
+			t.Errorf("unexpected or duplicate journal ref: %+v", ref)
+		}
+		seen[key] = true
+		if branchExists(t, ref.Path, ref.Branch) {
+			t.Errorf("clean left branch %s in %s", ref.Branch, ref.Path)
+		}
+	}
+
+	runSoko(t, "undo")
+	for _, ref := range entry.Branches {
+		if got := gitIn(t, ref.Path, "rev-parse", "refs/heads/"+ref.Branch); got != ref.SHA {
+			t.Errorf("restored %s in %s at %s, want %s", ref.Branch, ref.Path, got, ref.SHA)
+		}
 	}
 }
 
