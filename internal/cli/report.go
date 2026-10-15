@@ -128,7 +128,7 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 
 		gitArgs := []string{"log", "--format=%s\x1f%aI", "--since=" + since}
 		if author != "" {
-			gitArgs = append(gitArgs, "--author="+author)
+			gitArgs = append(gitArgs, "--fixed-strings", "--author="+author)
 		}
 
 		out, err := git.Run(ctx, repo.Path, gitArgs...)

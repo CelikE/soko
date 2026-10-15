@@ -71,6 +71,61 @@ func TestIntegration_ReportAuthorFilter(t *testing.T) {
 	}
 }
 
+func TestIntegration_ReportLiteralAuthor(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		author      string
+		filter      string
+		other       string
+		patternType string
+	}{
+		{"brackets", "Dev [Work]", "[Work]", "Dev Work", "basic"},
+		{"dot", "Jane.Doe (Work)", "Jane.Doe", "JaneXDoe (Work)", "basic"},
+		{"backslash", `Dev\Work`, `Dev\Work`, "DevWork", "basic"},
+		{"extended", "C++ (Work)", "C++", "CCC Work", "extended"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testEnv(t)
+			dir := filepath.Join(t.TempDir(), "author-repo")
+			initRepo(t, dir)
+			runGit(t, dir, "config", "user.name", tc.author)
+			runGit(t, dir, "config", "grep.patternType", tc.patternType)
+			runGit(t, dir, "commit", "--allow-empty", "-m", "literal author commit")
+			runGit(t, dir, "commit", "--allow-empty", "--author="+tc.other+" <other@example.com>", "-m", "other author commit")
+			runSokoInit(t, dir)
+
+			for _, mode := range []struct {
+				name string
+				args []string
+			}{
+				{"default", nil},
+				{"explicit-substring", []string{"--author", tc.filter}},
+			} {
+				t.Run(mode.name, func(t *testing.T) {
+					for _, jsonOut := range []bool{false, true} {
+						args := append([]string{"report", "--days", "1"}, mode.args...)
+						if jsonOut {
+							args = append(args, "--json")
+						}
+						out := runSoko(t, args...)
+						if !strings.Contains(out, "literal author commit") {
+							t.Errorf("report (json=%v) = %q, want literal author's commit", jsonOut, out)
+						}
+						if strings.Contains(out, "other author commit") || strings.Contains(out, "initial commit") {
+							t.Errorf("report (json=%v) = %q, contains another author's commit", jsonOut, out)
+						}
+					}
+				})
+			}
+
+			out := runSoko(t, "report", "--days", "1", "--author", ".*", "--json")
+			if strings.TrimSpace(out) != "[]" {
+				t.Errorf("report --author .* --json = %q, want no literal matches", out)
+			}
+		})
+	}
+}
+
 func TestIntegration_ReportMaxTruncation(t *testing.T) {
 	testEnv(t)
 	dir := filepath.Join(t.TempDir(), "multi-repo")
