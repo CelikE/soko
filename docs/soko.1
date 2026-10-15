@@ -356,6 +356,11 @@ to be installed and authenticated.
 .B soko diff [repos...]
 Show uncommitted file changes across repositories. Option:
 .BI \-\-tag " tag" .
+Clean repositories are skipped. Missing paths and Git failures are reported
+per repository and cause a non-zero exit status, including with
+.BR \-\-json .
+Missing paths also suggest running
+.BR "soko prune" .
 .\" ----------------------------------
 .TP
 .B soko stash [repos...]

@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Report missing paths and Git failures in `soko diff` instead of claiming all repositories are clean; preserve successful diffs, include per-repository JSON errors, suggest pruning missing entries, and return a non-zero exit status on failures.
 - Protect `soko undo` and dashboard pull undo from discarding edits or newer commits: require a clean checkout on the recorded branch at the pulled tip, use a non-clobbering reset, and refuse older journal entries without safety metadata.
 - Report destination and missing-repository errors in `soko apply --write`, preserve successful writes in mixed batches, and return a non-zero exit status for planning or write failures in text and JSON output instead of claiming all repositories are in sync.
 - Include untracked files in `soko stash` so untracked-only repositories are actually saved and a later `stash pop` restores the new work instead of an older stash; ignored files remain untouched.
