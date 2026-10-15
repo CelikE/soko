@@ -279,14 +279,24 @@ func TestIntegration_StashJSONPathMissing(t *testing.T) {
 		t.Fatalf("rm: %v", err)
 	}
 
-	// stash --json reports per-repo and returns success at the process level.
-	out := runSoko(t, "stash", "--json")
-	var entries []errEntry
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		t.Fatalf("parse: %v\n%s", err, out)
-	}
-	e, ok := entryByName(entries, "gone")
-	if !ok || e.Status != "failed" || e.ErrorCode == nil || *e.ErrorCode != "path_missing" {
-		t.Errorf("gone entry = %+v, want failed/path_missing", e)
+	for _, action := range []string{"push", "pop"} {
+		t.Run(action, func(t *testing.T) {
+			args := []string{"stash"}
+			if action == "pop" {
+				args = append(args, "pop")
+			}
+			out, err := runSokoErr(t, append(args, "--json")...)
+			if err == nil {
+				t.Error("stash with a missing path should return an error")
+			}
+			var entries []errEntry
+			if err := json.Unmarshal([]byte(out), &entries); err != nil {
+				t.Fatalf("parse: %v\n%s", err, out)
+			}
+			e, ok := entryByName(entries, "gone")
+			if !ok || e.Status != "failed" || e.ErrorCode == nil || *e.ErrorCode != "path_missing" {
+				t.Errorf("gone entry = %+v, want failed/path_missing", e)
+			}
+		})
 	}
 }

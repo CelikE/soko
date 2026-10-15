@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Report Git inspection failures in `soko stash` and `stash pop` instead of silently skipping broken repositories, and return a non-zero exit status for repository failures in text and JSON output while preserving successful operations.
 - Open repository URLs through the native Windows API instead of `cmd.exe`, preventing shell metacharacters in remote URLs from executing commands while preserving literal URL content.
 - Remove broken registry entries by their exact paths in `soko doc --fix`, preserving healthy repositories with the same name in legacy or hand-edited configurations.
 - Cascade registry removal to linked worktrees when removing a parent by path or through `soko remove --all --select`, counting cascaded entries before confirmation and including them in text and JSON results.
