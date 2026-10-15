@@ -17,7 +17,8 @@ func newDiffCmd() *cobra.Command {
 		Use:   "diff [repos...]",
 		Short: "Show uncommitted file changes across repos",
 		Long: `Show a file-level summary of uncommitted changes across all dirty repos.
-Clean repos are silently skipped.`,
+Clean repos are silently skipped. Missing paths and Git failures are reported
+per repo and cause a non-zero exit status.`,
 		Example: `  soko diff
   soko diff auth
   soko diff --tag backend`,
@@ -47,16 +48,29 @@ Clean repos are silently skipped.`,
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 
-			var results []diffResult
-			var totalFiles int
+			results := make([]diffResult, 0, len(repos))
+			var totalFiles, failed, missing int
 
 			for _, repo := range repos {
+				r := diffResult{Name: repo.Name, Path: repo.Path, Files: []diffFile{}}
 				if !pathExists(repo.Path) {
+					r.Error = "path not found"
+					r.ErrorCode = codePathMissing
+					results = append(results, r)
+					failed++
+					missing++
 					continue
 				}
 
 				statusOut, err := git.Run(ctx, repo.Path, "status", "--porcelain")
-				if err != nil || statusOut == "" {
+				if err != nil {
+					r.Error = err.Error()
+					r.ErrorCode = gitErrorCode(err)
+					results = append(results, r)
+					failed++
+					continue
+				}
+				if statusOut == "" {
 					continue
 				}
 
@@ -82,31 +96,37 @@ Clean repos are silently skipped.`,
 				}
 
 				if len(files) > 0 {
-					results = append(results, diffResult{
-						Name:  repo.Name,
-						Path:  repo.Path,
-						Files: files,
-					})
+					r.Files = files
+					results = append(results, r)
 					totalFiles += len(files)
 				}
 			}
 
 			if len(results) == 0 {
 				if jsonFlag {
-					_, _ = fmt.Fprintln(w, "[]")
-					return nil
+					return renderDiffJSON(w, results)
 				}
 				output.Info(w, "all repos clean")
 				return nil
 			}
 
 			if jsonFlag {
-				return renderDiffJSON(w, results)
+				if err := renderDiffJSON(w, results); err != nil {
+					return err
+				}
+				if failed > 0 {
+					return fmt.Errorf("%d %s failed to diff", failed, output.Plural(failed, "repo"))
+				}
+				return nil
 			}
 
 			for i, r := range results {
 				if i > 0 {
 					_, _ = fmt.Fprintln(w)
+				}
+				if r.Error != "" {
+					output.Fail(w, fmt.Sprintf("%s: %s", r.Name, r.Error))
+					continue
 				}
 				_, _ = fmt.Fprintf(w, "  %s %s\n",
 					r.Name,
@@ -128,9 +148,15 @@ Clean repos are silently skipped.`,
 				}
 			}
 
-			_, _ = fmt.Fprintln(w)
-			output.Info(w, fmt.Sprintf("%d %s · %d %s changed", len(results), output.Plural(len(results), "repo"), totalFiles, output.Plural(totalFiles, "file")))
+			if changed := len(results) - failed; changed > 0 {
+				_, _ = fmt.Fprintln(w)
+				output.Info(w, fmt.Sprintf("%d %s · %d %s changed", changed, output.Plural(changed, "repo"), totalFiles, output.Plural(totalFiles, "file")))
+			}
+			renderMissingHint(w, missing)
 
+			if failed > 0 {
+				return fmt.Errorf("%d %s failed to diff", failed, output.Plural(failed, "repo"))
+			}
 			return nil
 		},
 	}
@@ -142,9 +168,11 @@ Clean repos are silently skipped.`,
 }
 
 type diffResult struct {
-	Name  string     `json:"name"`
-	Path  string     `json:"path"`
-	Files []diffFile `json:"files"`
+	Name      string     `json:"name"`
+	Path      string     `json:"path"`
+	Files     []diffFile `json:"files"`
+	Error     string     `json:"error,omitempty"`
+	ErrorCode string     `json:"error_code,omitempty"`
 }
 
 type diffFile struct {
