@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Report destination and missing-repository errors in `soko apply --write`, preserve successful writes in mixed batches, and return a non-zero exit status for planning or write failures in text and JSON output instead of claiming all repositories are in sync.
 - Include untracked files in `soko stash` so untracked-only repositories are actually saved and a later `stash pop` restores the new work instead of an older stash; ignored files remain untouched.
 - Return a non-zero exit status from `soko exec --json` when any repository command fails, cannot start, or has a missing path, while still emitting all per-repository results and optional timing data.
 - Show final-newline changes in `soko apply` diff previews, including JSON output, with standard no-newline markers instead of an empty diff.

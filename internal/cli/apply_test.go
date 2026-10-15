@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -318,6 +319,100 @@ func TestIntegration_ApplyDestIsDirectory(t *testing.T) {
 	}
 }
 
+func TestIntegration_ApplyWritePlanErrors(t *testing.T) {
+	for _, jsonFlag := range []bool{false, true} {
+		for _, scenario := range []string{"all errors", "errors and unchanged", "partial success"} {
+			t.Run(fmt.Sprintf("json=%t/%s", jsonFlag, scenario), func(t *testing.T) {
+				testEnv(t)
+				base := t.TempDir()
+				names := []string{"directory", "missing"}
+				if scenario != "all errors" {
+					names = append(names, "unchanged")
+				}
+				if scenario == "partial success" {
+					names = append(names, "create", "update")
+				}
+				for _, name := range names {
+					dir := filepath.Join(base, name)
+					initRepo(t, dir)
+					runSokoInit(t, dir)
+				}
+				if err := os.Mkdir(filepath.Join(base, "directory", "f.txt"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.RemoveAll(filepath.Join(base, "missing")); err != nil {
+					t.Fatal(err)
+				}
+				if scenario != "all errors" {
+					if err := os.WriteFile(filepath.Join(base, "unchanged", "f.txt"), []byte(applySrc), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if scenario == "partial success" {
+					if err := os.WriteFile(filepath.Join(base, "update", "f.txt"), []byte("old\n"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				args := []string{"apply", writeSrc(t, applySrc), "--to", "f.txt", "--write"}
+				if jsonFlag {
+					args = append(args, "--json", "--force")
+				} else if scenario == "partial success" {
+					args = append(args, "--force")
+				}
+				out, err := runSokoErr(t, args...)
+				if err == nil || err.Error() != "2 repos failed to write" {
+					t.Errorf("apply error = %v, want 2 repos failed to write", err)
+				}
+				if jsonFlag {
+					entries := applyEntries(t, out)
+					if len(entries) != len(names) {
+						t.Fatalf("got %d results, want %d: %s", len(entries), len(names), out)
+					}
+					for _, name := range []string{"directory", "missing"} {
+						e, ok := entryFor(entries, name)
+						if !ok || e.Action != "error" || e.Error == "" || e.Written {
+							t.Errorf("%s result = %+v, want unwritten error", name, e)
+						}
+					}
+					if scenario == "partial success" {
+						for _, name := range []string{"create", "update"} {
+							e, ok := entryFor(entries, name)
+							if !ok || e.Action != name || !e.Written || e.Error != "" {
+								t.Errorf("%s result = %+v, want successful write", name, e)
+							}
+						}
+					}
+				} else {
+					for _, want := range []string{"directory", "missing", "f.txt", "path not found", "soko prune"} {
+						if !strings.Contains(out, want) {
+							t.Errorf("output missing %q: %s", want, out)
+						}
+					}
+					if strings.Contains(out, "all repos already in sync") {
+						t.Errorf("failed apply reported all repos in sync: %s", out)
+					}
+					if scenario == "partial success" {
+						for _, want := range []string{"created f.txt", "updated f.txt", "2 written · 1 unchanged · 5 repos"} {
+							if !strings.Contains(out, want) {
+								t.Errorf("output missing %q: %s", want, out)
+							}
+						}
+					}
+				}
+				for _, name := range names {
+					switch name {
+					case "create", "update", "unchanged":
+						got, err := os.ReadFile(filepath.Join(base, name, "f.txt"))
+						if err != nil || string(got) != applySrc {
+							t.Errorf("%s destination = %q, err=%v, want %q", name, got, err, applySrc)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestIntegration_ApplyJSON(t *testing.T) {
 	testEnv(t)
 	base := t.TempDir()
@@ -384,8 +479,20 @@ func TestIntegration_ApplyWriteFailureExitsNonZero(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o755) })
 	src := writeSrc(t, applySrc)
 
-	_, err := runSokoErr(t, "apply", src, "--to", "ro/f.txt", "--write", "--force")
-	if err == nil {
-		t.Error("a write failure should make apply exit non-zero")
+	for _, jsonFlag := range []bool{false, true} {
+		args := []string{"apply", src, "--to", "ro/f.txt", "--write", "--force"}
+		if jsonFlag {
+			args = append(args, "--json")
+		}
+		out, err := runSokoErr(t, args...)
+		if err == nil {
+			t.Errorf("json=%t: a write failure should make apply exit non-zero", jsonFlag)
+		}
+		if jsonFlag {
+			e, ok := entryFor(applyEntries(t, out), "r")
+			if !ok || e.Action != "create" || e.Error == "" || e.Written {
+				t.Errorf("write-failure result = %+v, want unwritten create with error", e)
+			}
+		}
 	}
 }
