@@ -562,6 +562,9 @@ or a
 pull), using the undo journal. Option:
 .B \-\-list
 (show the undo journal without reverting anything).
+Pull undo requires a clean checkout (including no untracked files) on the
+original branch at the recorded pulled tip. It refuses newer commits,
+switched branches, and older journal entries without that safety metadata.
 .\" ----------------------------------------------------------------------
 .SH "WORKSPACE STATE"
 Commands that capture and restore the state of many repositories at

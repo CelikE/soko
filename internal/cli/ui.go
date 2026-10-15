@@ -212,6 +212,11 @@ func pullReposForUI(ctx context.Context) func([]ui.PullTarget) (string, error) {
 				failures = append(failures, t.Name+": not a git repo")
 				continue
 			}
+			branch, err := git.Run(ctx, t.Path, "symbolic-ref", "--quiet", "HEAD")
+			if err != nil {
+				failures = append(failures, t.Name+": cannot resolve branch: "+gitErrDetail(err))
+				continue
+			}
 			advanced, err := git.Pull(ctx, t.Path, false)
 			if err != nil {
 				failures = append(failures, t.Name+": "+gitErrDetail(err))
@@ -221,11 +226,16 @@ func pullReposForUI(ctx context.Context) func([]ui.PullTarget) (string, error) {
 				upToDate++
 				continue
 			}
+			postSHA, err := git.Run(ctx, t.Path, "rev-parse", "HEAD")
+			if err != nil {
+				failures = append(failures, t.Name+": pulled, but cannot record undo: "+gitErrDetail(err))
+				continue
+			}
 			pulled++
-			refs = append(refs, journal.PullRef{Repo: t.Name, Path: t.Path, SHA: preSHA})
+			refs = append(refs, journal.PullRef{Repo: t.Name, Path: t.Path, SHA: preSHA, Branch: branch, PostSHA: postSHA})
 		}
 
-		// One journal entry for the whole batch keeps undo atomic.
+		// One journal entry groups the whole batch under a single undo.
 		journalNote := ""
 		if len(refs) > 0 {
 			entry := journal.Entry{
@@ -289,8 +299,8 @@ func undoLastPullForUI(ctx context.Context) func() (string, error) {
 
 		var reset int
 		for _, p := range entry.Pulls {
-			if _, err := git.Run(ctx, p.Path, "reset", "--hard", p.SHA); err != nil {
-				return "", fmt.Errorf("%s: %s", p.Repo, gitErrDetail(err))
+			if err := resetPulledRepo(ctx, &p); err != nil {
+				return "", fmt.Errorf("%s: %w", p.Repo, err)
 			}
 			reset++
 		}

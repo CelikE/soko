@@ -482,9 +482,12 @@ Keys: `j`/`k` move · `enter` cd into the repo (needs shell integration) ·
 `B` group by repository family · `o` open in browser (`p`/`i`/`a` for PRs/issues/actions) · `P` pull ·
 `r` re-fetch now · `?` help · `q` quit.
 
-The only mutating key is `P`: a fast-forward pull of the selected repo, after a
-confirmation prompt, recorded in the journal so `soko undo` can rewind it to
-the pre-pull commit.
+Dashboard pulls (`P`) fast-forward the selected or marked repos after a
+confirmation prompt. Each batch is recorded in the journal so `soko undo` or
+dashboard `u` can rewind it to the pre-pull commits. Pull undo requires a clean checkout,
+including no untracked files, on the original branch at the recorded pulled tip;
+it refuses newer commits, switched branches, and older journal entries without
+that safety metadata.
 
 ### Automatic discovery
 

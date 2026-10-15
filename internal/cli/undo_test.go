@@ -119,7 +119,11 @@ func TestIntegration_UndoPullResets(t *testing.T) {
 		Op:      journal.OpPull,
 		Time:    time.Unix(1700000000, 0),
 		Summary: "pulled repo",
-		Pulls:   []journal.PullRef{{Repo: "repo", Path: dir, SHA: preSHA}},
+		Pulls: []journal.PullRef{{
+			Repo: "repo", Path: dir, SHA: preSHA,
+			Branch:  gitIn(t, dir, "symbolic-ref", "HEAD"),
+			PostSHA: gitIn(t, dir, "rev-parse", "HEAD"),
+		}},
 	}
 	if err := journal.Append(&entry); err != nil {
 		t.Fatalf("seeding journal: %v", err)
