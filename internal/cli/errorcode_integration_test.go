@@ -207,9 +207,11 @@ func TestIntegration_ExecJSONErrorCodes(t *testing.T) {
 		t.Fatalf("rm: %v", err)
 	}
 
-	// A non-zero exit code is a command failure, not a soko failure: no code.
-	// (exec --json reports per-repo and returns success at the process level.)
-	out := runSoko(t, "exec", "--json", "--", "false")
+	// A command failure has no error_code, but still fails the overall run.
+	out, err := runSokoErr(t, "exec", "--json", "--", "false")
+	if err == nil || err.Error() != "2 repos failed" {
+		t.Errorf("exec error = %v, want 2 repos failed", err)
+	}
 	var entries []errEntry
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		t.Fatalf("parse: %v\n%s", err, out)
@@ -234,7 +236,10 @@ func TestIntegration_ExecJSONSpawnUnknown(t *testing.T) {
 	runSokoInit(t, dir)
 
 	// Failing to spawn the binary is a non-git failure -> unknown.
-	out := runSoko(t, "exec", "--json", "--", "soko-no-such-binary-xyz")
+	out, err := runSokoErr(t, "exec", "--json", "--", "soko-no-such-binary-xyz")
+	if err == nil || err.Error() != "1 repo failed" {
+		t.Errorf("exec error = %v, want 1 repo failed", err)
+	}
 	var entries []errEntry
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		t.Fatalf("parse: %v\n%s", err, out)
