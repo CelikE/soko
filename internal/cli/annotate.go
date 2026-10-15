@@ -41,7 +41,7 @@ Filter other commands by metadata with --meta key=value (repeatable, AND):
 		RunE:              runAnnotate,
 	}
 
-	cmd.Flags().StringSlice("set", nil, "set a metadata key (key=value, repeatable)")
+	cmd.Flags().StringArray("set", nil, "set a metadata key (key=value, repeatable; commas are literal)")
 	cmd.Flags().StringSlice("unset", nil, "remove a metadata key (repeatable)")
 	cmd.Flags().Bool("clear", false, "remove all metadata from the repo")
 	cmd.Flags().Bool("list", false, "list every repo that has metadata")
@@ -56,7 +56,7 @@ Filter other commands by metadata with --meta key=value (repeatable, AND):
 func runAnnotate(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
-	setVals, _ := cmd.Flags().GetStringSlice("set")
+	setVals, _ := cmd.Flags().GetStringArray("set")
 	unsetVals, _ := cmd.Flags().GetStringSlice("unset")
 	clearFlag, _ := cmd.Flags().GetBool("clear")
 	listFlag, _ := cmd.Flags().GetBool("list")

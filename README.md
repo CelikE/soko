@@ -330,6 +330,7 @@ status, priority, and note are well-known keys, but the map is open — any
 ```bash
 soko annotate api --set owner=alice --set status=active   # set keys (repeatable)
 soko annotate api --set note="migrating to v2"            # quote values with spaces
+soko annotate api --set note="waiting, on legal"          # commas stay in the value
 soko annotate api                                         # show a repo's metadata
 soko annotate api --json                                  # machine-readable
 soko annotate api --unset priority                        # remove a key
@@ -343,7 +344,11 @@ combine with **AND**:
 ```bash
 soko list   --meta status=active                          # only active repos
 soko status --meta priority=high --meta status=active     # high priority AND active
+soko list   --meta note="waiting, on legal"                # match the complete value
 ```
+
+Each `--set` and `--meta` flag accepts one `key=value`; commas are literal.
+Repeat the flag to set or filter multiple keys.
 
 Metadata lives in the same `~/.config/soko/config.yaml` registry and survives
 `soko scan` / `soko prune`. A repo with no annotations writes no `meta:` block,

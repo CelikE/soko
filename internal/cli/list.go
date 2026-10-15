@@ -58,7 +58,7 @@ func newListCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSlice("tag", nil, "filter by tag (can be repeated, combines with OR)")
-	cmd.Flags().StringSlice("meta", nil, "filter by metadata key=value (repeatable, combines with AND)")
+	cmd.Flags().StringArray("meta", nil, "filter by metadata key=value (repeatable, combines with AND; commas are literal)")
 	cmd.Flags().Bool("group", false, "group repos by tag in a tree view")
 	addFamilyFlag(cmd)
 	addGroupingFlag(cmd)

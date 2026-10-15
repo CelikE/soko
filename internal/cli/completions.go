@@ -222,7 +222,7 @@ func loadReposWithTagFilter(cmd *cobra.Command) (*config.Config, []config.RepoEn
 		repos = config.FilterByTags(cfg, repos, tags)
 	}
 
-	meta, _ := cmd.Flags().GetStringSlice("meta")
+	meta, _ := cmd.Flags().GetStringArray("meta")
 	if len(meta) > 0 {
 		constraints, err := parseMetaConstraints(meta)
 		if err != nil {
