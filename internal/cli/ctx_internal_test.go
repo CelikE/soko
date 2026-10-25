@@ -51,8 +51,8 @@ func TestRollbackCtxSaveCanceled(t *testing.T) {
 	if err != nil || string(data) != "unsaved work\n" {
 		t.Errorf("restored work = %q, %v", data, err)
 	}
-	if got := ctxRollbackGit(t, repo.Path, "stash", "list"); got != "" {
-		t.Errorf("rollback left a stash: %s", got)
+	if got := ctxRollbackGit(t, repo.Path, "stash", "list", "--format=%H"); got != r.stashOID {
+		t.Errorf("rollback backup = %s, want owned stash %s", got, r.stashOID)
 	}
 }
 
@@ -84,7 +84,57 @@ func TestRollbackCtxSaveConflictRetainsStashAndContinues(t *testing.T) {
 	if readErr != nil || string(data) != "unsaved work\n" {
 		t.Errorf("rollback did not continue to second repo: %q, %v", data, readErr)
 	}
-	if got := ctxRollbackGit(t, second.Path, "stash", "list"); got != "" {
-		t.Errorf("successful rollback left a stash: %s", got)
+	if got := ctxRollbackGit(t, second.Path, "stash", "list", "--format=%H"); got != secondResult.stashOID {
+		t.Errorf("successful rollback lost its backup: %s", got)
+	}
+}
+
+func TestFindStashCommitRejectsAmbiguousCapture(t *testing.T) {
+	repo, r := setupCtxRollback(t, 0)
+	subject := ctxRollbackGit(t, repo.Path, "stash", "list", "--format=%gs")
+	if err := os.WriteFile(filepath.Join(repo.Path, "other.txt"), []byte("other work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctxRollbackGit(t, repo.Path, "stash", "push", "-u", "-m", "unrelated")
+	ctxRollbackGit(t, repo.Path, "stash", "store", "-m", subject, r.stashOID)
+	before := ctxRollbackGit(t, repo.Path, "stash", "list", "--format=%H %gs")
+	oid, found, err := findStashCommit(context.Background(), repo.Path, r.stashMessage)
+	if err == nil || found || oid != "" {
+		t.Fatalf("ambiguous capture resolved to %s, %v, %v", oid, found, err)
+	}
+	if after := ctxRollbackGit(t, repo.Path, "stash", "list", "--format=%H %gs"); after != before {
+		t.Errorf("ambiguous lookup changed stashes: %s, want %s", after, before)
+	}
+}
+
+func TestRollbackCtxSaveUsesPinnedIdentityAfterStashRemoval(t *testing.T) {
+	repo, r := setupCtxRollback(t, 0)
+	ctxRollbackGit(t, repo.Path, "stash", "clear")
+	if err := rollbackCtxSave(context.Background(), []config.RepoEntry{repo}, []ctxRepoResult{r}, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo.Path, "work.txt"))
+	if err != nil || string(data) != "unsaved work\n" {
+		t.Errorf("pinned recovery failed: %q, %v", data, err)
+	}
+	if got := ctxRollbackGit(t, repo.Path, "stash", "list"); got != "" {
+		t.Errorf("rollback changed shared stash list: %s", got)
+	}
+}
+
+func TestFindStashCommitIgnoresRelabeledForeignCommit(t *testing.T) {
+	repo, r := setupCtxRollback(t, 0)
+	subject := ctxRollbackGit(t, repo.Path, "show", "-s", "--format=%s", r.stashOID)
+	if err := os.WriteFile(filepath.Join(repo.Path, "foreign.txt"), []byte("foreign work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctxRollbackGit(t, repo.Path, "stash", "push", "-u", "-m", "foreign")
+	foreign := ctxRollbackGit(t, repo.Path, "rev-parse", "refs/stash")
+	ctxRollbackGit(t, repo.Path, "stash", "clear")
+	// Reflog labels are mutable independently of their commit's contents.
+	ctxRollbackGit(t, repo.Path, "stash", "store", "-m", subject, foreign)
+	oid, found, err := findStashCommit(context.Background(), repo.Path, r.stashMessage)
+	if err != nil || found || oid != "" {
+		t.Fatalf("foreign commit inherited ownership through reflog label: %s, %v, %v", oid, found, err)
 	}
 }

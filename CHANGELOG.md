@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Bind context stashes to their exact saved commits and per-worktree ownership refs, preventing linked-worktree swaps, recycled-checkout ownership, and lookup-time stash insertion from redirecting restoration. Retain stash backups, record completion in Git refs without rewriting concurrent config changes, and refuse missing or legacy ambiguous ownership before checkout.
 - Restore staged, unstaged, and untracked work when `soko ctx save` cannot persist its context, preserve older stashes during forced saves, and identify recoverable stashes if automatic rollback fails.
 - Make the `soko pr` result cap configurable with `--limit`, validate positive limits, and print a stderr hint when the cap is reached so text and JSON listings no longer silently omit additional pull requests.
 - Report missing repository paths in `soko open` with a prune hint, and preserve actual Git errors in text and JSON output instead of diagnosing every remote lookup failure as a missing origin.
@@ -46,6 +47,7 @@
 
 ### Upgrade Notes
 
+- Existing stashed context records without stash commit and per-worktree ownership now require manual recovery through `git stash list`; clean context records remain compatible. Context restoration retains stash-list entries, `refs/soko/ctx-backups/<stash-oid>` backup refs, `refs/worktree/soko/ctx/<stash-oid>` ownership refs, and `refs/soko/ctx-restored/<stash-oid>` completion refs, including after a context is dropped.
 - Source installs require Go 1.27.2 or newer. macOS binaries and source builds now require macOS 13 Ventura or newer; macOS 12 is no longer supported.
 
 ## v0.22.0 — 2026-10-14

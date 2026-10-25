@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,9 +21,9 @@ import (
 	"github.com/CelikE/soko/internal/output"
 )
 
-// ctxStashMessage is the stash message used for a context's stashes. Stashes
-// are found again by this message (not by index, which shifts), so a context
-// survives unrelated stash activity in the same repo.
+// ctxStashMessage is the human-readable suffix on a context's stash messages.
+// Ownership comes from a per-capture token and its persisted commit, not this
+// shared suffix: linked worktrees share one stash list.
 func ctxStashMessage(name string) string {
 	return "soko-ctx:" + name
 }
@@ -33,6 +34,7 @@ type ctxRepoResult struct {
 	branch       string
 	stashed      bool
 	stashMessage string
+	stashOID     string
 	files        int
 	success      bool
 	message      string
@@ -51,7 +53,7 @@ Switch between client projects, oncall firefighting, and feature work in one
 command — no more visiting each repo to stash, note the branch, and reverse
 it all from memory an hour later.`,
 		Example: `  soko ctx save client-a            # record branches, stash dirty trees
-  soko ctx switch client-a          # restore branches, pop the stashes
+  soko ctx switch client-a          # restore branches and saved changes
   soko ctx list                     # saved contexts
   soko ctx show client-a            # per-repo detail
   soko ctx drop client-a            # forget it (stashes stay recoverable)`,
@@ -174,6 +176,7 @@ func runCtxSave(cmd *cobra.Command, args []string) (saveErr error) {
 			Branch:   ordered[i].branch,
 			Detached: ordered[i].message == "detached",
 			Stashed:  ordered[i].stashed,
+			StashOID: ordered[i].stashOID,
 		})
 	}
 	if len(entry.Repos) == 0 {
@@ -250,8 +253,8 @@ func ctxSaveRepo(ctx context.Context, index int, repo *config.RepoEntry, name st
 
 	if statusOut != "" {
 		r.files = len(strings.Split(statusOut, "\n"))
-		// Keep the context suffix used by switch, but identify this exact save
-		// attempt so rollback cannot consume an older stash after --force.
+		// The token belongs to this checkout and capture, including --force.
+		// Never read refs/stash's tip: another worktree may already have pushed.
 		r.stashMessage = rand.Text() + " " + ctxStashMessage(name)
 		if _, err := git.Run(ctx, repo.Path, "stash", "push", "-u", "-m", r.stashMessage); err != nil {
 			r.message = err.Error()
@@ -259,6 +262,28 @@ func ctxSaveRepo(ctx context.Context, index int, repo *config.RepoEntry, name st
 			return r
 		}
 		r.stashed = true
+		oid, found, err := findStashCommit(ctx, repo.Path, r.stashMessage)
+		if err != nil {
+			r.message = err.Error()
+			r.errorCode = gitErrorCode(err)
+			return r
+		}
+		if !found {
+			r.message = "saved stash not found; inspect git stash list for " + r.stashMessage
+			r.errorCode = codeUnknown
+			return r
+		}
+		r.stashOID = oid
+		// Pin globally first: GC from another worktree may not protect private
+		// refs. Then bind ownership in Git's per-worktree namespace, which is
+		// removed with that checkout even when Git reuses its admin path.
+		for _, prefix := range []string{"refs/soko/ctx-backups/", "refs/worktree/soko/ctx/"} {
+			if _, err := git.Run(ctx, repo.Path, "update-ref", prefix+oid, oid, strings.Repeat("0", len(oid))); err != nil {
+				r.message = err.Error()
+				r.errorCode = gitErrorCode(err)
+				return r
+			}
+		}
 	}
 
 	r.success = true
@@ -267,7 +292,7 @@ func ctxSaveRepo(ctx context.Context, index int, repo *config.RepoEntry, name st
 
 // rollbackCtxSave restores stashes that were not recorded in a saved context.
 // --index restores staging as well as working-tree and untracked changes. Git
-// retains a stash if pop fails, and the error identifies it for manual recovery.
+// retains the stash as a backup, and errors identify it for manual recovery.
 func rollbackCtxSave(ctx context.Context, repos []config.RepoEntry, results []ctxRepoResult, persisted bool) error {
 	var rollbackErrors []error
 	for i := range results {
@@ -278,11 +303,18 @@ func rollbackCtxSave(ctx context.Context, repos []config.RepoEntry, results []ct
 		repo := &repos[r.index]
 		// A canceled save must still restore work, with bounded cleanup time.
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-		ref, found, err := findStashMessage(rollbackCtx, repo.Path, r.stashMessage)
+		oid := r.stashOID
+		found := oid != ""
+		var err error
+		if !found {
+			// A failed push may have created a stash before returning an error,
+			// so only that incomplete capture still needs token resolution.
+			oid, found, err = findStashCommit(rollbackCtx, repo.Path, r.stashMessage)
+		}
 		if err == nil {
 			switch {
 			case found:
-				_, err = git.Run(rollbackCtx, repo.Path, "stash", "pop", "--index", ref)
+				_, err = git.Run(rollbackCtx, repo.Path, "stash", "apply", "--index", oid)
 			case r.stashed:
 				err = fmt.Errorf("stash not found")
 			}
@@ -301,12 +333,19 @@ func newCtxSwitchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "switch <name>",
 		Short: "Restore a saved context's branches and stashes",
-		Long: `Check out the branch each repo had when the context was saved, and pop the
-stash the save created (found by message, so unrelated stashes are untouched).
+		Long: `Check out the branch each repo had when the context was saved, and apply the
+exact stash commit recorded for that member. Stash entries stay as recoverable
+backups: deleting a numeric stash position could consume an unrelated entry
+after concurrent stash activity. Successful applications are recorded in Git
+refs/soko/ctx-restored/<stash-oid> so a later switch does not reapply them.
 
 A repo that is dirty right now is refused and left exactly as it is — save the
 current state first (soko ctx save <other-name>) or clean it up, then switch
-again. A missing stash is reported but does not block the rest.`,
+again. Missing ownership fails that member without blocking the rest. Older
+stashed contexts without commit and per-worktree ownership require manual recovery;
+inspect git stash list rather than guessing ownership from a shared message.
+Ownership refs live under refs/worktree/soko/ctx/<stash-oid>; shared backup refs
+live under refs/soko/ctx-backups/<stash-oid>.`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: contextNameCompletionFunc(),
 		RunE:              runCtxSwitch,
@@ -343,7 +382,7 @@ func runCtxSwitch(cmd *cobra.Command, args []string) error {
 
 	for i, cr := range entry.Repos {
 		g.Go(func() error {
-			r := ctxSwitchRepo(gctx, i, byName[cr.Name], &cr, name)
+			r := ctxSwitchRepo(gctx, i, byName[cr.Name], &cr)
 			mu.Lock()
 			results = append(results, r)
 			mu.Unlock()
@@ -386,8 +425,8 @@ func runCtxSwitch(cmd *cobra.Command, args []string) error {
 }
 
 // ctxSwitchRepo restores one repo: refuse if dirty, check out the recorded
-// branch, pop the context's stash when one was taken.
-func ctxSwitchRepo(ctx context.Context, index int, repo *config.RepoEntry, cr *config.ContextRepo, name string) ctxRepoResult {
+// branch, apply that member's exact stash commit when one remains pending.
+func ctxSwitchRepo(ctx context.Context, index int, repo *config.RepoEntry, cr *config.ContextRepo) ctxRepoResult {
 	r := ctxRepoResult{index: index, name: cr.Name, branch: cr.Branch, stashed: cr.Stashed}
 
 	if repo == nil {
@@ -415,6 +454,41 @@ func ctxSwitchRepo(ctx context.Context, index int, repo *config.RepoEntry, cr *c
 		return r
 	}
 
+	needsApply := cr.Stashed
+	completionRef := "refs/soko/ctx-restored/" + cr.StashOID
+	if needsApply {
+		// Never fall back to messages for old records: even a single remaining
+		// match might belong to a different linked checkout or an older save.
+		decoded, err := hex.DecodeString(cr.StashOID)
+		if err != nil || (len(decoded) != 20 && len(decoded) != 32) {
+			r.message = "context lacks valid stash identity — inspect git stash list and restore manually"
+			r.errorCode = codeUnknown
+			return r
+		}
+		ownershipRef := "refs/worktree/soko/ctx/" + cr.StashOID
+		owned, err := git.Run(ctx, repo.Path, "for-each-ref", "--format=%(refname) %(objectname)", ownershipRef)
+		if err != nil {
+			r.message = err.Error()
+			r.errorCode = gitErrorCode(err)
+			return r
+		}
+		if owned != ownershipRef+" "+cr.StashOID {
+			r.message = "stash ownership missing or checkout replaced — inspect git stash list and restore manually"
+			r.errorCode = codeUnknown
+			return r
+		}
+		// A positive completion ref avoids reapplying a retained backup. Git
+		// owns this per-capture record; switch never rewrites a stale config
+		// snapshot over a concurrent ctx save or --force replacement.
+		completed, err := git.Run(ctx, repo.Path, "for-each-ref", "--format=%(refname) %(objectname)", completionRef)
+		if err != nil {
+			r.message = err.Error()
+			r.errorCode = gitErrorCode(err)
+			return r
+		}
+		needsApply = completed != completionRef+" "+cr.StashOID
+	}
+
 	checkoutArgs := []string{"checkout", cr.Branch}
 	if cr.Detached {
 		checkoutArgs = []string{"checkout", "--detach", cr.Branch}
@@ -426,52 +500,50 @@ func ctxSwitchRepo(ctx context.Context, index int, repo *config.RepoEntry, cr *c
 	}
 
 	r.message = cr.Branch
-	if cr.Stashed {
-		ref, found, err := findCtxStash(ctx, repo.Path, name)
-		switch {
-		case err != nil:
+	if needsApply {
+		if _, err := git.Run(ctx, repo.Path, "stash", "apply", cr.StashOID); err != nil {
+			// No positional pop/drop follows application. The owned stash and
+			// every unrelated entry remain recoverable, including on conflicts.
 			r.message = err.Error()
 			r.errorCode = gitErrorCode(err)
 			return r
-		case !found:
-			// The stash is gone (popped manually, or dropped). The branch is
-			// restored, which is the best we can do — report, don't fail.
-			r.message = cr.Branch + " (stash missing — already popped?)"
-		default:
-			if _, err := git.Run(ctx, repo.Path, "stash", "pop", ref); err != nil {
-				// On conflict git keeps the stash, so nothing is lost.
-				r.message = err.Error()
-				r.errorCode = gitErrorCode(err)
-				return r
-			}
-			r.message = cr.Branch + " (stash restored)"
 		}
+		// No shared stash reflog is edited. The completion ref also pins the
+		// backup against GC if somebody later removes its stash-list entry.
+		if _, err := git.Run(ctx, repo.Path, "update-ref", completionRef, cr.StashOID); err != nil {
+			r.message = "work restored but could not record completion; saved commit " + cr.StashOID + ": " + err.Error()
+			r.errorCode = gitErrorCode(err)
+			return r
+		}
+		r.message = cr.Branch + " (stash restored; backup retained)"
+	} else if cr.Stashed {
+		r.message = cr.Branch + " (stash already restored; backup retained)"
 	}
 
 	r.success = true
 	return r
 }
 
-// findCtxStash locates the most recent stash carrying the context's message.
-// Matching by message suffix (not index) keeps the lookup stable against
-// unrelated stash pushes and pops since the save.
-func findCtxStash(ctx context.Context, dir, name string) (ref string, found bool, err error) {
-	return findStashMessage(ctx, dir, ctxStashMessage(name))
-}
-
-func findStashMessage(ctx context.Context, dir, message string) (ref string, found bool, err error) {
-	out, err := git.Run(ctx, dir, "stash", "list", "--format=%gd %gs")
+// findStashCommit resolves a token generated for one capture to an immutable
+// commit, checking its immutable subject rather than a mutable reflog label.
+// A duplicate token refuses safely instead of choosing a stack position.
+func findStashCommit(ctx context.Context, dir, message string) (oid string, found bool, err error) {
+	out, err := git.Run(ctx, dir, "stash", "list", "--format=%H%x00%s")
 	if err != nil {
 		return "", false, err
 	}
 	for line := range strings.Lines(out) {
-		line = strings.TrimSpace(line)
-		if strings.HasSuffix(line, " "+message) {
-			refPart, _, _ := strings.Cut(line, " ")
-			return refPart, true, nil
+		line = strings.TrimSuffix(line, "\n")
+		commit, subject, ok := strings.Cut(line, "\x00")
+		_, capturedMessage, hasMessage := strings.Cut(subject, ": ")
+		if ok && hasMessage && capturedMessage == message {
+			if found {
+				return "", false, fmt.Errorf("ambiguous stash identity for %q; restore manually", message)
+			}
+			oid, found = commit, true
 		}
 	}
-	return "", false, nil
+	return oid, found, nil
 }
 
 func newCtxListCmd() *cobra.Command {
