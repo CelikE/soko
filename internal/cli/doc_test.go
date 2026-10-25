@@ -1,10 +1,10 @@
 package cli_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -18,6 +18,20 @@ func TestIntegration_DocFixDuplicateNames(t *testing.T) {
 			name = "json"
 		}
 		t.Run(name, func(t *testing.T) {
+			assertConfigData := func(want *config.Config) {
+				t.Helper()
+				gotData, err := json.Marshal(loadRegistry(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantData, err := json.Marshal(want)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(gotData, wantData) {
+					t.Fatalf("registry data = %s, want %s", gotData, wantData)
+				}
+			}
 			testEnv(t)
 			base := t.TempDir()
 			healthyPath := filepath.Join(base, "healthy")
@@ -55,16 +69,12 @@ func TestIntegration_DocFixDuplicateNames(t *testing.T) {
 				args = append(args, "--json")
 			}
 			runSoko(t, args...)
-			if got := loadRegistry(t); !reflect.DeepEqual(got, cfg) {
-				t.Fatalf("doc without --fix changed config: %+v", got)
-			}
+			assertConfigData(cfg)
 
 			args = append(args, "--fix")
 			out := runSoko(t, args...)
 			want := &config.Config{Aliases: cfg.Aliases, Repos: []config.RepoEntry{healthy, other}}
-			if got := loadRegistry(t); !reflect.DeepEqual(got, want) {
-				t.Fatalf("doc --fix config = %+v, want healthy entries and settings preserved: %+v", got, want)
-			}
+			assertConfigData(want)
 			if jsonOut {
 				var rows []struct {
 					Message string `json:"message"`
@@ -88,9 +98,7 @@ func TestIntegration_DocFixDuplicateNames(t *testing.T) {
 
 			// A repeated repair must leave the surviving entries intact.
 			runSoko(t, args...)
-			if got := loadRegistry(t); !reflect.DeepEqual(got, want) {
-				t.Fatalf("repeated doc --fix changed healthy entries: %+v", got)
-			}
+			assertConfigData(want)
 		})
 	}
 }

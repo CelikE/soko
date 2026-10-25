@@ -49,6 +49,8 @@ jobs:
           go-version-file: go.mod
       - name: Verify native Windows browser opening
         run: go test -race ./internal/browser
+      - name: Verify native Windows config concurrency
+        run: go test -race ./internal/config -run 'Test(SaveTo|ConfigLock|RegisterDiscovered)'
       - name: Verify worktree registration and PowerShell navigation
         shell: pwsh
         run: ./.github/scripts/windows-worktree-smoke.ps1

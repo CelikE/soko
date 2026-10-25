@@ -2,11 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kballard/go-shellquote"
 
@@ -34,6 +36,7 @@ func TestConfigEdit(t *testing.T) {
 		{name: "invalid edit", before: "repos: []\n", after: "repos: [\n", action: "write", wantErr: "validating edited config"},
 		{name: "unchanged invalid config", before: "repos: [\n", action: "noop", wantErr: "validating edited config"},
 		{name: "repair invalid config", before: "repos: [\n", after: "repos: []\n", action: "write", wantSaved: true},
+		{name: "concurrent writer", before: "repos: []\n", after: "repos: []\n# edited\n", action: "concurrent", wantErr: "config changed"},
 		{name: "create config", missing: true, after: "repos: []\n", action: "write", wantSaved: true},
 		{name: "create empty config", missing: true, action: "write", wantSaved: true},
 		{name: "quit without creating config", missing: true, action: "noop"},
@@ -81,6 +84,21 @@ func TestConfigEdit(t *testing.T) {
 			if saved := strings.Contains(stderr.String(), "config saved"); saved != tt.wantSaved {
 				t.Errorf("stderr = %q, want saved confirmation: %v", stderr.String(), tt.wantSaved)
 			}
+			copies, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".config-edit-*", "config.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.action == "write" && tt.wantErr != "" || tt.action == "concurrent" {
+				if len(copies) != 1 {
+					t.Fatalf("failed edit did not preserve recovery copy: %v", copies)
+				}
+				data, err := os.ReadFile(copies[0])
+				if err != nil || string(data) != tt.after {
+					t.Errorf("edited recovery copy = %q, %v; want %q", data, err, tt.after)
+				}
+			} else if tt.wantErr == "" && len(copies) != 0 {
+				t.Errorf("successful edit left temporary copies: %v", copies)
+			}
 			if stdout.Len() != 0 {
 				t.Errorf("unexpected stdout: %q", stdout.String())
 			}
@@ -95,8 +113,15 @@ func TestConfigEdit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if tt.action == "concurrent" {
+				cfg, err := config.Load()
+				if err != nil || cfg.Aliases["concurrent"] != "status" {
+					t.Fatalf("editor erased completed update: %s, %v", data, err)
+				}
+				return
+			}
 			want := tt.before
-			if tt.action == "write" {
+			if tt.action == "write" && tt.wantErr == "" {
 				want = tt.after
 			}
 			if string(data) != want {
@@ -118,14 +143,33 @@ func TestConfigEditHelperProcess(t *testing.T) {
 		t.Fatal("missing argument separator")
 	}
 	args := os.Args[separator+1:]
-	path, err := config.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(args, []string{"--wait", "argument with spaces", "", path}) {
+	if len(args) != 4 || !slices.Equal(args[:3], []string{"--wait", "argument with spaces", ""}) || filepath.Base(args[3]) != "config.yaml" {
 		t.Fatalf("editor arguments = %q", args)
 	}
+	path := args[3]
 	switch action {
+	case "block":
+		if err := os.WriteFile(path, []byte(os.Getenv("SOKO_CONFIG_EDIT_CONTENT")), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(os.Getenv("SOKO_CONFIG_EDIT_READY"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for {
+			time.Sleep(time.Second)
+		}
+	case "concurrent":
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Aliases = map[string]string{"concurrent": "status"}
+		if err := config.Save(cfg); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(os.Getenv("SOKO_CONFIG_EDIT_CONTENT")), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	case "write":
 		if err := os.WriteFile(path, []byte(os.Getenv("SOKO_CONFIG_EDIT_CONTENT")), 0o600); err != nil {
 			t.Fatal(err)
@@ -134,4 +178,73 @@ func TestConfigEditHelperProcess(t *testing.T) {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+func TestConfigEditCancellationPreservesConcurrentWriter(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := config.Save(&config.Config{}); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(t.TempDir(), "editor-ready")
+	edited := "repos: []\n# unfinished editor work\n"
+	t.Setenv("SOKO_CONFIG_EDIT_HELPER", "block")
+	t.Setenv("SOKO_CONFIG_EDIT_CONTENT", edited)
+	t.Setenv("SOKO_CONFIG_EDIT_READY", ready)
+	t.Setenv("EDITOR", shellquote.Join(executable, "-test.run=^TestConfigEditHelperProcess$", "--", "--wait", "argument with spaces", ""))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := NewRootCmd("test")
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"config", "edit"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("editor did not reach barrier")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Aliases = map[string]string{"concurrent": "status"}
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("editor held commit lock during user interaction: %v", err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "opening editor") {
+			t.Fatalf("canceled editor reported success: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancellation did not stop editor")
+	}
+	cfg, err = config.Load()
+	if err != nil || cfg.Aliases["concurrent"] != "status" {
+		t.Fatalf("canceled editor lost concurrent update: %+v, %v", cfg, err)
+	}
+	path, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copies, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".config-edit-*", "config.yaml"))
+	if err != nil || len(copies) != 1 {
+		t.Fatalf("canceled editor lost recovery copy: %v, %v", copies, err)
+	}
+	data, err := os.ReadFile(copies[0])
+	if err != nil || string(data) != edited {
+		t.Errorf("canceled editor recovery data = %q, %v", data, err)
+	}
 }
