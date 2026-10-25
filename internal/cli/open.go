@@ -19,23 +19,32 @@ func newOpenCmd() *cobra.Command {
 		Short: "Open a repo in the browser",
 		Long: `Open a repo's remote URL in the default browser. If no name is given,
 opens the repo in the current directory. Use flags to jump to specific
-pages like pull requests, issues, or CI/CD.`,
+pages like pull requests, issues, or CI/CD.
+
+Use --tag to open every matching repo. It cannot be combined with a repo name.`,
 		Example: `  soko open                     # current repo
   soko open auth-service        # by name
   soko open --prs               # pull requests
   soko open --tag backend       # open all backend repos
   soko open --tag backend --prs # PRs for all backend repos`,
+		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
+
+			tags, _ := cmd.Flags().GetStringSlice("tag")
+			if len(args) > 0 && len(tags) > 0 {
+				return fmt.Errorf("a repo name cannot be combined with --tag; use either a name or --tag")
+			}
 
 			page := resolvePageFlag(cmd)
 
 			// Determine which repos to open.
 			var repos []config.RepoEntry
 
-			if tags, _ := cmd.Flags().GetStringSlice("tag"); len(tags) > 0 {
+			switch {
+			case len(tags) > 0:
 				cfg, err := config.Load()
 				if err != nil {
 					return fmt.Errorf("loading config: %w", err)
@@ -45,7 +54,7 @@ pages like pull requests, issues, or CI/CD.`,
 					output.Info(w, noReposMessage(len(cfg.Repos)))
 					return nil
 				}
-			} else if len(args) > 0 {
+			case len(args) > 0:
 				cfg, err := config.Load()
 				if err != nil {
 					return fmt.Errorf("loading config: %w", err)
@@ -62,7 +71,7 @@ pages like pull requests, issues, or CI/CD.`,
 					return fmt.Errorf("multiple repos match %q", args[0])
 				}
 				repos = matches
-			} else {
+			default:
 				// Current directory.
 				dir, err := os.Getwd()
 				if err != nil {

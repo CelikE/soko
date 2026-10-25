@@ -580,6 +580,7 @@ soko open --tag backend --prs       # PRs for all backend repos
 ```
 
 Supports GitHub, GitLab, and Bitbucket — auto-detects the platform from the remote URL.
+Choose either one repo name or `--tag`; combining them returns an error before opening any browser tabs.
 
 ### Manage repos
 

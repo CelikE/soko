@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Reject combined repository-name and `--tag` selectors in `soko open` before opening browser tabs, and reject extra positional names instead of silently ignoring them.
 - Print only the new worktree path from `soko worktree add` in quiet mode, including `SOKO_QUIET`, so the documented `cd "$(soko worktree add ... -q)"` workflow works with paths containing spaces.
 - Align grouped status headers with their tree rows, and measure status table columns and separators by terminal display width so Unicode repository names, branches, and status symbols stay aligned.
 - Replace snapshot files atomically so interrupted overwrites preserve the previous save, and show unreadable or incomplete snapshots with per-file errors in text and JSON listings instead of silently hiding them.
