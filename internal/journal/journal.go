@@ -41,13 +41,15 @@ type BranchRef struct {
 }
 
 // PullRef records both ends of a fast-forward and the branch it advanced.
-// Undo requires the checkout to still match Branch and PostSHA.
+// Pending undo requires the checkout to still match Branch and PostSHA.
+// Undone checkpoints a successful reset so retries never revisit that checkout.
 type PullRef struct {
 	Repo    string `yaml:"repo"`
 	Path    string `yaml:"path"`
 	SHA     string `yaml:"sha"`
 	Branch  string `yaml:"branch,omitempty"`
 	PostSHA string `yaml:"post_sha,omitempty"`
+	Undone  bool   `yaml:"undone,omitempty"`
 }
 
 // Entry is one reversible operation.

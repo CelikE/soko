@@ -298,9 +298,16 @@ func undoLastPullForUI(ctx context.Context) func() (string, error) {
 		}
 
 		var reset int
-		for _, p := range entry.Pulls {
-			if err := resetPulledRepo(ctx, &p); err != nil {
+		for i := range entry.Pulls {
+			p := &entry.Pulls[i]
+			if p.Undone {
+				continue
+			}
+			if err := resetPulledRepo(ctx, p); err != nil {
 				return "", fmt.Errorf("%s: %w", p.Repo, err)
+			}
+			if err := recordPullUndo(j, p); err != nil {
+				return "", err
 			}
 			reset++
 		}

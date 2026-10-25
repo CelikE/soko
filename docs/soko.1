@@ -604,6 +604,13 @@ pull), using the undo journal. Option:
 Pull undo requires a clean checkout (including no untracked files) on the
 original branch at the recorded pulled tip. It refuses newer commits,
 switched branches, and older journal entries without that safety metadata.
+If a batch is only partly undone, resolve the refusal and retry with
+.B soko undo
+or dashboard
+.BR u .
+Each successful reset is recorded; completed repos are skipped on retry,
+preserving any work made there since. The journal entry is consumed only
+after all its repos are undone, making older undo history available again.
 .\" ----------------------------------------------------------------------
 .SH "WORKSPACE STATE"
 Commands that capture and restore the state of many repositories at
