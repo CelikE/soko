@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Return a non-zero exit status when `soko clean --json` cannot delete every planned branch, report successful deletions and per-branch failures in JSON, and preserve exact undo records for successful deletions.
 - Reject stale config snapshots under a short cross-process commit lock instead of silently losing completed updates; serialize concurrent discovery registrations with current policy and unique aliases, and stage config edits so conflicts preserve both the live config and editor recovery copy.
 - Bind context stashes to their exact saved commits and per-worktree ownership refs, preventing linked-worktree swaps, recycled-checkout ownership, and lookup-time stash insertion from redirecting restoration. Retain stash backups, record completion in Git refs without rewriting concurrent config changes, and refuse missing or legacy ambiguous ownership before checkout.
 - Restore staged, unstaged, and untracked work when `soko ctx save` cannot persist its context, preserve older stashes during forced saves, and identify recoverable stashes if automatic rollback fails.
