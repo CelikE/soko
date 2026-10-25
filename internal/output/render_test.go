@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestRenderJSON(t *testing.T) {
@@ -260,10 +262,10 @@ func TestColumnWidths(t *testing.T) {
 	if branch < len("feature/branch")+2 {
 		t.Errorf("branch width = %d, should fit 'feature/branch'", branch)
 	}
-	if status < len("✎ 3M 2U")+2 {
+	if status < ansi.StringWidth("✎ 3M 2U")+2 {
 		t.Errorf("status width = %d, should fit '✎ 3M 2U'", status)
 	}
-	if ab < len("↑2 ↓3")+2 {
+	if ab < ansi.StringWidth("↑2 ↓3")+2 {
 		t.Errorf("ab width = %d, should fit '↑2 ↓3'", ab)
 	}
 }

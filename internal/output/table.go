@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // RenderJSON encodes data as pretty-printed JSON to w.
@@ -39,27 +41,19 @@ type StatusRow struct {
 	State           RowState
 }
 
-// columnWidths computes the width for each column based on the actual data,
+// columnWidths computes the display width for each column based on the data,
 // with minimum widths so headers are never truncated.
 func columnWidths(rows []StatusRow) (repo, branch, status, ab int) {
 	repo = len("REPO")
 	branch = len("BRANCH")
 	status = len("STATUS")
-	ab = len("↑↓")
+	ab = ansi.StringWidth("↑↓")
 
 	for _, r := range rows {
-		if len(r.Name) > repo {
-			repo = len(r.Name)
-		}
-		if len(r.Branch) > branch {
-			branch = len(r.Branch)
-		}
-		if len(r.StatusText) > status {
-			status = len(r.StatusText)
-		}
-		if len(r.AheadBehindText) > ab {
-			ab = len(r.AheadBehindText)
-		}
+		repo = max(repo, ansi.StringWidth(r.Name))
+		branch = max(branch, ansi.StringWidth(r.Branch))
+		status = max(status, ansi.StringWidth(r.StatusText))
+		ab = max(ab, ansi.StringWidth(r.AheadBehindText))
 	}
 
 	repo += 2
@@ -68,6 +62,11 @@ func columnWidths(rows []StatusRow) (repo, branch, status, ab int) {
 	ab += 2
 
 	return repo, branch, status, ab
+}
+
+// padDisplay pads a cell to width terminal columns, ignoring ANSI escapes.
+func padDisplay(s string, width int) string {
+	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
 }
 
 // defaultMaxRows is the max rows shown before truncation. 0 means no limit.
@@ -84,15 +83,15 @@ func RenderStatusTable(w io.Writer, rows []StatusRow) {
 func RenderStatusTableN(w io.Writer, rows []StatusRow, maxRows int) {
 	cRepo, cBranch, cStatus, cAB := columnWidths(rows)
 
-	header := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
-		cRepo, "REPO",
-		cBranch, "BRANCH",
-		cStatus, "STATUS",
-		cAB, "↑↓",
+	header := fmt.Sprintf("  %s %s %s %s %s",
+		padDisplay("REPO", cRepo),
+		padDisplay("BRANCH", cBranch),
+		padDisplay("STATUS", cStatus),
+		padDisplay("↑↓", cAB),
 		"LAST COMMIT",
 	)
 	_, _ = fmt.Fprintln(w, Dim(header))
-	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", ansi.StringWidth(header)-2)))
 
 	truncated := false
 	visible := rows
@@ -102,11 +101,11 @@ func RenderStatusTableN(w io.Writer, rows []StatusRow, maxRows int) {
 	}
 
 	for _, r := range visible {
-		line := fmt.Sprintf("  %-*s %-*s %-*s %-*s %s",
-			cRepo, r.Name,
-			cBranch, r.Branch,
-			cStatus, r.StatusText,
-			cAB, r.AheadBehindText,
+		line := fmt.Sprintf("  %s %s %s %s %s",
+			padDisplay(r.Name, cRepo),
+			padDisplay(r.Branch, cBranch),
+			padDisplay(r.StatusText, cStatus),
+			padDisplay(r.AheadBehindText, cAB),
 			r.LastCommitText,
 		)
 
@@ -144,16 +143,16 @@ func RenderStatusGrouped(w io.Writer, groups []StatusGroup) {
 	}
 	cRepo, cBranch, cStatus, cAB := columnWidths(allRows)
 
-	// Header — offset by 6 chars to account for tree connector "  └── ".
-	header := fmt.Sprintf("        %-*s %-*s %-*s %-*s %s",
-		cRepo, "REPO",
-		cBranch, "BRANCH",
-		cStatus, "STATUS",
-		cAB, "↑↓",
+	// Header — offset by 6 columns to account for tree connector "  └── ".
+	header := fmt.Sprintf("      %s %s %s %s %s",
+		padDisplay("REPO", cRepo),
+		padDisplay("BRANCH", cBranch),
+		padDisplay("STATUS", cStatus),
+		padDisplay("↑↓", cAB),
 		"LAST COMMIT",
 	)
 	_, _ = fmt.Fprintln(w, Dim(header))
-	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", len(header)-2)))
+	_, _ = fmt.Fprintln(w, Dim("  "+strings.Repeat("─", ansi.StringWidth(header)-2)))
 
 	for i, g := range groups {
 		if i > 0 {
@@ -167,12 +166,12 @@ func RenderStatusGrouped(w io.Writer, groups []StatusGroup) {
 				connector = "└──"
 			}
 
-			line := fmt.Sprintf("  %s %-*s %-*s %-*s %-*s %s",
+			line := fmt.Sprintf("  %s %s %s %s %s %s",
 				Dim(connector),
-				cRepo, r.Name,
-				cBranch, r.Branch,
-				cStatus, r.StatusText,
-				cAB, r.AheadBehindText,
+				padDisplay(r.Name, cRepo),
+				padDisplay(r.Branch, cBranch),
+				padDisplay(r.StatusText, cStatus),
+				padDisplay(r.AheadBehindText, cAB),
 				r.LastCommitText,
 			)
 
