@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Confine `soko apply` previews and atomic writes to each repository root, rejecting escaping symlinks even if a destination changes after preview while preserving relative directory symlinks within the checkout.
 - Delete merged branches sequentially within each repository during `soko clean` to avoid packed-ref lock contention and spurious failures, while retaining parallel cleanup across repositories and exact branch restoration with `soko undo`.
 - Report Git inspection failures in `soko stash` and `stash pop` instead of silently skipping broken repositories, and return a non-zero exit status for repository failures in text and JSON output while preserving successful operations.
 - Open repository URLs through the native Windows API instead of `cmd.exe`, preventing shell metacharacters in remote URLs from executing commands while preserving literal URL content.
