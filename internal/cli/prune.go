@@ -19,7 +19,8 @@ func newPruneCmd() *cobra.Command {
 		Short: "Remove repos whose directories no longer exist",
 		Long: `Find registered repos whose paths no longer exist on disk — for example
 local directories you have deleted — and remove them from the registry.
-Linked worktrees of a pruned repo are removed alongside it.
+Linked worktrees of a pruned repo are removed alongside it, even when deselected
+with --select while their parent remains selected.
 
 Use --dry-run to preview what would be pruned.`,
 		Example: `  soko prune --dry-run            # preview repos that would be pruned
@@ -89,48 +90,7 @@ Use --dry-run to preview what would be pruned.`,
 				targets = chosen
 			}
 
-			if !jsonFlag {
-				renderPruneTable(w, targets)
-			}
-
-			if dryRun {
-				if jsonFlag {
-					return writePrunedJSON(w, targets)
-				}
-				return nil
-			}
-
-			// Confirm unless --force.
-			if !force {
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-					"\n  remove %d missing %s from the registry? [y/N] ",
-					len(targets), output.Plural(len(targets), "repo"))
-
-				scanner := bufio.NewScanner(cmd.InOrStdin())
-				if !scanner.Scan() {
-					return nil
-				}
-				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-				if answer != "y" && answer != "yes" {
-					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  aborted")
-					return nil
-				}
-			}
-
-			removeRegistryTargets(cfg, targets)
-
-			if err := config.Save(cfg); err != nil {
-				return fmt.Errorf("saving config: %w", err)
-			}
-
-			if jsonFlag {
-				return writePrunedJSON(w, targets)
-			}
-
-			_, _ = fmt.Fprintln(w)
-			output.Confirm(w, fmt.Sprintf("pruned %d missing %s",
-				len(targets), output.Plural(len(targets), "repo")))
-			return nil
+			return pruneSelectedRepos(cmd, cfg, targets, dryRun, force, jsonFlag)
 		},
 	}
 
@@ -141,6 +101,55 @@ Use --dry-run to preview what would be pruned.`,
 	addSelectFlag(cmd)
 
 	return cmd
+}
+
+func pruneSelectedRepos(cmd *cobra.Command, cfg *config.Config, selected []config.RepoEntry, dryRun, force, jsonOut bool) error {
+	// Re-expand after selection so deselecting a worktree cannot orphan it.
+	// Preview and confirmation must include every entry that will be removed.
+	targets := registryRemovalTargets(cfg, selected)
+	w := cmd.OutOrStdout()
+	if !jsonOut {
+		renderPruneTable(w, targets)
+	}
+
+	if dryRun {
+		if jsonOut {
+			return writePrunedJSON(w, targets)
+		}
+		return nil
+	}
+
+	// Confirm unless --force.
+	if !force {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"\n  remove %d missing %s from the registry? [y/N] ",
+			len(targets), output.Plural(len(targets), "repo"))
+
+		scanner := bufio.NewScanner(cmd.InOrStdin())
+		if !scanner.Scan() {
+			return nil
+		}
+		answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if answer != "y" && answer != "yes" {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  aborted")
+			return nil
+		}
+	}
+
+	removeRegistryTargets(cfg, targets)
+
+	if err := config.Save(cfg); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	if jsonOut {
+		return writePrunedJSON(w, targets)
+	}
+
+	_, _ = fmt.Fprintln(w)
+	output.Confirm(w, fmt.Sprintf("pruned %d missing %s",
+		len(targets), output.Plural(len(targets), "repo")))
+	return nil
 }
 
 // findMissingRepos returns the entries whose paths no longer exist on disk.
