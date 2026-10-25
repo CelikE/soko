@@ -3,9 +3,11 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -105,6 +107,179 @@ func TestIntegration_CleanForce(t *testing.T) {
 	branches, _ := cmd.Output()
 	if strings.Contains(string(branches), "feat/done") {
 		t.Errorf("branch not deleted: %s", string(branches))
+	}
+}
+
+func TestIntegration_CleanDeletionOutcomes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("reference-transaction fixture requires a POSIX shell")
+	}
+	branches := []string{"allowed", "blocked", "later"}
+	for _, tt := range []struct {
+		name     string
+		rejected []string
+	}{
+		{name: "success"},
+		{name: "partial failure", rejected: []string{"blocked"}},
+		{name: "all failed", rejected: branches},
+	} {
+		for _, mode := range []string{"text", "quiet", "json", "quiet json"} {
+			t.Run(tt.name+"/"+mode, func(t *testing.T) {
+				testEnv(t)
+				t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+				t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+				t.Setenv("GIT_TEMPLATE_DIR", t.TempDir())
+				base, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				dir := filepath.Join(base, "repo")
+				initRepoWithBranches(t, dir, branches)
+				runSokoInit(t, dir)
+				before := gitIn(t, dir, "rev-parse", "HEAD")
+				wantSHAs := make(map[string]string)
+				var wantDeleted []string
+				for _, branch := range branches {
+					wantSHAs[branch] = gitIn(t, dir, "rev-parse", "refs/heads/"+branch)
+					if !slices.Contains(tt.rejected, branch) {
+						wantDeleted = append(wantDeleted, branch)
+					}
+				}
+				patterns := []string{"refs/heads/never"}
+				for _, branch := range tt.rejected {
+					patterns = append(patterns, "refs/heads/"+branch)
+				}
+				hook := fmt.Sprintf(`#!/bin/sh
+test "$1" = prepared || exit 0
+while read -r old new ref; do
+  case "$new" in *[!0]*) continue ;; esac
+  case "$ref" in
+    %s) printf 'fixture refuses deletion of %%s\n' "$ref" >&2; exit 1 ;;
+  esac
+done
+exit 0
+`, strings.Join(patterns, "|"))
+				hooksDir := filepath.Join(dir, ".git", "hooks")
+				if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(hooksDir, "reference-transaction"), []byte(hook), 0o755); err != nil {
+					t.Fatal(err)
+				}
+
+				// Preview must remain a plan, without deletion outcomes or mutations.
+				preview := runSoko(t, "clean", "--dry-run", "--json")
+				var planned []struct {
+					Branches []string        `json:"branches"`
+					Deleted  json.RawMessage `json:"deleted"`
+					Failed   json.RawMessage `json:"failed"`
+				}
+				if err := json.Unmarshal([]byte(preview), &planned); err != nil {
+					t.Fatal(err)
+				}
+				if len(planned) != 1 || !slices.Equal(planned[0].Branches, branches) || planned[0].Deleted != nil || planned[0].Failed != nil {
+					t.Fatalf("unexpected preview: %s", preview)
+				}
+				for branch, sha := range wantSHAs {
+					if got := gitIn(t, dir, "rev-parse", "refs/heads/"+branch); got != sha {
+						t.Fatalf("preview changed %s to %s, want %s", branch, got, sha)
+					}
+				}
+
+				args := []string{"clean", "--force"}
+				for _, flag := range strings.Fields(mode) {
+					if flag != "text" {
+						args = append(args, "--"+flag)
+					}
+				}
+				out, err := runSokoErr(t, args...)
+				if len(tt.rejected) == 0 {
+					if err != nil {
+						t.Errorf("successful clean: %v", err)
+					}
+				} else {
+					wantErr := fmt.Sprintf("deleted %d branches, %d failed to delete", len(wantDeleted), len(tt.rejected))
+					if err == nil || err.Error() != wantErr {
+						t.Errorf("clean error = %v, want %q", err, wantErr)
+					}
+				}
+				if strings.Contains(mode, "json") {
+					var rows []struct {
+						Name     string   `json:"name"`
+						Path     string   `json:"path"`
+						Branches []string `json:"branches"`
+						Deleted  []string `json:"deleted"`
+						Failed   []struct {
+							Branch    string `json:"branch"`
+							Error     string `json:"error"`
+							ErrorCode string `json:"error_code"`
+						} `json:"failed"`
+						Error     string `json:"error"`
+						ErrorCode string `json:"error_code"`
+					}
+					if err := json.Unmarshal([]byte(out), &rows); err != nil {
+						t.Fatalf("parse JSON: %v\n%s", err, out)
+					}
+					if len(rows) != 1 {
+						t.Fatalf("want one result: %s", out)
+					}
+					r := rows[0]
+					if r.Name != "repo" || r.Path != dir || !slices.Equal(r.Branches, branches) || !slices.Equal(r.Deleted, wantDeleted) || len(r.Failed) != len(tt.rejected) {
+						t.Errorf("incorrect deletion outcomes: %s", out)
+					}
+					for i, failure := range r.Failed {
+						if i >= len(tt.rejected) || failure.Branch != tt.rejected[i] || !strings.Contains(failure.Error, "fixture refuses deletion of refs/heads/"+failure.Branch) || failure.ErrorCode != "git_failure" {
+							t.Errorf("incorrect branch failure: %+v", failure)
+						}
+					}
+					if len(tt.rejected) > 0 {
+						if r.Error == "" || r.ErrorCode != "git_failure" {
+							t.Errorf("missing repository failure: %s", out)
+						}
+					} else if r.Error != "" || r.ErrorCode != "" {
+						t.Errorf("unexpected repository failure: %s", out)
+					}
+				} else if len(tt.rejected) > 0 && strings.Contains(out, "deleted 0 stale") {
+					t.Errorf("misleading success output: %s", out)
+				}
+
+				if got := gitIn(t, dir, "rev-parse", "HEAD"); got != before {
+					t.Errorf("clean moved HEAD to %s, want %s", got, before)
+				}
+				for _, branch := range branches {
+					if got, want := branchExists(t, dir, branch), slices.Contains(tt.rejected, branch); got != want {
+						t.Errorf("branch %s exists = %v, want %v", branch, got, want)
+					}
+				}
+				j, err := journal.Load()
+				if err != nil {
+					t.Fatal(err)
+				}
+				entry, ok := j.Last()
+				if len(wantDeleted) == 0 {
+					if ok {
+						t.Errorf("failed deletions produced journal entry: %+v", entry)
+					}
+					return
+				}
+				if !ok || entry.Op != journal.OpClean || len(entry.Branches) != len(wantDeleted) {
+					t.Fatalf("journal = %+v, want only deleted branches %v", entry, wantDeleted)
+				}
+				seen := make(map[string]bool)
+				for _, ref := range entry.Branches {
+					if ref.Repo != "repo" || ref.Path != dir || !slices.Contains(wantDeleted, ref.Branch) || ref.SHA != wantSHAs[ref.Branch] || seen[ref.Branch] {
+						t.Errorf("incorrect journal ref: %+v", ref)
+					}
+					seen[ref.Branch] = true
+				}
+				runSoko(t, "undo")
+				for branch, sha := range wantSHAs {
+					if got := gitIn(t, dir, "rev-parse", "refs/heads/"+branch); got != sha {
+						t.Errorf("undo restored %s at %s, want %s", branch, got, sha)
+					}
+				}
+			})
+		}
 	}
 }
 

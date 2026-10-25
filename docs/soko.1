@@ -578,6 +578,19 @@ and branches checked out in any worktree. Options:
 .B \-\-select
 (interactively narrow the set),
 .BI \-\-tag " tag" .
+.B clean
+returns a non-zero exit status if a branch deletion fails, including with
+.BR \-\-json .
+JSON retains the planned
+.B branches
+and adds non-empty
+.B deleted
+and
+.B failed
+arrays for actual outcomes. Each failed branch includes
+.BR branch ", " error ", and " error_code ;
+the repository also carries an error summary. Dry-run JSON remains a preview
+without execution outcomes. Only successful deletions enter the undo journal.
 .\" ----------------------------------
 .TP
 .B soko undo

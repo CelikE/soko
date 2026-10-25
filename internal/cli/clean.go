@@ -19,12 +19,20 @@ import (
 )
 
 type cleanResult struct {
-	Name      string   `json:"name"`
-	Path      string   `json:"path"`
-	Branches  []string `json:"branches"`
-	Pruned    bool     `json:"pruned,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	ErrorCode string   `json:"error_code,omitempty"`
+	Name      string               `json:"name"`
+	Path      string               `json:"path"`
+	Branches  []string             `json:"branches"`
+	Deleted   []string             `json:"deleted,omitempty"`
+	Failed    []cleanBranchFailure `json:"failed,omitempty"`
+	Pruned    bool                 `json:"pruned,omitempty"`
+	Error     string               `json:"error,omitempty"`
+	ErrorCode string               `json:"error_code,omitempty"`
+}
+
+type cleanBranchFailure struct {
+	Branch    string `json:"branch"`
+	Error     string `json:"error"`
+	ErrorCode string `json:"error_code"`
 }
 
 func newCleanCmd() *cobra.Command {
@@ -34,7 +42,9 @@ func newCleanCmd() *cobra.Command {
 		Long: `Find and delete branches that have been merged into the default branch
 (main/master). Skips the default branch and branches checked out in any worktree.
 
-Use --dry-run to preview what would be deleted.`,
+Use --dry-run to preview what would be deleted. Branch deletion failures cause
+a non-zero exit status, including with --json. JSON keeps the planned branches
+and adds deleted and failed outcomes; failures include error and error_code.`,
 		Example: `  soko clean --dry-run               # preview stale branches
   soko clean                         # delete with confirmation
   soko clean --force                 # delete without confirmation
@@ -81,9 +91,10 @@ Use --dry-run to preview what would be deleted.`,
 
 			// Filter to repos that have stale branches.
 			var withBranches []cleanResult
-			for _, r := range results {
+			for i := range results {
+				r := &results[i]
 				if len(r.Branches) > 0 || r.Error != "" {
-					withBranches = append(withBranches, r)
+					withBranches = append(withBranches, *r)
 				}
 			}
 
@@ -100,7 +111,8 @@ Use --dry-run to preview what would be deleted.`,
 			// before anything is deleted. Narrow-only — it can never add a repo.
 			if selectFlag {
 				entries := make([]config.RepoEntry, len(withBranches))
-				for i, r := range withBranches {
+				for i := range withBranches {
+					r := &withBranches[i]
 					entries[i] = config.RepoEntry{Name: r.Name, Path: r.Path}
 				}
 				chosen, ok := selectRepos(cmd, "Select repos to clean (space toggles, enter confirms):", entries)
@@ -126,8 +138,8 @@ Use --dry-run to preview what would be deleted.`,
 			// Confirm unless --force or --json (machine consumers pass --force explicitly).
 			if !force {
 				totalBranches := 0
-				for _, r := range withBranches {
-					totalBranches += len(r.Branches)
+				for i := range withBranches {
+					totalBranches += len(withBranches[i].Branches)
 				}
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"\n  delete %d %s across %d %s? [y/N] ",
@@ -164,7 +176,9 @@ Use --dry-run to preview what would be deleted.`,
 			}
 
 			if jsonFlag {
-				return output.RenderJSON(w, withBranches)
+				if err := output.RenderJSON(w, withBranches); err != nil {
+					return err
+				}
 			}
 
 			// A partial failure is a real failure: return an error so it stays
@@ -173,6 +187,9 @@ Use --dry-run to preview what would be deleted.`,
 			if failed > 0 {
 				return fmt.Errorf("deleted %d %s, %d failed to delete",
 					deleted, output.Plural(deleted, "branch"), failed)
+			}
+			if jsonFlag {
+				return nil
 			}
 
 			_, _ = fmt.Fprintln(w)
@@ -202,9 +219,10 @@ func filterCleanResults(results []cleanResult, chosen []config.RepoEntry) []clea
 		keep[c.Path] = true
 	}
 	filtered := make([]cleanResult, 0, len(chosen))
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if keep[r.Path] {
-			filtered = append(filtered, r)
+			filtered = append(filtered, *r)
 		}
 	}
 	return filtered
@@ -302,7 +320,8 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 // renderCleanTable prints the stale branches table.
 func renderCleanTable(w io.Writer, results []cleanResult) {
 	nameWidth := len("REPO")
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if len(r.Name) > nameWidth {
 			nameWidth = len(r.Name)
 		}
@@ -314,7 +333,8 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 	_, _ = fmt.Fprintln(w, output.Dim("  "+strings.Repeat("─", len(header)-2)))
 
 	totalBranches := 0
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if r.Error != "" {
 			_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, output.Red(r.Error))
 			continue
@@ -347,13 +367,15 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 // sequentially within each repository to avoid packed-ref lock contention.
 // It returns the journal refs for every branch it actually deleted (repo,
 // path, branch, pre-delete SHA) plus deleted/failed counts. The SHAs let
-// soko undo recreate the branches exactly where they were.
+// soko undo recreate the branches exactly where they were. Each result also
+// records its actual deletion outcomes without changing the planned branches.
 func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.BranchRef, deleted, failed int) {
 	var mu sync.Mutex
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(maxConcurrency)
 
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		if r.Error != "" {
 			continue
 		}
@@ -365,8 +387,14 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 				mu.Lock()
 				if err != nil {
 					failed++
+					r.Failed = append(r.Failed, cleanBranchFailure{
+						Branch:    branch,
+						Error:     err.Error(),
+						ErrorCode: gitErrorCode(err),
+					})
 				} else {
 					deleted++
+					r.Deleted = append(r.Deleted, branch)
 					if sha != "" {
 						refs = append(refs, journal.BranchRef{
 							Repo:   r.Name,
@@ -377,6 +405,10 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 					}
 				}
 				mu.Unlock()
+			}
+			if len(r.Failed) > 0 {
+				r.Error = fmt.Sprintf("%d %s failed to delete", len(r.Failed), output.Plural(len(r.Failed), "branch"))
+				r.ErrorCode = codeGitFailure
 			}
 			return nil
 		})

@@ -600,11 +600,19 @@ soko prune --dry-run --json         # machine-readable preview (--json needs --f
 soko clean --dry-run               # preview merged branches
 soko clean                         # delete with confirmation
 soko clean --force                 # skip confirmation
+soko clean --force --json          # machine-readable deletion outcomes
 soko clean --select                # pick which repos to clean before deleting
 soko clean --prune                 # also prune stale remote refs
 soko clean --tag backend           # only backend repos
 soko clean auth                    # specific repo
 ```
+
+Branch deletion failures return a non-zero exit status in text and JSON modes.
+JSON retains the planned `branches` and adds non-empty `deleted` and `failed`
+arrays for actual outcomes. Each failure includes `branch`, `error`, and
+`error_code`; the repository also carries an error summary. Dry-run JSON remains
+a preview without execution outcomes. Only successful deletions enter the undo
+journal.
 
 `--select` opens the interactive picker (the one `soko go` uses) with every
 matched repo pre-checked; deselect the repos you want to spare with space, press
