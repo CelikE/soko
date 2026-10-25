@@ -353,6 +353,12 @@ using the GitHub CLI
 number, title, branch, and author. Run it from anywhere inside a
 repository's working tree. Honors
 .BR \-\-json .
+Returns at most 50 pull requests by default; set
+.BI \-\-limit " n"
+to a positive number to fetch more. When the limit is reached, a hint is
+printed to stderr (suppressed by
+.BR \-\-quiet ),
+including with JSON output.
 Requires
 .B gh
 to be installed and authenticated.

@@ -91,6 +91,7 @@ man -l docs/soko.1       # preview without installing
 | `soko discover` | Auto-register repos as you cd into them (opt-in) |
 | `soko status [repos...]` | Show status of all (or specific) repos |
 | `soko remotes [repos...]` | Show each repo's remotes + upstream tracking, flag misconfig |
+| `soko pr` | List open pull requests for the current repo via GitHub CLI (`--limit`, default: 50; `--json` supported) |
 | `soko diff [repos...]` | Show uncommitted file changes across repos |
 | `soko stash [repos...]` | Stash tracked changes and untracked files across repos (ignored files stay untouched) |
 | `soko stash pop [repos...]` | Restore soko-created stashes, filtered by repo name/prefix and optionally `--tag` |
@@ -137,6 +138,7 @@ man -l docs/soko.1       # preview without installing
 | `--ahead` | `status` | Show only repos ahead of remote |
 | `--behind` | `status` | Show only repos behind remote |
 | `--missing-upstream` | `remotes` | Show only repos with no remote or no upstream |
+| `--limit` | `pr` | Maximum pull requests to list (positive number, default: 50); reaching the cap prints a stderr hint, unless `--quiet` |
 | `--tag` | `init`, `scan`, `status`, `remotes`, `diff`, `stash`, `list`, `fetch`, `pull`, `sync`, `branch`, `exec`, `grep`, `apply`, `open`, `report`, `stats`, `health`, `clean`, `prune`, `go`, `ui`, `snapshot save`, `discover on` | Filter by tag (repeatable, combines with OR) |
 | `--meta` | `list`, `status` | Filter by metadata `key=value` (repeatable, combines with AND) |
 | `--root` | `discover on` | Restrict auto-discovery to repos under these directories (repeatable) |

@@ -328,7 +328,7 @@ func listPRsForUI(ctx context.Context) func(path string) ([]ui.PullRequest, erro
 		if !commandExists("gh") {
 			return nil, fmt.Errorf("gh CLI not found — install it to list pull requests")
 		}
-		items, err := fetchOpenPRs(ctx, path)
+		items, err := fetchOpenPRs(ctx, path, defaultPRLimit)
 		if err != nil {
 			return nil, err
 		}

@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Make the `soko pr` result cap configurable with `--limit`, validate positive limits, and print a stderr hint when the cap is reached so text and JSON listings no longer silently omit additional pull requests.
 - Report missing repository paths in `soko open` with a prune hint, and preserve actual Git errors in text and JSON output instead of diagnosing every remote lookup failure as a missing origin.
 - Apply `--no-worktrees` before checking for empty selections in exec, fetch, pull, grep, sync, and apply, showing a no-repos message instead of empty tables or execution banners while preserving empty JSON arrays and quiet output.
 - Only report installer checksum verification after a successful comparison, and defer installation until the complete script body has been received when piping downloads into a shell.
