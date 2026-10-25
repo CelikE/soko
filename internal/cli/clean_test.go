@@ -2,9 +2,11 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -177,37 +179,97 @@ func TestIntegration_CleanNoStaleBranches(t *testing.T) {
 	}
 }
 
-func TestIntegration_CleanProtectsCurrentBranch(t *testing.T) {
-	testEnv(t)
-	dir := filepath.Join(t.TempDir(), "clean-current")
-	initRepoWithBranches(t, dir, []string{"feat/active"})
+func TestIntegration_CleanCheckoutStates(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		detached     bool
+		worktree     bool
+		wantBranches []string
+	}{
+		{name: "current branch", wantBranches: []string{"feat/done"}},
+		{name: "detached HEAD", detached: true, wantBranches: []string{"feat/done", "feat/held"}},
+		{name: "linked worktree", worktree: true, wantBranches: []string{"feat/done"}},
+		{name: "detached HEAD with linked worktree", detached: true, worktree: true, wantBranches: []string{"feat/done"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testEnv(t)
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(base, "clean-checkouts")
+			initRepoWithBranches(t, dir, []string{"feat/done", "feat/held"})
+			wtGit(t, dir, "checkout", "-b", "feat/unmerged")
+			wtGit(t, dir, "commit", "--allow-empty", "-m", "unmerged work")
+			wtGit(t, dir, "checkout", "master")
 
-	// Switch to feat/active so it's the current branch.
-	ctx := context.Background()
-	checkout := exec.CommandContext(ctx, "git", "checkout", "feat/active")
-	checkout.Dir = dir
-	if out, err := checkout.CombinedOutput(); err != nil {
-		t.Fatalf("git checkout: %v\n%s", err, out)
-	}
+			worktree := filepath.Join(base, "linked checkout")
+			if tt.worktree {
+				// Keep this checkout unregistered: Git's inventory must protect it.
+				wtGit(t, dir, "worktree", "add", worktree, "feat/held")
+			} else if !tt.detached {
+				wtGit(t, dir, "checkout", "feat/held")
+			}
+			if tt.detached {
+				wtGit(t, dir, "checkout", "--detach", "master")
+			}
+			head := wtGit(t, dir, "rev-parse", "HEAD")
+			branch := wtGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+			wantSHAs := make(map[string]string)
+			for _, name := range tt.wantBranches {
+				wantSHAs[name] = wtGit(t, dir, "rev-parse", "refs/heads/"+name)
+			}
+			runSokoInit(t, dir)
 
-	// Switch back — feat/active is merged but was current.
-	// Actually, let's test by staying on master and checking that master isn't listed.
-	checkoutMaster := exec.CommandContext(ctx, "git", "checkout", "master")
-	checkoutMaster.Dir = dir
-	if out, err := checkoutMaster.CombinedOutput(); err != nil {
-		t.Fatalf("git checkout master: %v\n%s", err, out)
-	}
+			out := runSoko(t, "clean", "--dry-run", "--json")
+			var rows []struct {
+				Branches []string `json:"branches"`
+			}
+			if err := json.Unmarshal([]byte(out), &rows); err != nil {
+				t.Fatalf("parsing clean preview: %v\n%s", err, out)
+			}
+			if len(rows) != 1 || !slices.Equal(rows[0].Branches, tt.wantBranches) {
+				t.Fatalf("clean preview = %s, want branches %v", out, tt.wantBranches)
+			}
 
-	runSokoInit(t, dir)
+			runSoko(t, "clean", "--force")
+			for _, name := range []string{"master", "feat/done", "feat/held", "feat/unmerged"} {
+				if got, want := branchExists(t, dir, name), !slices.Contains(tt.wantBranches, name); got != want {
+					t.Errorf("branch %s exists = %v, want %v", name, got, want)
+				}
+			}
+			if got := wtGit(t, dir, "rev-parse", "HEAD"); got != head {
+				t.Errorf("clean moved HEAD to %s, want %s", got, head)
+			}
+			if got := wtGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD"); got != branch {
+				t.Errorf("clean changed checkout to %s, want %s", got, branch)
+			}
+			if tt.worktree {
+				if got := wtGit(t, worktree, "rev-parse", "--abbrev-ref", "HEAD"); got != "feat/held" {
+					t.Errorf("clean changed linked checkout to %s", got)
+				}
+			}
 
-	// feat/active should show as stale (it's merged and not current).
-	out := runSoko(t, "clean", "--dry-run")
-	if !strings.Contains(out, "feat/active") {
-		t.Errorf("clean = %q, want 'feat/active'", out)
-	}
-	// master should NOT appear in stale list.
-	if strings.Contains(out, "  master") {
-		t.Errorf("clean lists master as stale: %s", out)
+			j, err := journal.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, ok := j.Last()
+			if !ok || entry.Op != journal.OpClean || len(entry.Branches) != len(wantSHAs) {
+				t.Fatalf("clean journal = %+v, want deleted branches %v", entry, tt.wantBranches)
+			}
+			for _, ref := range entry.Branches {
+				if ref.Path != dir || ref.SHA != wantSHAs[ref.Branch] {
+					t.Errorf("unexpected journal ref: %+v", ref)
+				}
+			}
+			runSoko(t, "undo")
+			for name, sha := range wantSHAs {
+				if got := wtGit(t, dir, "rev-parse", "refs/heads/"+name); got != sha {
+					t.Errorf("undo restored %s at %s, want %s", name, got, sha)
+				}
+			}
+		})
 	}
 }
 

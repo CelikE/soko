@@ -32,7 +32,7 @@ func newCleanCmd() *cobra.Command {
 		Use:   "clean [repos...]",
 		Short: "Delete merged branches across repos",
 		Long: `Find and delete branches that have been merged into the default branch
-(main/master). Skips the current branch and the default branch itself.
+(main/master). Skips the default branch and branches checked out in any worktree.
 
 Use --dry-run to preview what would be deleted.`,
 		Example: `  soko clean --dry-run               # preview stale branches
@@ -262,11 +262,11 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 				return nil
 			}
 
-			// Get current branch.
-			current, _ := git.Run(ctx, repo.Path, "rev-parse", "--abbrev-ref", "HEAD")
-
-			// List branches merged into default.
-			merged, err := git.Run(ctx, repo.Path, "branch", "--merged", defBranch)
+			// Enumerate real local refs, without detached-HEAD pseudo-branches
+			// or display markers. Git also identifies branches checked out in
+			// any worktree, including checkouts not registered with soko.
+			merged, err := git.Run(ctx, repo.Path, "for-each-ref", "--merged="+defBranch,
+				"--format=%(refname)%00%(worktreepath)", "refs/heads/")
 			if err != nil {
 				r.Error = "failed to list merged branches"
 				r.ErrorCode = gitErrorCode(err)
@@ -275,9 +275,12 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			}
 
 			for _, line := range strings.Split(merged, "\n") {
-				branch := strings.TrimSpace(line)
-				branch = strings.TrimPrefix(branch, "* ")
-				if branch == "" || branch == defBranch || branch == current {
+				ref, worktreePath, ok := strings.Cut(line, "\x00")
+				if !ok || worktreePath != "" {
+					continue
+				}
+				branch := strings.TrimPrefix(ref, "refs/heads/")
+				if branch == "" || branch == defBranch {
 					continue
 				}
 				// Also protect common branch names.
