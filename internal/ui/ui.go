@@ -392,6 +392,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshCmd(false), tickCmd(m.refreshEvery))
 
 	case fetchTickMsg:
+		if m.fetching {
+			return m, fetchTickCmd(m.fetchEvery)
+		}
 		m.fetching = true
 		return m, tea.Batch(m.refreshCmd(true), fetchTickCmd(m.fetchEvery))
 
@@ -407,6 +410,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case fetchRepoDoneMsg:
+		m.fetching = false
 		if msg.err != nil {
 			m.setError(msg.err)
 			return m, nil
@@ -754,6 +758,9 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		if m.fetching {
+			return m, nil
+		}
 		m.fetching = true
 		cmd := m.refreshCmd(true)
 		return m, cmd
@@ -821,6 +828,7 @@ func (m *Model) handleNormalKey(key string) (tea.Model, tea.Cmd) {
 			}
 			onFetch := m.onFetchRepo
 			name, path := r.Name, r.Path
+			m.fetching = true
 			m.setStatus(name + ": fetching…")
 			return m, func() tea.Msg {
 				return fetchRepoDoneMsg{name: name, err: onFetch(path)}

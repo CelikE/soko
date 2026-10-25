@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Prevent overlapping dashboard fetches from periodic ticks and repeated `r` / `R` keypresses; keep the timer armed while a fetch is running and allow retries after completion or failure.
 - Preserve repository names when Git remote URLs end in one or more slashes, including `.git/`, so registration and name-based commands use the actual repository name.
 - Switch only base repositories in `soko branch switch`, excluding linked worktree entries after name and tag filtering so shared branch refs are not checked out concurrently and linked checkouts stay untouched; worktree-only selections return an empty result.
 - Reject combined repository-name and `--tag` selectors in `soko open` before opening browser tabs, and reject extra positional names instead of silently ignoring them.

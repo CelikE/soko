@@ -389,6 +389,83 @@ func TestFetchKeyMarksFetching(t *testing.T) {
 	}
 }
 
+func TestFetchRequestsWaitForCompletion(t *testing.T) {
+	for _, source := range []string{"r", "timer", "R", "R-error"} {
+		t.Run(source, func(t *testing.T) {
+			fetches := 0
+			m := New(&Config{
+				FetchEvery: time.Nanosecond,
+				Collect: func(_ context.Context, fetch bool) []Row {
+					if fetch {
+						fetches++
+					}
+					return sampleRows()
+				},
+				OnFetchRepo: func(string) error {
+					fetches++
+					if source == "R-error" {
+						return context.DeadlineExceeded
+					}
+					return nil
+				},
+			})
+			m.Update(rowsMsg{rows: sampleRows()})
+
+			request := func(source string) tea.Cmd {
+				if source == "timer" {
+					_, cmd := m.Update(fetchTickMsg(time.Now()))
+					return cmd
+				}
+				_, cmd := m.handleKey(strings.TrimSuffix(source, "-error"))
+				return cmd
+			}
+			fetchCommand := func(cmd tea.Cmd, source string) tea.Cmd {
+				t.Helper()
+				if cmd == nil {
+					t.Fatalf("%s did not start a fetch while idle", source)
+				}
+				if source == "timer" {
+					batch, ok := cmd().(tea.BatchMsg)
+					if !ok || len(batch) != 2 {
+						t.Fatalf("idle timer must fetch and re-arm, got %v", batch)
+					}
+					return batch[0]
+				}
+				return cmd
+			}
+
+			// Withhold completion as if a slow remote were still responding.
+			done := fetchCommand(request(source), source)()
+			m.Update(rowsMsg{rows: sampleRows()}) // an earlier local refresh finishes first
+			for range 3 {
+				for _, key := range []string{"R", "r"} {
+					if cmd := request(key); cmd != nil {
+						t.Errorf("%s scheduled another fetch before %s completed", key, source)
+					}
+				}
+				cmd := request("timer")
+				if cmd == nil {
+					t.Fatal("busy fetch timer was not re-armed")
+				}
+				if msg := cmd(); msg != nil {
+					if _, ok := msg.(fetchTickMsg); !ok {
+						t.Errorf("busy fetch timer scheduled %T, want only next tick", msg)
+					}
+				}
+			}
+			m.Update(done)
+
+			// Completion, including an error, permits every fetch entry point again.
+			for _, next := range []string{"timer", "r", "R"} {
+				m.Update(fetchCommand(request(next), next)())
+			}
+			if fetches != 4 {
+				t.Errorf("fetch callbacks = %d, want initial fetch plus three retries", fetches)
+			}
+		})
+	}
+}
+
 // TestHelpOverlay toggles the full help panel and confirms a stray key closes
 // it while quit keys still quit.
 func TestHelpOverlay(t *testing.T) {
