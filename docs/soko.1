@@ -789,7 +789,10 @@ for the current checkout's family.
 Open a repository in the browser. Auto-detects GitHub, GitLab, or
 Bitbucket from the remote URL. With
 .BI \-\-tag " tag"
-it opens every matching repository. Page options:
+it opens every matching repository. A repository name and
+.B \-\-tag
+cannot be combined; invalid selectors return an error before opening any tabs.
+Page options:
 .BR \-\-prs " (pull/merge requests), "
 .BR \-\-issues ", "
 .BR \-\-actions " (CI/CD), "
