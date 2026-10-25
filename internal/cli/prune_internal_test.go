@@ -1,10 +1,94 @@
 package cli
 
 import (
+	"bytes"
+	"fmt"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/CelikE/soko/internal/config"
 )
+
+func TestPruneSelectedRepos(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		selected    []int
+		wantRemoved []int
+		dryRun      bool
+		force       bool
+		answer      string
+	}{
+		{name: "parent only", selected: []int{0}, wantRemoved: []int{0, 1, 2}, answer: "y\n"},
+		{name: "parent and one worktree", selected: []int{0, 1}, wantRemoved: []int{0, 1, 2}, force: true},
+		{name: "worktree only", selected: []int{1}, wantRemoved: []int{1}, answer: "y\n"},
+		{name: "dry run cascade", selected: []int{0}, wantRemoved: []int{0, 1, 2}, dryRun: true},
+		{name: "decline cascade", selected: []int{0}, wantRemoved: []int{0, 1, 2}, answer: "n\n"},
+		{name: "EOF cascade", selected: []int{0}, wantRemoved: []int{0, 1, 2}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			cfg := &config.Config{Repos: []config.RepoEntry{
+				{Name: "api", Path: "/gone/api"},
+				{Name: "custom-alias", Path: "/present/feature", WorktreeOf: "api"},
+				{Name: "api/fix", Path: "/present/fix", WorktreeOf: "api"},
+				{Name: "other", Path: "/present/other", Meta: map[string]string{"note": "keep me"}},
+			}}
+			if err := config.Save(cfg); err != nil {
+				t.Fatal(err)
+			}
+			// Model a narrowed picker selection, including deselected worktrees.
+			selected := mapSelected(cfg.Repos, tt.selected)
+			removed := mapSelected(cfg.Repos, tt.wantRemoved)
+			want := append([]config.RepoEntry(nil), cfg.Repos...)
+			applied := !tt.dryRun && (tt.force || tt.answer == "y\n")
+			if applied {
+				want = nil
+				for i, entry := range cfg.Repos {
+					if !slices.Contains(tt.wantRemoved, i) {
+						want = append(want, entry)
+					}
+				}
+			}
+
+			var stdout, stderr bytes.Buffer
+			cmd := newPruneCmd()
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&stderr)
+			cmd.SetIn(strings.NewReader(tt.answer))
+			if err := pruneSelectedRepos(cmd, cfg, selected, tt.dryRun, tt.force, false); err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range removed {
+				if !strings.Contains(stdout.String(), entry.Path) {
+					t.Errorf("preview = %q, want affected path %q", stdout.String(), entry.Path)
+				}
+			}
+			if !tt.dryRun && !tt.force {
+				if !strings.Contains(stderr.String(), fmt.Sprintf("remove %d missing", len(removed))) {
+					t.Errorf("prompt = %q, want expanded removal count %d", stderr.String(), len(removed))
+				}
+			} else if stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want no confirmation prompt", stderr.String())
+			}
+			saved, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(saved.Repos, want) {
+				t.Errorf("registry = %+v, want %+v", saved.Repos, want)
+			}
+			if applied {
+				if !strings.Contains(stdout.String(), fmt.Sprintf("pruned %d missing", len(removed))) {
+					t.Errorf("output = %q, want expanded removal count %d", stdout.String(), len(removed))
+				}
+			} else if strings.Contains(stdout.String(), "pruned") {
+				t.Errorf("output = %q, must not claim removal", stdout.String())
+			}
+		})
+	}
+}
 
 // TestPruneTargets_CascadesWorktrees verifies that removing a missing parent
 // repo also targets its linked worktree entries, even when the worktree's own
