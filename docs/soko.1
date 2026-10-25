@@ -400,7 +400,8 @@ Subcommands:
 .B switch <name> [repos...]
 Check out
 .I name
-in every repository that has it. Options:
+in every base repository that has it. Linked worktree entries are excluded,
+even when selected by name or tag, and their checkouts stay untouched. Options:
 .BR \-\-create / \-b
 (create the branch from the default branch where missing),
 .BI \-\-tag " tag" .

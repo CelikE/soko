@@ -309,6 +309,9 @@ branches are checked out directly, remote-only branches get a local tracking
 branch. Repos without the branch are reported and skipped unless -b creates
 the branch there from the repo's default branch.
 
+Linked worktree entries are excluded, including from name and tag selections,
+so each base repository is switched once and linked checkouts stay untouched.
+
 A dirty repo is refused and left untouched (the others continue) — commit,
 stash, or soko ctx save first.`,
 		Example: `  soko branch switch feat/sso         # check out where it exists
@@ -340,9 +343,11 @@ func runBranchSwitch(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	}
+	// Linked checkouts share branch refs with their base repo. Switching them
+	// together races to check out the same branch in multiple worktrees.
+	repos = config.FilterNoWorktrees(repos)
 	if len(repos) == 0 {
-		output.Info(w, noReposMessage(len(cfg.Repos)))
-		return nil
+		return renderNoRepos(cmd, len(cfg.Repos))
 	}
 
 	create, _ := cmd.Flags().GetBool("create")
