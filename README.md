@@ -443,6 +443,11 @@ matches by repo; repos with no match drop out silently. It is read-only and
 honours each repo's tracked-file set and `.gitignore`. The pattern is a fixed
 string by default — pass `--regexp` for a POSIX extended regex.
 
+Missing paths and Git failures are reported per repo and cause a non-zero exit
+status, while successful matches remain available. JSON failures include `error`
+and `error_code` (`path_missing` or a Git error code), with an empty `matches`
+array; successful searches with no matches are still omitted.
+
 ### Navigation
 
 Requires shell integration (one-time setup):
@@ -755,7 +760,7 @@ to stderr and exits non-zero. An explicit `--quiet` always wins over
 output with `--quiet=false`.
 
 Two more scripting aids: per-repo failures in `--json` output (`pull`, `fetch`,
-`exec`, `clean`, `stash`) carry a stable `error_code` field, so scripts can
+`exec`, `clean`, `stash`, `grep`) carry a stable `error_code` field, so scripts can
 branch on the failure type without parsing human-readable messages. And the
 global `--perf` flag (or `SOKO_PERF=1`) reports per-repo and aggregate timing
 after a parallel command — handy for spotting the one slow repo that drags

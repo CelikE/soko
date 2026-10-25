@@ -16,12 +16,13 @@ import (
 )
 
 type grepResult struct {
-	index   int
-	name    string
-	path    string
-	matches []git.Match
-	missing bool
-	err     string
+	index     int
+	name      string
+	path      string
+	matches   []git.Match
+	missing   bool
+	err       string
+	errorCode string
 }
 
 // newGrepCmd creates the cobra command for soko grep.
@@ -33,7 +34,9 @@ func newGrepCmd() *cobra.Command {
 matches grouped by repo. The pattern is a fixed string by default; pass
 --regexp to treat it as a POSIX extended regular expression.
 
-Read-only and parallel — a repo with no match simply contributes nothing.`,
+Read-only and parallel — a repo with no match simply contributes nothing.
+Missing paths and Git failures are reported per repo and cause a non-zero exit
+status. JSON failures include error and error_code fields.`,
 		Example: `  soko grep handleAuth                  # search every registered repo
   soko grep handleAuth auth backend     # only these repos
   soko grep handleAuth --tag go         # only repos tagged "go"
@@ -96,8 +99,11 @@ Read-only and parallel — a repo with no match simply contributes nothing.`,
 
 					if !pathExists(repo.Path) {
 						r.missing = true
+						r.err = "path not found"
+						r.errorCode = codePathMissing
 					} else if matches, grepErr := git.Grep(ctx, repo.Path, pattern, regex, ignoreCase, filesOnly); grepErr != nil {
 						r.err = grepErr.Error()
+						r.errorCode = gitErrorCode(grepErr)
 					} else {
 						r.matches = matches
 					}
@@ -239,25 +245,30 @@ type matchJSON struct {
 }
 
 type grepJSON struct {
-	Repo    string      `json:"repo"`
-	Path    string      `json:"path"`
-	Matches []matchJSON `json:"matches"`
+	Repo      string      `json:"repo"`
+	Path      string      `json:"path"`
+	Matches   []matchJSON `json:"matches"`
+	Error     string      `json:"error,omitempty"`
+	ErrorCode string      `json:"error_code,omitempty"`
 }
 
-// renderGrepJSON emits one entry per repo that has matches; repos with zero
-// matches (and missing/errored repos) are omitted from the array.
+// renderGrepJSON emits one entry per repo with matches or a search failure;
+// successful searches with zero matches are omitted from the array.
 func renderGrepJSON(w io.Writer, results []grepResult) error {
 	entries := make([]grepJSON, 0, len(results))
 	for i := range results {
 		r := &results[i]
-		if len(r.matches) == 0 {
+		if len(r.matches) == 0 && r.err == "" {
 			continue
 		}
 		matches := make([]matchJSON, len(r.matches))
 		for j, m := range r.matches {
 			matches[j] = matchJSON{File: m.File, Line: m.Line, Text: m.Text}
 		}
-		entries = append(entries, grepJSON{Repo: r.name, Path: r.path, Matches: matches})
+		entries = append(entries, grepJSON{
+			Repo: r.name, Path: r.path, Matches: matches,
+			Error: r.err, ErrorCode: r.errorCode,
+		})
 	}
 	return output.RenderJSON(w, entries)
 }
