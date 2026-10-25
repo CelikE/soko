@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -26,14 +28,15 @@ func ctxStashMessage(name string) string {
 }
 
 type ctxRepoResult struct {
-	index     int
-	name      string
-	branch    string
-	stashed   bool
-	files     int
-	success   bool
-	message   string
-	errorCode string
+	index        int
+	name         string
+	branch       string
+	stashed      bool
+	stashMessage string
+	files        int
+	success      bool
+	message      string
+	errorCode    string
 }
 
 // newCtxCmd creates the cobra command for soko ctx and its subcommands.
@@ -97,7 +100,7 @@ branches; stashes from the earlier save stay in their repos.`,
 	return cmd
 }
 
-func runCtxSave(cmd *cobra.Command, args []string) error {
+func runCtxSave(cmd *cobra.Command, args []string) (saveErr error) {
 	ctx := cmd.Context()
 	w := cmd.OutOrStdout()
 
@@ -151,6 +154,13 @@ func runCtxSave(cmd *cobra.Command, args []string) error {
 	for idx := range results {
 		ordered[results[idx].index] = results[idx]
 	}
+	// Until persisted, every stash belongs to this attempt rather than a saved
+	// context. Failed repo captures also need cleanup if stash push partially
+	// succeeded before returning an error.
+	persisted := false
+	defer func() {
+		saveErr = errors.Join(saveErr, rollbackCtxSave(ctx, repos, ordered, persisted))
+	}()
 
 	// Record only the repos whose state was captured; failed repos are
 	// reported but not part of the context.
@@ -173,6 +183,7 @@ func runCtxSave(cmd *cobra.Command, args []string) error {
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
+	persisted = true
 
 	if jsonFlag {
 		if err := renderCtxJSON(w, ordered); err != nil {
@@ -239,7 +250,10 @@ func ctxSaveRepo(ctx context.Context, index int, repo *config.RepoEntry, name st
 
 	if statusOut != "" {
 		r.files = len(strings.Split(statusOut, "\n"))
-		if _, err := git.Run(ctx, repo.Path, "stash", "push", "-u", "-m", ctxStashMessage(name)); err != nil {
+		// Keep the context suffix used by switch, but identify this exact save
+		// attempt so rollback cannot consume an older stash after --force.
+		r.stashMessage = rand.Text() + " " + ctxStashMessage(name)
+		if _, err := git.Run(ctx, repo.Path, "stash", "push", "-u", "-m", r.stashMessage); err != nil {
 			r.message = err.Error()
 			r.errorCode = gitErrorCode(err)
 			return r
@@ -249,6 +263,38 @@ func ctxSaveRepo(ctx context.Context, index int, repo *config.RepoEntry, name st
 
 	r.success = true
 	return r
+}
+
+// rollbackCtxSave restores stashes that were not recorded in a saved context.
+// --index restores staging as well as working-tree and untracked changes. Git
+// retains a stash if pop fails, and the error identifies it for manual recovery.
+func rollbackCtxSave(ctx context.Context, repos []config.RepoEntry, results []ctxRepoResult, persisted bool) error {
+	var rollbackErrors []error
+	for i := range results {
+		r := &results[i]
+		if r.stashMessage == "" || (persisted && r.success) {
+			continue
+		}
+		repo := &repos[r.index]
+		// A canceled save must still restore work, with bounded cleanup time.
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		ref, found, err := findStashMessage(rollbackCtx, repo.Path, r.stashMessage)
+		if err == nil {
+			switch {
+			case found:
+				_, err = git.Run(rollbackCtx, repo.Path, "stash", "pop", "--index", ref)
+			case r.stashed:
+				err = fmt.Errorf("stash not found")
+			}
+		}
+		cancel()
+		if err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf(
+				"%s: could not restore unsaved work; inspect git stash list for message %q: %w",
+				repo.Name, r.stashMessage, err))
+		}
+	}
+	return errors.Join(rollbackErrors...)
 }
 
 func newCtxSwitchCmd() *cobra.Command {
@@ -410,13 +456,17 @@ func ctxSwitchRepo(ctx context.Context, index int, repo *config.RepoEntry, cr *c
 // Matching by message suffix (not index) keeps the lookup stable against
 // unrelated stash pushes and pops since the save.
 func findCtxStash(ctx context.Context, dir, name string) (ref string, found bool, err error) {
+	return findStashMessage(ctx, dir, ctxStashMessage(name))
+}
+
+func findStashMessage(ctx context.Context, dir, message string) (ref string, found bool, err error) {
 	out, err := git.Run(ctx, dir, "stash", "list", "--format=%gd %gs")
 	if err != nil {
 		return "", false, err
 	}
 	for line := range strings.Lines(out) {
 		line = strings.TrimSpace(line)
-		if strings.HasSuffix(line, ctxStashMessage(name)) {
+		if strings.HasSuffix(line, " "+message) {
 			refPart, _, _ := strings.Cut(line, " ")
 			return refPart, true, nil
 		}
