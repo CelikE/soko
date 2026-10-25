@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 )
 
@@ -25,7 +26,7 @@ type Progress struct {
 	// the errgroup workers in fetch/pull/grep/sync, so render and Done — which
 	// mutate lineLen and write to w — must not run in parallel (issue #195).
 	mu      sync.Mutex
-	lineLen int // length of last written line, for clearing; guarded by mu
+	lineLen int // display width of last written line, for clearing; guarded by mu
 }
 
 // NewProgress creates a progress indicator that writes to w.
@@ -75,6 +76,6 @@ func (p *Progress) render() {
 	// Read the latest count under the display lock so a delayed worker cannot
 	// overwrite a newer progress count with an older one.
 	line := fmt.Sprintf("\r  %s %s... %d/%d", Dim("·"), p.msg, p.current.Load(), p.total)
-	p.lineLen = len(line) - 1 // subtract \r
+	p.lineLen = ansi.StringWidth(line[1:]) // exclude the leading \r
 	_, _ = fmt.Fprint(p.w, line)
 }
