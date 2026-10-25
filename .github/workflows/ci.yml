@@ -49,6 +49,8 @@ jobs:
           go-version-file: go.mod
       - name: Verify native Windows browser opening
         run: go test -race ./internal/browser
+      - name: Verify native Windows picker input
+        run: go test -race ./internal/picker
       - name: Verify native Windows config concurrency
         run: go test -race ./internal/config -run 'Test(SaveTo|ConfigLock|RegisterDiscovered)'
       - name: Verify native Windows snapshot storage
