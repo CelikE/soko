@@ -68,7 +68,7 @@ says otherwise, and registers under the existing parent/branch naming so
 status, cd, and go pick it up unchanged. The branch must exist — pass -b to
 create it (from the repo's current HEAD) in the same step.
 
-The new path is printed last on stdout, so shell users can:
+With -q, only the new path is printed on stdout, so shell users can:
   cd "$(soko worktree add api feat-x -q)"`,
 		Args:              cobra.ExactArgs(2),
 		ValidArgsFunction: repoNameCompletionFunc(),
@@ -159,9 +159,11 @@ func runWorktreeAdd(cmd *cobra.Command, args []string) error {
 		}{entryName, parent.Name, branch, wtPath})
 	}
 
-	output.Confirm(w, fmt.Sprintf("created worktree %s", entryName))
-	output.Info(w, fmt.Sprintf("jump there with: soko cd %s", entryName))
-	// The bare path goes last on stdout so command substitution picks it up.
+	if !output.Quiet() {
+		output.Confirm(w, fmt.Sprintf("created worktree %s", entryName))
+		output.Info(w, fmt.Sprintf("jump there with: soko cd %s", entryName))
+	}
+	// Keep the bare path on stdout in quiet mode for command substitution.
 	_, _ = fmt.Fprintln(w, wtPath)
 	return nil
 }
