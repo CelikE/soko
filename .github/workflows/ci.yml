@@ -53,6 +53,8 @@ jobs:
         run: go test -race ./internal/config -run 'Test(SaveTo|ConfigLock|RegisterDiscovered)'
       - name: Verify native Windows snapshot storage
         run: go test -race ./internal/snapshot
+      - name: Verify native Windows undo journal storage
+        run: go test -race ./internal/journal
       - name: Verify worktree registration and PowerShell navigation
         shell: pwsh
         run: ./.github/scripts/windows-worktree-smoke.ps1

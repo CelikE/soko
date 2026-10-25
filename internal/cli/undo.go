@@ -57,7 +57,7 @@ Older pull entries without this safety metadata cannot be undone.`,
 			}
 
 			// Keep failed entries available; consume only a successful reversal.
-			if _, err := journal.PopLast(); err != nil {
+			if _, err := j.PopLast(); err != nil {
 				return fmt.Errorf("updating journal: %w", err)
 			}
 			return nil

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -426,5 +427,59 @@ func TestPullUndoPartialRetryThreeTargets(t *testing.T) {
 				t.Errorf("retry did not consume completed entry: %+v, %v", j, err)
 			}
 		})
+	}
+}
+
+// Append after the reset's checkpoint but before undo consumes its entry.
+// This deterministic interleaving models another command completing meanwhile.
+type appendDuringUndoWriter struct {
+	bytes.Buffer
+	entry     journal.Entry
+	appended  bool
+	appendErr error
+}
+
+func (w *appendDuringUndoWriter) Write(p []byte) (int, error) {
+	if !w.appended {
+		w.appended = true
+		w.appendErr = journal.Append(&w.entry)
+	}
+	return w.Buffer.Write(p)
+}
+
+func TestPullUndoPreservesConcurrentJournalAppend(t *testing.T) {
+	dir, before, _ := setupJournaledPull(t)
+	out := &appendDuringUndoWriter{entry: journal.Entry{
+		Op: journal.OpClean, Time: time.Now(), Summary: "concurrent cleanup",
+		Branches: []journal.BranchRef{{Repo: "repo", Path: dir, Branch: "concurrent", SHA: before}},
+	}}
+	cmd := NewRootCmd("test")
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"undo"})
+	if err := cmd.Execute(); !errors.Is(err, journal.ErrConflict) {
+		t.Fatalf("undo = %v, want journal conflict; output: %s", err, out.String())
+	}
+	if !out.appended || out.appendErr != nil {
+		t.Fatalf("concurrent append failed: %v", out.appendErr)
+	}
+	j, err := journal.Load()
+	if err != nil || len(j.Entries) != 2 || !j.Entries[0].Pulls[0].Undone || j.Entries[1].Summary != out.entry.Summary {
+		t.Fatalf("undo lost progress or concurrent entry: %+v, %v", j, err)
+	}
+	if got := pullUndoGit(t, dir, "rev-parse", "HEAD"); got != before {
+		t.Fatalf("HEAD = %s, want reset %s", got, before)
+	}
+	for range 2 {
+		if out, err := runPullUndo(t, false); err != nil {
+			t.Fatalf("retry undo: %v\n%s", err, out)
+		}
+	}
+	j, err = journal.Load()
+	if err != nil || len(j.Entries) != 0 {
+		t.Fatalf("retry did not consume completed entries: %+v, %v", j, err)
+	}
+	if got := pullUndoGit(t, dir, "rev-parse", "refs/heads/concurrent"); got != before {
+		t.Errorf("concurrent branch = %s, want %s", got, before)
 	}
 }
