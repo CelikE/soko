@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,8 @@ import (
 	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/output"
 )
+
+const defaultPRLimit = 50
 
 // prItem is one open pull request, as reported by the GitHub CLI.
 type prItem struct {
@@ -30,9 +33,9 @@ type prItem struct {
 // fetchOpenPRs lists a repo's open pull requests via the GitHub CLI (gh), which
 // handles auth and host/owner/name resolution from the repo's remotes. The
 // caller is responsible for checking gh exists (commandExists) first.
-func fetchOpenPRs(ctx context.Context, path string) ([]prItem, error) {
+func fetchOpenPRs(ctx context.Context, path string, limit int) ([]prItem, error) {
 	c := exec.CommandContext(ctx, "gh", "pr", "list",
-		"--state", "open", "--limit", "50",
+		"--state", "open", "--limit", strconv.Itoa(limit),
 		"--json", "number,title,headRefName,state,url,author")
 	c.Dir = path
 	var stdout, stderr bytes.Buffer
@@ -83,13 +86,20 @@ func newPrCmd() *cobra.Command {
 using the GitHub CLI (gh): #number, title, branch, and author.
 
 Run it from anywhere inside a repository's working tree. Use --json for
-scripting. Requires the gh CLI (https://cli.github.com), authenticated for
-your hosts.`,
+scripting. Returns at most 50 pull requests by default; use --limit to fetch
+more. When the limit is reached, a hint is printed to stderr (unless --quiet).
+Requires the gh CLI (https://cli.github.com), authenticated for your hosts.`,
 		Example: `  soko pr
-  soko pr --json`,
+  soko pr --json
+  soko pr --limit 100 --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
+
+			limit, _ := cmd.Flags().GetInt("limit")
+			if limit <= 0 {
+				return fmt.Errorf("--limit must be greater than 0")
+			}
 
 			if !commandExists("gh") {
 				return fmt.Errorf("gh CLI not found — install it from https://cli.github.com to use soko pr")
@@ -104,9 +114,13 @@ your hosts.`,
 				return fmt.Errorf("not inside a git repository")
 			}
 
-			prs, err := fetchOpenPRs(cmd.Context(), root)
+			prs, err := fetchOpenPRs(cmd.Context(), root, limit)
 			if err != nil {
 				return err
+			}
+
+			if len(prs) == limit {
+				output.Info(cmd.ErrOrStderr(), fmt.Sprintf("reached pull request limit (%d); more may be available — increase --limit", limit))
 			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
@@ -126,6 +140,8 @@ your hosts.`,
 			return nil
 		},
 	}
+
+	cmd.Flags().Int("limit", defaultPRLimit, "maximum number of pull requests to list (must be positive)")
 
 	return cmd
 }
