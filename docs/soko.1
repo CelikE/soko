@@ -992,8 +992,12 @@ View and manage configuration. Subcommands:
 Print the resolved config file path.
 .TP
 .B edit
-Open the config file in
+Open a private copy of the config file in
 .BR $EDITOR .
+Validate the YAML and commit only if the live file has not changed. Comments
+and formatting are preserved. On an invalid edit, editor failure, or concurrent
+update, the live config is not overwritten; the error identifies retained
+editor files for recovery. The editor runs outside the commit lock.
 .TP
 .B set <key> <value>
 Set a config value and save. The documented key is
@@ -1156,6 +1160,16 @@ The directory is created mode 0700 and the file written atomically mode
 and free-form metadata),
 .IR git_path ,
 aliases, saved contexts, and discovery settings.
+CLI writes compare the loaded byte revision under a short native lock. Stale
+or contended interactive writes fail with an explicit retry message. Discovery
+hooks load and register under that lock, rechecking current policy and alias
+availability; they quietly skip if acquisition takes longer than one second.
+Older binaries and programs writing YAML directly do not participate.
+.TP
+.I ~/.config/soko/config.yaml.lock
+The persistent mode-0600 sidecar used for config commit locking. Its presence
+does not indicate a held lock; the operating system releases locks on close
+or process exit. Do not remove or replace it while soko commands are running.
 .TP
 .I ~/.config/soko/journal.yaml
 The capped undo journal of recent destructive operations, used by

@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -310,24 +312,12 @@ func discoverHook(cmd *cobra.Command, dir string) {
 	}
 
 	name := git.RepoName(ctx, top)
-	entry := config.RepoEntry{Name: name, Path: top, Tags: cfg.Discover.Tags}
-
-	// Re-load immediately before writing and add to that fresh copy. Each hook
-	// is a separate process with no shared lock, so re-reading here shrinks the
-	// load→save window to the atomic rename and avoids clobbering a repo that
-	// another shell discovered in the meantime.
-	fresh, err := config.Load()
-	if err != nil {
-		return
-	}
-	if _, findErr := config.FindRepoByPath(fresh, top); findErr == nil {
-		return
-	}
-	entry.Name = config.UniqueRepoName(fresh, entry.Name)
-	if _, addErr := config.AddRepo(fresh, &entry); addErr != nil {
-		return
-	}
-	if saveErr := config.Save(fresh); saveErr != nil {
+	// Recheck policy and allocate the alias under a short commit lock. No Git
+	// work runs while locked, and a stuck writer cannot stall the shell prompt.
+	commitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	entry, err := config.RegisterDiscovered(commitCtx, name, top)
+	if err != nil || entry == nil {
 		return
 	}
 

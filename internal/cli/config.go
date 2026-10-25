@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -57,7 +58,8 @@ func newConfigEditCmd() *cobra.Command {
 		Short: "Open the config file in $EDITOR",
 		Long: `Open the config file in $EDITOR (vi on Unix, notepad on Windows).
 EDITOR supports shell-style quotes and arguments, for example: EDITOR="code --wait".
-Edited YAML is validated before reporting a changed config as saved.`,
+Edit a private copy, validate its YAML, and commit only if the live config has
+not changed. On failure, the edited copy is kept for recovery.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 
@@ -94,26 +96,53 @@ Edited YAML is validated before reporting a changed config as saved.`,
 				return fmt.Errorf("EDITOR must not be empty")
 			}
 
-			c := exec.CommandContext(ctx, editorArgs[0], append(editorArgs[1:], path)...)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				return fmt.Errorf("creating config directory: %w", err)
+			}
+			editDir, err := os.MkdirTemp(filepath.Dir(path), ".config-edit-")
+			if err != nil {
+				return fmt.Errorf("creating edited config directory: %w", err)
+			}
+			editPath := filepath.Join(editDir, "config.yaml")
+			keepEdit := false
+			defer func() {
+				if !keepEdit {
+					_ = os.RemoveAll(editDir)
+				}
+			}()
+			if existed {
+				if err := os.WriteFile(editPath, before, 0o600); err != nil {
+					return fmt.Errorf("preparing edited config: %w", err)
+				}
+			}
+
+			c := exec.CommandContext(ctx, editorArgs[0], append(editorArgs[1:], editPath)...)
 			c.Stdin = cmd.InOrStdin()
 			c.Stdout = cmd.OutOrStdout()
 			c.Stderr = cmd.ErrOrStderr()
 
 			if err := c.Run(); err != nil {
-				return fmt.Errorf("opening editor: %w", err)
+				keepEdit = true
+				return fmt.Errorf("opening editor (editor files kept in %s): %w", editDir, err)
 			}
 
-			after, err := os.ReadFile(path)
+			after, err := os.ReadFile(editPath)
 			if !existed && errors.Is(err, os.ErrNotExist) {
 				return nil // The editor was closed without creating a config.
 			}
 			if err != nil {
-				return fmt.Errorf("reading edited config: %w", err)
+				keepEdit = true
+				return fmt.Errorf("reading edited config (copy kept at %s): %w", editPath, err)
 			}
-			if _, err := config.LoadFrom(path); err != nil {
-				return fmt.Errorf("validating edited config: %w", err)
+			if _, err := config.LoadFrom(editPath); err != nil {
+				keepEdit = true
+				return fmt.Errorf("validating edited config (copy kept at %s): %w", editPath, err)
 			}
 			if !existed || !bytes.Equal(before, after) {
+				if err := config.SaveEdited(path, before, after, existed); err != nil {
+					keepEdit = true
+					return fmt.Errorf("saving edited config (copy kept at %s): %w", editPath, err)
+				}
 				output.Confirm(cmd.ErrOrStderr(), "config saved")
 			}
 			return nil

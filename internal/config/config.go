@@ -3,6 +3,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -32,6 +33,12 @@ var (
 	// ErrInheritedTag is returned when attempting to remove a tag from a
 	// worktree that the worktree only holds by inheritance from its parent.
 	ErrInheritedTag = errors.New("tag is inherited from the parent repo; retag the parent to change it")
+
+	// ErrConflict means a snapshot is stale and must be reloaded before retrying.
+	ErrConflict = errors.New("config changed while command was running; retry the command")
+
+	// ErrBusy means another process is committing a config update.
+	ErrBusy = errors.New("config is being updated by another process; retry the command")
 )
 
 // RepoEntry represents a single registered git repository or worktree.
@@ -71,6 +78,15 @@ type Config struct {
 	Discover *DiscoverConfig          `yaml:"discover,omitempty"`
 	Contexts map[string]*ContextEntry `yaml:"contexts,omitempty"`
 	Repos    []RepoEntry              `yaml:"repos"`
+	version  configVersion
+}
+
+// Keep the loaded byte revision by value: copies of Config must not acquire a
+// newer baseline merely because another copy was saved successfully.
+type configVersion struct {
+	path   string
+	hash   [sha256.Size]byte
+	exists bool
 }
 
 // builtinDiscoverIgnores are path segments never auto-discovered. These are
@@ -257,18 +273,20 @@ func Load() (*Config, error) {
 // LoadFrom reads and parses a config file at the given path. If the file does
 // not exist, it returns an empty Config.
 func LoadFrom(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	path, err := configFilePath(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &Config{}, nil
-		}
-		return nil, fmt.Errorf("reading config file: %w", err)
+		return nil, err
+	}
+	data, exists, err := readConfigFile(path)
+	if err != nil {
+		return nil, err
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
+	cfg.version = configVersion{path: path, hash: sha256.Sum256(data), exists: exists}
 
 	return &cfg, nil
 }
@@ -284,23 +302,86 @@ func Save(cfg *Config) error {
 	return SaveTo(cfg, path)
 }
 
-// SaveTo marshals the config and writes it to the given path, creating the
-// parent directory if necessary.
+// SaveTo commits a loaded snapshot only if its destination is unchanged. A new
+// Config can create a file but cannot replace an existing unobserved snapshot.
+// SaveTo to a different path likewise requires an absent destination.
 func SaveTo(cfg *Config, path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
+	path, err := configFilePath(path)
+	if err != nil {
+		return err
 	}
-
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
+	expected := cfg.version
+	if expected.path != path {
+		expected = configVersion{path: path}
+	}
+	version, err := saveConfigBytes(path, data, expected)
+	if err == nil {
+		cfg.version = version
+	}
+	return err
+}
 
+// SaveEdited validates and commits raw editor output against the bytes observed
+// before editing. Keeping raw bytes preserves comments and user formatting.
+// The editor runs before this call, outside the short commit lock.
+func SaveEdited(path string, before, after []byte, existed bool) error {
+	path, err := configFilePath(path)
+	if err != nil {
+		return err
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(after, &cfg); err != nil {
+		return fmt.Errorf("validating edited config: %w", err)
+	}
+	_, err = saveConfigBytes(path, after, configVersion{path: path, hash: sha256.Sum256(before), exists: existed})
+	return err
+}
+
+func saveConfigBytes(path string, data []byte, expected configVersion) (configVersion, error) {
+	// The sidecar is never renamed or deleted: every writer must lock the
+	// same inode even though the config itself is atomically replaced. OS
+	// locks disappear on process exit, so a crashed writer cannot strand one.
+	lock, err := openConfigLock(path)
+	if err != nil {
+		return configVersion{}, err
+	}
+	defer func() { _ = lock.Close() }()
+	if err := tryConfigLock(lock); err != nil {
+		return configVersion{}, fmt.Errorf("locking config: %w", err)
+	}
+	current, exists, err := readConfigFile(path)
+	if err != nil {
+		return configVersion{}, err
+	}
+	if exists != expected.exists || (exists && sha256.Sum256(current) != expected.hash) {
+		return configVersion{}, ErrConflict
+	}
+	if err := writeConfigBytes(path, data); err != nil {
+		return configVersion{}, err
+	}
+	return configVersion{path: path, hash: sha256.Sum256(data), exists: true}, nil
+}
+
+func openConfigLock(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("creating config directory: %w", err)
+	}
+	file, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("opening config lock: %w", err)
+	}
+	return file, nil
+}
+
+func writeConfigBytes(path string, data []byte) error {
 	// Write atomically via a temp file in the same directory followed by a
 	// rename, so concurrent writers (e.g. discover hooks in multiple shells)
 	// never observe a truncated or partially written config.
-	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp config file: %w", err)
 	}
@@ -323,6 +404,45 @@ func SaveTo(cfg *Config, path string) error {
 	}
 
 	return nil
+}
+
+func readConfigFile(path string) (data []byte, exists bool, err error) {
+	data, err = os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("reading config file: %w", err)
+	}
+	return data, true, nil
+}
+
+// Resolve aliases before choosing the lock path. A symlinked config must not
+// use a different lock from its target or be replaced with an unrelated file.
+func configFilePath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolving config path: %w", err)
+	}
+	// Resolve the deepest existing ancestor even before nested directories
+	// are created, keeping the baseline stable across the first save.
+	probe, missing := abs, ""
+	for {
+		if resolved, err := filepath.EvalSymlinks(probe); err == nil {
+			return filepath.Join(resolved, missing), nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("resolving config path: %w", err)
+		}
+		if info, err := os.Lstat(probe); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("config path contains a dangling symlink: %s", probe)
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", fmt.Errorf("no existing config ancestor: %s", abs)
+		}
+		missing = filepath.Join(filepath.Base(probe), missing)
+		probe = parent
+	}
 }
 
 // AddRepo appends a repo entry to the config if no entry with the same path

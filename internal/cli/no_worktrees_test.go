@@ -100,7 +100,9 @@ func TestIntegration_NoWorktreesEmptySelection(t *testing.T) {
 		})
 	}
 
-	if err := config.Save(cfg); err != nil {
+	restored := loadRegistry(t)
+	restored.Repos = cfg.Repos
+	if err := config.Save(restored); err != nil {
 		t.Fatal(err)
 	}
 	for _, command := range commands {

@@ -311,9 +311,9 @@ transaction. Shared stash-list insertion, removal, and reordering cannot redirec
 application. Concurrent replacement of a target checkout or changes to its
 working files are not serialized by save or switch.
 
-Contexts live in the same config file as the registry. Concurrent config writers
-are still subject to the separate config lost-update limitation; this command
-does not introduce a general config lock or mutation coordinator.
+Contexts live in the same config file as the registry. If another command updates
+that file while a save is gathering Git state, the stale save fails explicitly
+and rolls its captured work back instead of replacing the completed update.
 
 ### Snapshots
 
@@ -835,6 +835,23 @@ repos:
 
 Tags, `meta`, and `worktree_of` are optional — repos without them work the same
 as before.
+
+CLI writes compare the exact loaded file revision while holding a short native
+lock on `config.yaml.lock`. A stale or contended interactive write fails with a
+retry message instead of silently replacing another command's update. Git work
+and prompts run outside this lock. Discovery hooks load and register under the
+same lock, rechecking current discovery policy and allocating unique aliases;
+they quietly skip if the lock cannot be obtained within one second.
+
+The mode-0600 lock file remains on disk; its presence does not mean it is locked.
+The operating system releases locks when the process closes the file or exits.
+Do not remove or replace the lock file while soko commands are running.
+
+`soko config edit` opens a private copy, preserves comments and formatting, and
+commits only if the original file has not changed. Invalid, failed, or conflicting
+edits leave the live config untouched and report where editor files were kept.
+This coordination covers current soko writers; older binaries and programs that
+write the live YAML directly do not participate in the locking protocol.
 
 ## Building from source
 
