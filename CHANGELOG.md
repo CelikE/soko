@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Only report installer checksum verification after a successful comparison, and defer installation until the complete script body has been received when piping downloads into a shell.
 - Clear terminal progress by visible display width instead of byte length so ANSI colors and the multibyte bullet do not add spaces that wrap near the terminal edge.
 - Support shell-style quotes and arguments in `$EDITOR` for `soko config edit`, validate edited YAML, and only confirm a save when a valid config was created or changed.
 - Discover real merged branch refs in `soko clean`, excluding detached-HEAD labels and branches checked out in any worktree so cleanup previews stay accurate and deletions avoid spurious failures.
