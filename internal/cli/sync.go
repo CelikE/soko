@@ -73,14 +73,12 @@ can be brought up to date is, and everything else is listed.`,
 				}
 			}
 
-			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
-			}
-
 			noWorktrees, _ := cmd.Flags().GetBool("no-worktrees")
 			if noWorktrees {
 				repos = config.FilterNoWorktrees(repos)
+			}
+			if len(repos) == 0 {
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			fetchOnly, _ := cmd.Flags().GetBool("fetch-only")

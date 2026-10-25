@@ -66,13 +66,11 @@ status. JSON failures include error and error_code fields.`,
 				}
 			}
 
-			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
-			}
-
 			if noWorktrees, _ := cmd.Flags().GetBool("no-worktrees"); noWorktrees {
 				repos = config.FilterNoWorktrees(repos)
+			}
+			if len(repos) == 0 {
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			ignoreCase, _ := cmd.Flags().GetBool("ignore-case")

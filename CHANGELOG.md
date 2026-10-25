@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Apply `--no-worktrees` before checking for empty selections in exec, fetch, pull, grep, sync, and apply, showing a no-repos message instead of empty tables or execution banners while preserving empty JSON arrays and quiet output.
 - Only report installer checksum verification after a successful comparison, and defer installation until the complete script body has been received when piping downloads into a shell.
 - Clear terminal progress by visible display width instead of byte length so ANSI colors and the multibyte bullet do not add spaces that wrap near the terminal edge.
 - Support shell-style quotes and arguments in `$EDITOR` for `soko config edit`, validate edited YAML, and only confirm a save when a valid config was created or changed.

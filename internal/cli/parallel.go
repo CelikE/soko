@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/CelikE/soko/internal/output"
 )
 
@@ -27,7 +29,17 @@ func noReposMessage(totalRepos int) string {
 	if totalRepos == 1 {
 		noun = "repo"
 	}
-	return fmt.Sprintf("no repos match the tag filter (%d %s registered)", totalRepos, noun)
+	return fmt.Sprintf("no repos match the filters (%d %s registered)", totalRepos, noun)
+}
+
+// renderNoRepos reports an empty selection without starting any repo operations.
+func renderNoRepos(cmd *cobra.Command, totalRepos int) error {
+	w := cmd.OutOrStdout()
+	if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+		return output.RenderJSON(w, []any{})
+	}
+	output.Info(w, noReposMessage(totalRepos))
+	return nil
 }
 
 // renderMissingHint prints a non-destructive warning nudging the user to run
