@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/fatih/color"
 )
 
 func TestProgress_nonTTY_produces_no_output(t *testing.T) {
@@ -42,6 +44,10 @@ func TestProgress_increment_advances_counter(t *testing.T) {
 // the final clearing sequence. Run under -race (as CI does); before the fix this
 // reports a data race on lineLen and the writer.
 func TestProgress_concurrent_increment_no_data_race(t *testing.T) {
+	old := color.NoColor
+	color.NoColor = false
+	t.Cleanup(func() { color.NoColor = old })
+
 	const (
 		workers  = 8
 		perWork  = 25
@@ -105,9 +111,11 @@ func TestProgress_concurrent_increment_no_data_race(t *testing.T) {
 		t.Errorf("last displayed count = %d, want %d", previous, expected)
 	}
 
+	buf.Reset()
 	p.Done()
-	clearing := "\r" + strings.Repeat(" ", len(frames[len(frames)-1])) + "\r"
-	if got := buf.String(); got != rendered+clearing {
-		t.Errorf("Done output = %q, want %q", got, rendered+clearing)
+	// ANSI styles occupy no columns, and the multibyte bullet occupies one.
+	clearing := "\r" + strings.Repeat(" ", len([]rune("  · fetching... 200/200"))) + "\r"
+	if got := buf.String(); got != clearing {
+		t.Errorf("Done output = %q, want %q", got, clearing)
 	}
 }
