@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Clear every wrapped terminal row when redrawing or closing single- and multi-select pickers, using the output terminal width and ANSI-aware Unicode measurement so long repository paths leave no stale rows.
 - Prevent overlapping dashboard fetches from periodic ticks and repeated `r` / `R` keypresses; keep the timer armed while a fetch is running and allow retries after completion or failure.
 - Preserve repository names when Git remote URLs end in one or more slashes, including `.git/`, so registration and name-based commands use the actual repository name.
 - Switch only base repositories in `soko branch switch`, excluding linked worktree entries after name and tag filtering so shared branch refs are not checked out concurrently and linked checkouts stay untouched; worktree-only selections return an empty result.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/fatih/color"
 	"golang.org/x/term"
 
@@ -43,7 +44,7 @@ type state struct {
 	cursor     int
 	offset     int // scroll offset — first visible item index
 	labelWidth int
-	lastLines  int // lines rendered on last draw, for clearing
+	lastLines  int // physical terminal rows rendered on last draw, for clearing
 
 	// multi-select mode (RunMulti). checked is keyed by original item index
 	// so it survives filtering, which copies Items.
@@ -347,28 +348,33 @@ func padRight(s string, width int) string {
 }
 
 func render(w io.Writer, title string, s *state) {
-	lines := 0
+	width := 0
+	if f, ok := w.(*os.File); ok {
+		width, _, _ = term.GetSize(int(f.Fd()))
+	}
+	renderFrame(w, title, s, width)
+}
+
+func renderFrame(w io.Writer, title string, s *state, width int) {
+	var frame strings.Builder
 
 	// Title with search query.
 	if s.query != "" {
-		_, _ = fmt.Fprintf(w, "  %s %s\r\n",
+		_, _ = fmt.Fprintf(&frame, "  %s %s\r\n",
 			output.Dim(title),
 			output.Green(s.query))
 	} else {
-		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(title))
+		_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim(title))
 	}
-	lines++
 
 	// Header + separator.
 	header := fmt.Sprintf("    %s %s", padRight("NAME", s.labelWidth), "PATH")
-	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(header))
-	_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(strings.Repeat("─", len(header))))
-	lines += 2
+	_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim(header))
+	_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim(strings.Repeat("─", len(header))))
 
 	// Items — only show the visible viewport.
 	if len(s.filtered) == 0 {
-		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("  no matches"))
-		lines++
+		_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim("  no matches"))
 	} else {
 		visible := s.visibleCount()
 		end := s.offset + visible
@@ -378,8 +384,7 @@ func render(w io.Writer, title string, s *state) {
 
 		// Scroll-up indicator.
 		if s.offset > 0 {
-			_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("  ↑ more"))
-			lines++
+			_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim("  ↑ more"))
 		}
 
 		for i := s.offset; i < end; i++ {
@@ -395,48 +400,53 @@ func render(w io.Writer, title string, s *state) {
 			}
 			if i == s.cursor {
 				line := fmt.Sprintf("  › %s%s %s", checkbox, paddedLabel, item.Desc)
-				_, _ = fmt.Fprintf(w, "%s\r\n", output.Green(line))
+				_, _ = fmt.Fprintf(&frame, "%s\r\n", output.Green(line))
 			} else {
-				_, _ = fmt.Fprintf(w, "    %s%s %s\r\n",
+				_, _ = fmt.Fprintf(&frame, "    %s%s %s\r\n",
 					checkbox,
 					paddedLabel,
 					output.Dim(item.Desc))
 			}
-			lines++
 		}
 
 		// Scroll-down indicator.
 		if end < len(s.filtered) {
-			_, _ = fmt.Fprintf(w, "  %s\r\n",
+			_, _ = fmt.Fprintf(&frame, "  %s\r\n",
 				output.Dim(fmt.Sprintf("  ↓ %d more", len(s.filtered)-end)))
-			lines++
 		}
 
 		// Position indicator when scrolling (single-select only; multi shows
 		// a selected-count on the help line instead).
 		if !s.multi && len(s.filtered) > maxVisible {
-			_, _ = fmt.Fprintf(w, "  %s\r\n",
+			_, _ = fmt.Fprintf(&frame, "  %s\r\n",
 				output.Dim(fmt.Sprintf("  %d of %d", s.cursor+1, len(s.filtered))))
-			lines++
 		}
 	}
 
 	// Help line.
-	_, _ = fmt.Fprint(w, "\r\n")
-	lines++
+	_, _ = fmt.Fprint(&frame, "\r\n")
 	switch {
 	case s.multi:
-		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim(fmt.Sprintf(
 			"↑↓ navigate · space toggle · enter confirm · esc cancel · %d of %d selected",
 			len(s.checkedIndices()), len(s.allItems))))
 	case s.query != "":
-		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · esc clear · backspace delete"))
+		_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim("↑↓ navigate · enter select · esc clear · backspace delete"))
 	default:
-		_, _ = fmt.Fprintf(w, "  %s\r\n", output.Dim("↑↓ navigate · enter select · type to search · esc quit"))
+		_, _ = fmt.Fprintf(&frame, "  %s\r\n", output.Dim("↑↓ navigate · enter select · type to search · esc quit"))
 	}
-	lines++
 
-	s.lastLines = lines
+	s.lastLines = frameRows(frame.String(), width)
+	_, _ = io.WriteString(w, frame.String())
+}
+
+// frameRows counts cursor advances, including terminal wrapping. Normalize CRLF
+// for measurement so an exact-width line's carriage return cannot add a wrap.
+// Hardwrap ignores ANSI styling and accounts for wide and combining characters;
+// an unavailable terminal width (zero) leaves only explicit newlines to count.
+func frameRows(frame string, width int) int {
+	frame = strings.ReplaceAll(frame, "\r\n", "\n")
+	return strings.Count(ansi.Hardwrap(frame, width, true), "\n")
 }
 
 func clearLines(w io.Writer, n int) {
