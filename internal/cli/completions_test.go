@@ -7,6 +7,36 @@ import (
 	"github.com/CelikE/soko/internal/config"
 )
 
+func TestFindReposMatching(t *testing.T) {
+	repos := reposFromNames("api", "api-v2", "web")
+	tests := []struct {
+		name    string
+		queries []string
+		want    []string
+	}{
+		{"exact match excludes longer names", []string{"api"}, []string{"api"}},
+		{"prefix matches when no exact name exists", []string{"ap"}, []string{"api", "api-v2"}},
+		{"repeated exact match stays exact", []string{"api", "web", "api"}, []string{"api", "web"}},
+		{"exact match already selected by prefix", []string{"a", "web", "api"}, []string{"api", "api-v2", "web"}},
+		{"repeated prefixes are deduplicated", []string{"ap", "web", "ap"}, []string{"api", "api-v2", "web"}},
+		{"query order is preserved", []string{"web", "api"}, []string{"web", "api"}},
+		{"unknown query is ignored", []string{"missing", "api"}, []string{"api"}},
+		{"no matches", []string{"missing"}, nil},
+		{"no queries", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var names []string
+			for _, repo := range findReposMatching(repos, tt.queries) {
+				names = append(names, repo.Name)
+			}
+			if !equalStrings(names, tt.want) {
+				t.Errorf("findReposMatching(%q) = %v, want %v", tt.queries, names, tt.want)
+			}
+		})
+	}
+}
+
 func TestBoundedLevenshtein(t *testing.T) {
 	tests := []struct {
 		a, b string

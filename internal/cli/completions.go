@@ -52,13 +52,18 @@ func findReposMatching(repos []config.RepoEntry, queries []string) []config.Repo
 
 	for _, q := range queries {
 		// Exact match first.
+		exactMatch := false
 		for _, r := range repos {
-			if r.Name == q && !seen[r.Path] {
+			if r.Name != q {
+				continue
+			}
+			exactMatch = true
+			if !seen[r.Path] {
 				seen[r.Path] = true
 				matched = append(matched, r)
 			}
 		}
-		if seen[q] || len(matched) > 0 && matched[len(matched)-1].Name == q {
+		if exactMatch {
 			continue
 		}
 		// Prefix match fallback.

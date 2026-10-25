@@ -144,6 +144,43 @@ func TestIntegration_BranchSwitch(t *testing.T) {
 	}
 }
 
+func TestIntegration_BranchSwitchRepeatedRepoArgs(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	for _, name := range []string{"api", "api-v2", "web"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		wtGit(t, dir, "branch", "feat/selected")
+		runSokoInit(t, dir)
+	}
+
+	out := runSoko(t, "branch", "switch", "feat/selected", "api", "web", "api", "--json")
+	var results []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+	}
+	if len(results) != 2 {
+		t.Fatalf("switch results = %+v, want only api and web", results)
+	}
+	for i, name := range []string{"api", "web"} {
+		if results[i].Name != name || results[i].Status != "switched" {
+			t.Errorf("result[%d] = %+v, want %s switched", i, results[i], name)
+		}
+	}
+	for _, name := range []string{"api", "api-v2", "web"} {
+		want := "feat/selected"
+		if name == "api-v2" {
+			want = "master"
+		}
+		if got := wtGit(t, filepath.Join(base, name), "rev-parse", "--abbrev-ref", "HEAD"); got != want {
+			t.Errorf("%s branch = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestIntegration_BranchSwitchCreate(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "sw-create")
