@@ -531,7 +531,11 @@ confirmation prompt. Each batch is recorded in the journal so `soko undo` or
 dashboard `u` can rewind it to the pre-pull commits. Pull undo requires a clean checkout,
 including no untracked files, on the original branch at the recorded pulled tip;
 it refuses newer commits, switched branches, and older journal entries without
-that safety metadata.
+that safety metadata. If a batch is only partly undone, resolve the refusal and
+retry with `soko undo` or dashboard `u`. Each successful reset is recorded;
+completed repos are skipped on retry, preserving any work made there since.
+The entry stays in the journal until all its repos are undone, then older undo
+history becomes available again.
 
 ### Automatic discovery
 

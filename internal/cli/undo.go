@@ -25,7 +25,9 @@ works. Undo is for "oops, just now" — it reverts the latest entry, not history
 Currently reverses: soko clean (recreates deleted branches at their SHAs) and
 fast-forward pulls from soko ui (resets the branch to its pre-pull SHA).
 Pull undo requires a clean checkout on the original branch at the recorded
-pulled tip. Older pull entries without this safety metadata cannot be undone.`,
+pulled tip. If some repos cannot be reset, resolve the refusal and retry; repos
+already undone are recorded and skipped, preserving any work made there since.
+Older pull entries without this safety metadata cannot be undone.`,
 		Example: `  soko undo            # revert the last operation
   soko undo --list     # show the journal without changing anything`,
 		Args: cobra.NoArgs,
@@ -44,13 +46,13 @@ pulled tip. Older pull entries without this safety metadata cannot be undone.`,
 				return renderJournal(w, j, jsonFlag)
 			}
 
-			entry, ok := j.Last()
+			_, ok := j.Last()
 			if !ok {
 				output.Info(w, "nothing to undo")
 				return nil
 			}
 
-			if err := revertEntry(cmd.Context(), w, &entry); err != nil {
+			if err := revertLastEntry(cmd.Context(), w, j); err != nil {
 				return err
 			}
 
@@ -66,27 +68,37 @@ pulled tip. Older pull entries without this safety metadata cannot be undone.`,
 	return cmd
 }
 
-// revertEntry dispatches an entry to the right reversal routine.
-func revertEntry(ctx context.Context, w io.Writer, e *journal.Entry) error {
+// revertLastEntry dispatches a nonempty journal's latest entry to its reversal
+// routine. Pull undo checkpoints completed targets in the same loaded journal.
+func revertLastEntry(ctx context.Context, w io.Writer, j *journal.Journal) error {
+	e := &j.Entries[len(j.Entries)-1]
 	switch e.Op {
 	case journal.OpClean:
 		return undoClean(ctx, w, e)
 	case journal.OpPull:
-		return undoPull(ctx, w, e)
+		return undoPull(ctx, w, j)
 	default:
 		return fmt.Errorf("don't know how to undo operation %q", e.Op)
 	}
 }
 
 // undoPull rewinds fast-forwarded repos only while their checkouts still match
-// the recorded pull. Refused repos keep their work and journal entry intact.
-func undoPull(ctx context.Context, w io.Writer, e *journal.Entry) error {
+// the recorded pull. Refused repos remain pending; completed repos are skipped.
+func undoPull(ctx context.Context, w io.Writer, j *journal.Journal) error {
+	e := &j.Entries[len(j.Entries)-1]
 	var reset, failed int
-	for _, p := range e.Pulls {
-		if err := resetPulledRepo(ctx, &p); err != nil {
+	for i := range e.Pulls {
+		p := &e.Pulls[i]
+		if p.Undone {
+			continue
+		}
+		if err := resetPulledRepo(ctx, p); err != nil {
 			output.Fail(w, fmt.Sprintf("%s: %v", p.Repo, err))
 			failed++
 			continue
+		}
+		if err := recordPullUndo(j, p); err != nil {
+			return err
 		}
 		output.Confirm(w, fmt.Sprintf("%s: reset to %s", p.Repo, shortSHA(p.SHA)))
 		reset++
@@ -98,6 +110,16 @@ func undoPull(ctx context.Context, w io.Writer, e *journal.Entry) error {
 	}
 	if reset == 0 {
 		output.Info(w, "nothing to reset")
+	}
+	return nil
+}
+
+// recordPullUndo checkpoints each successful reset before attempting another
+// target or consuming the entry. A persistence failure stops further resets.
+func recordPullUndo(j *journal.Journal, p *journal.PullRef) error {
+	p.Undone = true
+	if err := journal.Save(j); err != nil {
+		return fmt.Errorf("recording undo progress for %s: %w", p.Repo, err)
 	}
 	return nil
 }
