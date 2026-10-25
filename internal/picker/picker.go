@@ -115,29 +115,34 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 		clearLines(w, s.lastLines)
 	}()
 
+	keys, err := newKeyReader(in)
+	if err != nil {
+		return -1
+	}
+	defer keys.close()
+
 	render(w, opts.Title, s)
 
-	buf := make([]byte, 3)
 	for {
-		n, readErr := in.Read(buf)
+		key, readErr := keys.next()
 		if readErr != nil {
 			return -1
 		}
 
 		switch {
 		// Enter — select current item.
-		case n == 1 && (buf[0] == '\r' || buf[0] == '\n'):
+		case key == "\r" || key == "\n":
 			if len(s.filtered) == 0 {
 				continue
 			}
 			return s.filtered[s.cursor].index
 
 		// Ctrl+C.
-		case n == 1 && buf[0] == 3:
+		case key == "\x03":
 			return -1
 
 		// Escape — clear filter if active, otherwise quit.
-		case n == 1 && buf[0] == 27:
+		case key == "\x1b":
 			if s.query != "" {
 				clearLines(w, s.lastLines)
 				s.query = ""
@@ -150,7 +155,7 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			}
 
 		// Backspace (127 or 8).
-		case n == 1 && (buf[0] == 127 || buf[0] == 8):
+		case key == "\x7f" || key == "\b":
 			if s.query != "" {
 				clearLines(w, s.lastLines)
 				s.query = s.query[:len(s.query)-1]
@@ -161,7 +166,7 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			}
 
 		// Up arrow (ESC [ A).
-		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'A':
+		case key == "\x1b[A":
 			if s.cursor > 0 {
 				s.cursor--
 				// Scroll up if cursor is above the viewport.
@@ -173,7 +178,7 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			}
 
 		// Down arrow (ESC [ B).
-		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'B':
+		case key == "\x1b[B":
 			if s.cursor < len(s.filtered)-1 {
 				s.cursor++
 				// Scroll down if cursor is below the viewport.
@@ -185,9 +190,9 @@ func Run(in *os.File, w io.Writer, opts Options) int {
 			}
 
 		// Printable character — add to search query.
-		case n == 1 && buf[0] >= 32 && buf[0] < 127:
+		case len(key) == 1 && key[0] >= 32 && key[0] < 127:
 			clearLines(w, s.lastLines)
-			s.query += string(buf[0])
+			s.query += key
 			s.filtered = filterItems(s.allItems, s.query)
 			s.cursor = 0
 			s.offset = 0
@@ -233,26 +238,31 @@ func RunMulti(in *os.File, w io.Writer, opts Options) []int {
 		clearLines(w, s.lastLines)
 	}()
 
+	keys, err := newKeyReader(in)
+	if err != nil {
+		return nil
+	}
+	defer keys.close()
+
 	render(w, opts.Title, s)
 
-	buf := make([]byte, 3)
 	for {
-		n, readErr := in.Read(buf)
+		key, readErr := keys.next()
 		if readErr != nil {
 			return nil
 		}
 
 		switch {
 		// Enter — confirm the checked set.
-		case n == 1 && (buf[0] == '\r' || buf[0] == '\n'):
+		case key == "\r" || key == "\n":
 			return s.checkedIndices()
 
 		// Ctrl+C — cancel.
-		case n == 1 && buf[0] == 3:
+		case key == "\x03":
 			return nil
 
 		// Escape — clear filter if active, otherwise cancel.
-		case n == 1 && buf[0] == 27:
+		case key == "\x1b":
 			if s.query != "" {
 				clearLines(w, s.lastLines)
 				s.query = ""
@@ -266,13 +276,13 @@ func RunMulti(in *os.File, w io.Writer, opts Options) []int {
 
 		// Space — toggle the item under the cursor. Handled before the
 		// printable-character branch so space never becomes a search term.
-		case n == 1 && buf[0] == ' ':
+		case key == " ":
 			s.toggleCurrent()
 			clearLines(w, s.lastLines)
 			render(w, opts.Title, s)
 
 		// Backspace.
-		case n == 1 && (buf[0] == 127 || buf[0] == 8):
+		case key == "\x7f" || key == "\b":
 			if s.query != "" {
 				clearLines(w, s.lastLines)
 				s.query = s.query[:len(s.query)-1]
@@ -283,7 +293,7 @@ func RunMulti(in *os.File, w io.Writer, opts Options) []int {
 			}
 
 		// Up arrow.
-		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'A':
+		case key == "\x1b[A":
 			if s.cursor > 0 {
 				s.cursor--
 				if s.cursor < s.offset {
@@ -294,7 +304,7 @@ func RunMulti(in *os.File, w io.Writer, opts Options) []int {
 			}
 
 		// Down arrow.
-		case n == 3 && buf[0] == 27 && buf[1] == '[' && buf[2] == 'B':
+		case key == "\x1b[B":
 			if s.cursor < len(s.filtered)-1 {
 				s.cursor++
 				if s.cursor >= s.offset+s.visibleCount() {
@@ -305,9 +315,9 @@ func RunMulti(in *os.File, w io.Writer, opts Options) []int {
 			}
 
 		// Printable character — add to search query (space excluded above).
-		case n == 1 && buf[0] > 32 && buf[0] < 127:
+		case len(key) == 1 && key[0] > 32 && key[0] < 127:
 			clearLines(w, s.lastLines)
-			s.query += string(buf[0])
+			s.query += key
 			s.filtered = filterItems(s.allItems, s.query)
 			s.cursor = 0
 			s.offset = 0

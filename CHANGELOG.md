@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Decode picker keys across split or combined terminal reads so arrow keys over SSH/tmux neither cancel selection nor corrupt search filters in single- and multi-select modes; keep standalone Escape responsive with a short timeout.
 - Report duplicate repository paths in `soko doc` as requiring manual repair, with a `soko config edit` hint, instead of advertising an automatic fix that `--fix` cannot perform.
 - Replace the undo journal atomically and serialize cross-process append/pop transactions so interrupted saves preserve the previous log and concurrent commands retain recovery entries. Reject stale undo checkpoints and entry removal instead of overwriting or consuming newer history.
 - Clear every wrapped terminal row when redrawing or closing single- and multi-select pickers, using the output terminal width and ANSI-aware Unicode measurement so long repository paths leave no stale rows.
