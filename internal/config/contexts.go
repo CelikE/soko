@@ -7,17 +7,20 @@ import (
 
 // ContextRepo records one repo's place inside a saved context: the branch it
 // was on (or the detached HEAD commit) and whether soko stashed its dirty
-// working tree under the context's stash message.
+// working tree. StashOID binds that member to its exact saved commit. Checkout
+// ownership and successful restoration are recorded in Git refs; the stash
+// remains as a recoverable backup.
 type ContextRepo struct {
 	Name     string `yaml:"name"`
 	Branch   string `yaml:"branch"`
 	Detached bool   `yaml:"detached,omitempty"`
 	Stashed  bool   `yaml:"stashed,omitempty"`
+	StashOID string `yaml:"stash_oid,omitempty"`
 }
 
 // ContextEntry is a named snapshot of where every selected repo was at save
-// time. The stashes themselves live in each repo's stash list (found again by
-// message), so dropping a context never loses work.
+// time. Stash commits remain reachable through Git refs as well as ordinary
+// stash entries, so dropping a context never loses work.
 type ContextEntry struct {
 	SavedAt time.Time     `yaml:"saved_at"`
 	Repos   []ContextRepo `yaml:"repos"`

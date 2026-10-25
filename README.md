@@ -276,17 +276,44 @@ soko ctx save client-a --tag work   # only tagged repos
 
 # ... handle the interrupt on other branches ...
 
-soko ctx switch client-a            # restore branches, pop the stashes
+soko ctx switch client-a            # restore branches and saved changes
 soko ctx list                       # saved contexts with age and stash counts
 soko ctx show client-a              # per-repo branch + stash detail
 soko ctx drop client-a              # forget it (stashes stay in their repos)
 ```
 
-`save` stashes only dirty repos (including untracked files) under a
-per-context stash message, so unrelated stashes are never touched. `switch`
-refuses to touch any repo that is dirty *right now* — save the current state
-under another name first. A stash that was popped manually degrades to a
-note, never an error. Contexts live in the same config file as the registry.
+`save` stashes only dirty repos (including untracked files), recording each
+member's exact stash commit and creating an ownership ref under Git's
+per-worktree `refs/worktree/soko/ctx/<stash-oid>` namespace. Linked worktrees
+share a stash list; a context-name message alone cannot identify their saved work.
+`switch` applies that exact commit, leaving every stash-list entry untouched.
+Backups are retained instead of deleting a numeric position that another Git
+process could change between lookup and cleanup.
+
+Shared `refs/soko/ctx-backups/<stash-oid>` refs pin pending work even if its
+stash-list entry is removed and GC runs from another linked checkout.
+Successful applications create Git refs under `refs/soko/ctx-restored/<stash-oid>`
+to prevent reapplication and keep the backup reachable. This does not rewrite
+the shared config, so a concurrent context save is not overwritten by switch
+completion. Dropping a context leaves backups, ownership refs, and completion
+refs intact; stash counts describe what was captured, not pending applications.
+
+`switch` refuses any repo that is dirty *right now* — save the current state
+under another name first. Missing ownership refs, replacement checkouts, and
+older stashed contexts without ownership metadata fail before checkout; inspect
+`git stash list` and recover manually rather than guessing ownership. A recreated
+worktree does not inherit the removed worktree's ownership refs, even if Git
+reuses its administrative directory. Older clean context records still work.
+Conflicted restores retain their backup and remain retryable after the conflict
+is resolved. A failure or interruption after application but before completion
+recording can require manual recovery; restoration is not a crash-atomic
+transaction. Shared stash-list insertion, removal, and reordering cannot redirect
+application. Concurrent replacement of a target checkout or changes to its
+working files are not serialized by save or switch.
+
+Contexts live in the same config file as the registry. Concurrent config writers
+are still subject to the separate config lost-update limitation; this command
+does not introduce a general config lock or mutation coordinator.
 
 ### Snapshots
 

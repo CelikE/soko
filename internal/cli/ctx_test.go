@@ -30,7 +30,7 @@ func ctxGit(t *testing.T, dir string, args ...string) string {
 
 // TestIntegration_CtxSaveSwitch is the full round trip: save records branches
 // and stashes the dirty repo, the user moves on, switch restores the branch
-// and pops the stash.
+// and applies the exact saved stash, retaining its backup.
 func TestIntegration_CtxSaveSwitch(t *testing.T) {
 	testEnv(t)
 	base := t.TempDir()
@@ -65,8 +65,8 @@ func TestIntegration_CtxSaveSwitch(t *testing.T) {
 	ctxGit(t, dirty, "checkout", "master")
 
 	out = runSoko(t, "ctx", "switch", "work")
-	if !strings.Contains(out, "feat/sso (stash restored)") {
-		t.Errorf("ctx switch = %q, want 'feat/sso (stash restored)'", out)
+	if !strings.Contains(out, "feat/sso (stash restored; backup retained)") {
+		t.Errorf("ctx switch = %q, want restored stash and retained backup", out)
 	}
 
 	if br := ctxGit(t, dirty, "symbolic-ref", "--short", "HEAD"); br != "feat/sso" {
@@ -207,8 +207,9 @@ func TestIntegration_CtxSaveConfigFailureRestoresWork(t *testing.T) {
 						t.Errorf("%s/%s = %q, %v; want %q", repo, name, got, err, want)
 					}
 				}
-				if got := ctxGit(t, repo, "stash", "list", "--format=%H %gs"); got != stashes[repo] {
-					t.Errorf("%s stashes = %q, want %q", repo, got, stashes[repo])
+				got := ctxGit(t, repo, "stash", "list", "--format=%H %gs")
+				if !strings.HasSuffix(got, stashes[repo]) || len(strings.Split(got, "\n")) != 2 {
+					t.Errorf("%s stashes = %q, want retained backup and unchanged older stash %q", repo, got, stashes[repo])
 				}
 			}
 			if got := ctxGit(t, clean, "status", "--porcelain"); got != "" {
@@ -278,8 +279,8 @@ exit "$status"
 			if err != nil || string(data) != "unsaved work\n" {
 				t.Errorf("work = %q, %v", data, err)
 			}
-			if got := ctxGit(t, repo, "stash", "list"); got != "" {
-				t.Errorf("failed capture left an unrecorded stash: %s", got)
+			if got := ctxGit(t, repo, "stash", "list"); !strings.Contains(got, "soko-ctx:work") {
+				t.Errorf("failed capture lost its recovery backup: %s", got)
 			}
 			cfg, err := config.Load()
 			if err != nil {
@@ -340,8 +341,8 @@ func TestIntegration_CtxUnknownName(t *testing.T) {
 	}
 }
 
-// TestIntegration_CtxStashMissing verifies a manually consumed stash degrades
-// to a warning: the branch is still restored and the switch succeeds.
+// TestIntegration_CtxStashMissing verifies a missing intended stash fails
+// before checkout instead of reporting success without restoring saved work.
 func TestIntegration_CtxStashMissing(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "ctx-gone-stash")
@@ -354,16 +355,25 @@ func TestIntegration_CtxStashMissing(t *testing.T) {
 	}
 	runSoko(t, "ctx", "save", "lost")
 
-	// The user pops the stash by hand and moves to master.
+	// Both stash-list entry and per-worktree ownership have been removed.
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oid := cfg.Contexts["lost"].Repos[0].StashOID
 	ctxGit(t, repo, "stash", "drop")
+	ctxGit(t, repo, "update-ref", "-d", "refs/worktree/soko/ctx/"+oid, oid)
 	ctxGit(t, repo, "checkout", "master")
 
-	out := runSoko(t, "ctx", "switch", "lost") // must not error
-	if !strings.Contains(out, "stash missing") {
-		t.Errorf("ctx switch = %q, want a 'stash missing' note", out)
+	out, err := runSokoErr(t, "ctx", "switch", "lost")
+	if err == nil {
+		t.Fatal("switch with missing saved work must fail")
 	}
-	if br := ctxGit(t, repo, "symbolic-ref", "--short", "HEAD"); br != "feat/x" {
-		t.Errorf("branch after switch = %q, want feat/x", br)
+	if !strings.Contains(out, "stash ownership missing") {
+		t.Errorf("ctx switch = %q, want missing ownership refusal", out)
+	}
+	if br := ctxGit(t, repo, "symbolic-ref", "--short", "HEAD"); br != "master" {
+		t.Errorf("branch after refused switch = %q, want master", br)
 	}
 }
 

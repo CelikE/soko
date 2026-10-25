@@ -65,7 +65,7 @@ func TestContextRoundTripYAML(t *testing.T) {
 	cfg := &config.Config{}
 	config.SetContext(cfg, "client-a", &config.ContextEntry{
 		SavedAt: time.Date(2026, 6, 11, 9, 30, 0, 0, time.UTC),
-		Repos:   []config.ContextRepo{{Name: "api", Branch: "feat/x", Detached: false, Stashed: true}},
+		Repos:   []config.ContextRepo{{Name: "api", Branch: "feat/x", Detached: false, Stashed: true, StashOID: "1234567890123456789012345678901234567890"}},
 	})
 
 	if err := config.SaveTo(cfg, path); err != nil {
@@ -82,6 +82,9 @@ func TestContextRoundTripYAML(t *testing.T) {
 	}
 	if entry.Repos[0].Name != "api" || entry.Repos[0].Branch != "feat/x" || !entry.Repos[0].Stashed {
 		t.Errorf("round-tripped repo = %+v, want api/feat-x/stashed", entry.Repos[0])
+	}
+	if entry.Repos[0].StashOID != cfg.Contexts["client-a"].Repos[0].StashOID {
+		t.Errorf("stash identity lost: %+v", entry.Repos[0])
 	}
 	if !entry.SavedAt.Equal(time.Date(2026, 6, 11, 9, 30, 0, 0, time.UTC)) {
 		t.Errorf("round-tripped SavedAt = %v", entry.SavedAt)

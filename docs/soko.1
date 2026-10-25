@@ -610,16 +610,38 @@ can bring it back later. Subcommands:
 .TP
 .B save <name> [repos...]
 Record the branch per repository and stash dirty repositories (including
-untracked files) under a per-context stash message. Options:
+untracked files), persisting each member's exact stash commit and creating a
+per-worktree ownership ref under
+.IR refs/worktree/soko/ctx/<stash-oid> .
+Ownership distinguishes replacement worktrees even when Git reuses their
+administrative paths. Shared refs under
+.I refs/soko/ctx-backups/<stash-oid>
+pin pending objects against GC from other linked checkouts. Options:
 .B \-\-force
 (overwrite an existing context),
 .BI \-\-tag " tag" .
 .TP
 .B switch <name>
-Restore the saved branches and pop the stashes. Refuses to touch any
+Restore the saved branches and apply each member's recorded stash commit.
+Stash-list entries remain as recoverable backups: numeric stash positions can
+change during concurrent Git operations and are never used for deletion.
+Successful applications are recorded as Git refs under
+.IR refs/soko/ctx-restored/<stash-oid> ,
+preventing reapplication without rewriting the shared config. Ownership and
+completion refs keep backups reachable and remain after a context is dropped.
+Stash counts describe captured work, not pending applications.
+Refuses to touch any
 repository that is dirty right now \(em save the current state under
-another name first. A manually-popped stash degrades to a note, never an
-error.
+another name first. Missing ownership refs, replacement checkouts, or older
+stashed contexts without ownership metadata fail before checkout; inspect
+.B git stash list
+for manual recovery. Older clean context records remain usable. Conflicted
+restores retain backups. Interruption after application but before completion
+recording may require manual recovery; this is not a crash-atomic transaction.
+Shared stash-list insertion, removal, and reordering cannot redirect
+application.
+Concurrent replacement of a target checkout or changes to its working files
+are not serialized by save or switch.
 .TP
 .B list
 List saved contexts with age and stash counts.
