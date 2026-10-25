@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Discover real merged branch refs in `soko clean`, excluding detached-HEAD labels and branches checked out in any worktree so cleanup previews stay accurate and deletions avoid spurious failures.
 - Preserve shell-style quotes, escapes, and empty arguments in command aliases, keep appended arguments intact, and reject malformed aliases before saving or executing them.
 - Restore Fish shell navigation by keeping the config path in function scope and using `$HOME/.config` when `XDG_CONFIG_HOME` is unset or empty.
 - Keep repeated exact repository filters from selecting longer prefix matches, so batch commands such as `soko branch switch feat/x api web api` leave `api-v2` untouched.
