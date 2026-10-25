@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CelikE/soko/internal/snapshot"
 )
 
 // snapGit runs a git command in dir for snapshot tests, returning trimmed stdout.
@@ -259,6 +261,77 @@ func TestIntegration_SnapshotJSON(t *testing.T) {
 	}
 	if len(listRows) != 1 || listRows[0].Name != "j1" || listRows[0].Repos != 1 {
 		t.Errorf("snapshot list --json = %+v, want [{j1 1}]", listRows)
+	}
+}
+
+func TestIntegration_SnapshotListReportsCorruption(t *testing.T) {
+	testEnv(t)
+	repo := filepath.Join(t.TempDir(), "snap-corruption")
+	initRepo(t, repo)
+	runSokoInit(t, repo)
+	runSoko(t, "snapshot", "save", "healthy")
+	dir, err := snapshot.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"broken": "repos: [", "empty": ""} {
+		if err := os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"snapshot", "list"},
+		{"snapshot", "list", "--quiet"},
+	} {
+		out := runSoko(t, args...)
+		for _, want := range []string{"healthy", "1 repo", "broken", "empty", "unreadable"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%v = %q, want %q", args, out, want)
+			}
+		}
+	}
+	out := runSoko(t, "snapshot", "list", "--json")
+	var rows []struct {
+		Name  string `json:"name"`
+		Repos int    `json:"repos"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("invalid snapshot list JSON: %v\n%s", err, out)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("snapshot list = %+v, want healthy, broken, and empty", rows)
+	}
+	if rows[0].Name != "healthy" || rows[0].Repos != 1 || rows[0].Error != "" {
+		t.Errorf("healthy snapshot row = %+v, want healthy with 1 repo and no error", rows[0])
+	}
+	for _, row := range rows[1:] {
+		if row.Error == "" || row.Repos != 0 {
+			t.Errorf("corrupt snapshot row = %+v, want error without repo count", row)
+		}
+	}
+
+	// Damaged snapshots remain addressable for inspection and removal, but
+	// restoring them must fail before touching any repository.
+	runSoko(t, "snapshot", "drop", "healthy", "--force")
+	if out := runSoko(t, "snapshot", "list"); strings.Contains(out, "no saved snapshots") || !strings.Contains(out, "broken") {
+		t.Errorf("corrupt-only listing = %q, want damaged snapshots instead of empty hint", out)
+	}
+	head := snapGit(t, repo, "rev-parse", "HEAD")
+	for _, name := range []string{"broken", "empty"} {
+		for _, verb := range []string{"show", "restore"} {
+			if _, err := runSokoErr(t, "snapshot", verb, name); err == nil {
+				t.Errorf("snapshot %s %s succeeded, want corruption error", verb, name)
+			}
+		}
+		runSoko(t, "snapshot", "drop", name, "--force")
+	}
+	if got := snapGit(t, repo, "rev-parse", "HEAD"); got != head {
+		t.Errorf("corrupt restore moved HEAD to %s, want %s", got, head)
+	}
+	if out := runSoko(t, "snapshot", "list", "--json"); strings.TrimSpace(out) != "[]" {
+		t.Errorf("empty snapshot list = %q, want []", out)
 	}
 }
 

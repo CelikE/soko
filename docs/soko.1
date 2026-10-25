@@ -698,7 +698,10 @@ Move each repository back to its recorded branch and commit, rewinding
 branches that moved and recreating branches that were deleted.
 .TP
 .B list
-List saved snapshots.
+List saved snapshots, newest first. Unreadable or incomplete files remain
+listed with an error; JSON output includes an
+.B error
+field on affected entries.
 .TP
 .B show <name>
 Show per-repository detail for a snapshot.
