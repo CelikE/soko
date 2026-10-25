@@ -117,16 +117,19 @@ else
 fi
 
 # Install.
-mkdir -p "$INSTALL_DIR"
+if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+  echo "creating ${INSTALL_DIR} (requires sudo)..."
+  sudo mkdir -p "$INSTALL_DIR"
+fi
 
 if [ -w "$INSTALL_DIR" ]; then
   cp "$BINARY" "$INSTALL_DIR/"
+  chmod +x "${INSTALL_DIR}/${BINARY}"
 else
   echo "installing to ${INSTALL_DIR} (requires sudo)..."
   sudo cp "$BINARY" "$INSTALL_DIR/"
+  sudo chmod +x "${INSTALL_DIR}/${BINARY}"
 fi
-
-chmod +x "${INSTALL_DIR}/${BINARY}"
 
 echo "soko ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
 
