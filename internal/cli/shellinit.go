@@ -50,10 +50,9 @@ set -gx SOKO_SHELL_INTEGRATION 1
 set -gx SOKO_NAV_SESSION $fish_pid
 
 function __soko_nav_hook --on-event fish_postexec
-  if set -q XDG_CONFIG_HOME
-    set -l base $XDG_CONFIG_HOME
-  else
-    set -l base $HOME/.config
+  set -l base $HOME/.config
+  if set -q XDG_CONFIG_HOME; and test -n "$XDG_CONFIG_HOME"
+    set base $XDG_CONFIG_HOME
   end
   set -l nav_file $base/soko/.nav.$SOKO_NAV_SESSION
 

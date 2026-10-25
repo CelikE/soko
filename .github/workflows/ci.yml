@@ -26,6 +26,11 @@ jobs:
         with:
           version: v2.14.0
 
+      - name: Install Fish for shell integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fish
+
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
 
