@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Report missing repository paths in `soko open` with a prune hint, and preserve actual Git errors in text and JSON output instead of diagnosing every remote lookup failure as a missing origin.
 - Apply `--no-worktrees` before checking for empty selections in exec, fetch, pull, grep, sync, and apply, showing a no-repos message instead of empty tables or execution banners while preserving empty JSON arrays and quiet output.
 - Only report installer checksum verification after a successful comparison, and defer installation until the complete script body has been received when piping downloads into a shell.
 - Clear terminal progress by visible display width instead of byte length so ANSI colors and the multibyte bullet do not add spaces that wrap near the terminal edge.

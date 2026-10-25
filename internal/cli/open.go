@@ -89,10 +89,25 @@ pages like pull requests, issues, or CI/CD.`,
 			}
 
 			var jsonResults []openResultJSON
-			var failed int
+			var failed, missing int
 
 			// Open each repo.
 			for _, repo := range repos {
+				if !pathExists(repo.Path) {
+					failed++
+					missing++
+					if jsonFlag {
+						jsonResults = append(jsonResults, openResultJSON{
+							Name:  repo.Name,
+							Path:  repo.Path,
+							Error: "path not found",
+						})
+					} else {
+						output.Fail(w, fmt.Sprintf("%s: path not found", repo.Name))
+					}
+					continue
+				}
+
 				remote, err := git.Run(ctx, repo.Path, "remote", "get-url", "origin")
 				if err != nil {
 					failed++
@@ -100,10 +115,10 @@ pages like pull requests, issues, or CI/CD.`,
 						jsonResults = append(jsonResults, openResultJSON{
 							Name:  repo.Name,
 							Path:  repo.Path,
-							Error: "no remote origin configured",
+							Error: err.Error(),
 						})
 					} else {
-						output.Fail(w, fmt.Sprintf("%s: no remote origin configured", repo.Name))
+						output.Fail(w, fmt.Sprintf("%s: %s", repo.Name, gitErrorReason(err.Error())))
 					}
 					continue
 				}
@@ -140,6 +155,8 @@ pages like pull requests, issues, or CI/CD.`,
 				if err := output.RenderJSON(w, jsonResults); err != nil {
 					return err
 				}
+			} else {
+				renderMissingHint(w, missing)
 			}
 
 			if failed > 0 {
