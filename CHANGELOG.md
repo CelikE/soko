@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Keep repeated exact repository filters from selecting longer prefix matches, so batch commands such as `soko branch switch feat/x api web api` leave `api-v2` untouched.
 - Install and verify `soko.exe` from Windows ZIP releases in Git Bash, MSYS, and Cygwin without changing release archive names.
 - Cascade `soko prune --select` to linked worktrees after the picker so deselecting a worktree cannot leave it orphaned when its parent is pruned; previews and confirmation counts include every affected entry.
 - Complete shell installs into protected directories by using sudo for both copying and setting executable permissions, and retry directory creation with sudo when needed.
