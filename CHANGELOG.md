@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Complete shell installs into protected directories by using sudo for both copying and setting executable permissions, and retry directory creation with sudo when needed.
 - Report missing paths and Git failures in `soko grep --json` with per-repository errors and stable error codes, preserve successful matches, and return a non-zero exit status for incomplete searches in text and JSON output.
 - Confine `soko apply` previews and atomic writes to each repository root, rejecting escaping symlinks even if a destination changes after preview while preserving relative directory symlinks within the checkout.
 - Delete merged branches sequentially within each repository during `soko clean` to avoid packed-ref lock contention and spurious failures, while retaining parallel cleanup across repositories and exact branch restoration with `soko undo`.
