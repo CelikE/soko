@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
@@ -52,12 +55,21 @@ func newConfigEditCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit",
 		Short: "Open the config file in $EDITOR",
+		Long: `Open the config file in $EDITOR (vi on Unix, notepad on Windows).
+EDITOR supports shell-style quotes and arguments, for example: EDITOR="code --wait".
+Edited YAML is validated before reporting a changed config as saved.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 
 			path, err := config.Path()
 			if err != nil {
 				return fmt.Errorf("resolving config path: %w", err)
+			}
+
+			before, err := os.ReadFile(path)
+			existed := err == nil
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("reading config before editing: %w", err)
 			}
 
 			editor := os.Getenv("EDITOR")
@@ -69,16 +81,41 @@ func newConfigEditCmd() *cobra.Command {
 				}
 			}
 
-			c := exec.CommandContext(ctx, editor, path)
-			c.Stdin = os.Stdin
-			c.Stdout = os.Stdout
-			c.Stderr = os.Stderr
+			// Preserve bare executable paths, including spaces and Windows
+			// backslashes, before interpreting a command with quoted arguments.
+			editorArgs := []string{editor}
+			if _, lookErr := exec.LookPath(editor); lookErr != nil {
+				editorArgs, err = shellquote.Split(editor)
+				if err != nil {
+					return fmt.Errorf("parsing EDITOR: %w", err)
+				}
+			}
+			if len(editorArgs) == 0 || editorArgs[0] == "" {
+				return fmt.Errorf("EDITOR must not be empty")
+			}
+
+			c := exec.CommandContext(ctx, editorArgs[0], append(editorArgs[1:], path)...)
+			c.Stdin = cmd.InOrStdin()
+			c.Stdout = cmd.OutOrStdout()
+			c.Stderr = cmd.ErrOrStderr()
 
 			if err := c.Run(); err != nil {
 				return fmt.Errorf("opening editor: %w", err)
 			}
 
-			output.Confirm(cmd.ErrOrStderr(), "config saved")
+			after, err := os.ReadFile(path)
+			if !existed && errors.Is(err, os.ErrNotExist) {
+				return nil // The editor was closed without creating a config.
+			}
+			if err != nil {
+				return fmt.Errorf("reading edited config: %w", err)
+			}
+			if _, err := config.LoadFrom(path); err != nil {
+				return fmt.Errorf("validating edited config: %w", err)
+			}
+			if !existed || !bytes.Equal(before, after) {
+				output.Confirm(cmd.ErrOrStderr(), "config saved")
+			}
 			return nil
 		},
 	}
