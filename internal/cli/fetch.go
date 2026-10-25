@@ -49,14 +49,12 @@ func newFetchCmd() *cobra.Command {
 				}
 			}
 
-			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
-			}
-
 			noWorktrees, _ := cmd.Flags().GetBool("no-worktrees")
 			if noWorktrees {
 				repos = config.FilterNoWorktrees(repos)
+			}
+			if len(repos) == 0 {
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			pruneFlag, _ := cmd.Flags().GetBool("prune")

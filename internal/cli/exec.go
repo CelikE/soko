@@ -53,14 +53,12 @@ By default commands run in parallel. Use --seq for sequential execution.`,
 				return err
 			}
 
-			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
-			}
-
 			noWorktrees, _ := cmd.Flags().GetBool("no-worktrees")
 			if noWorktrees {
 				repos = config.FilterNoWorktrees(repos)
+			}
+			if len(repos) == 0 {
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			seqFlag, _ := cmd.Flags().GetBool("seq")
