@@ -4,7 +4,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +16,13 @@ import (
 var version = "dev"
 
 func main() {
+	if err := run(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "  ✗ %s\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Load config early to set git binary path before any commands run.
 	// Only use custom git_path if the binary is a valid executable.
 	if cfg, err := config.Load(); err == nil && cfg.GitPath != "" {
@@ -31,16 +37,16 @@ func main() {
 		if expanded, ok := cfg.Aliases[os.Args[1]]; ok {
 			rootCmd := cli.NewRootCmd(version)
 			if !isBuiltinCommand(rootCmd, os.Args[1]) {
-				expandedArgs := strings.Fields(expanded)
+				expandedArgs, err := cli.ParseAliasCommand(expanded)
+				if err != nil {
+					return fmt.Errorf("expanding alias %q: %w", os.Args[1], err)
+				}
 				os.Args = append([]string{os.Args[0]}, append(expandedArgs, os.Args[2:]...)...)
 			}
 		}
 	}
 
-	if err := cli.NewRootCmd(version).Execute(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "  ✗ %s\n", err)
-		os.Exit(1)
-	}
+	return cli.NewRootCmd(version).Execute()
 }
 
 // isBuiltinCommand returns true if name matches a registered cobra command.

@@ -360,6 +360,7 @@ so existing configs are untouched.
 ```bash
 soko alias set morning "sync --tag work"          # create an alias
 soko alias set deploy "exec --tag prod -- make deploy"
+soko alias set greet 'exec -- echo "hello world"'    # preserve a quoted argument
 soko alias list                                    # show all aliases
 soko alias remove morning                          # remove an alias
 
@@ -368,6 +369,9 @@ soko deploy                                        # runs soko exec --tag prod -
 ```
 
 Built-in commands always take priority over aliases.
+Alias commands support shell-style single/double quotes and backslash escapes.
+Variables, globs, and command substitutions stay literal. Extra arguments are
+appended as supplied, and malformed quotes or escapes are rejected.
 
 ### Activity report
 
