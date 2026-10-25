@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/CelikE/soko/internal/cli"
+	"github.com/CelikE/soko/internal/config"
 )
 
 // writeAndCommit writes files into a repo and commits them so git grep can
@@ -76,6 +78,9 @@ func TestIntegration_GrepNoMatches(t *testing.T) {
 	out := runSoko(t, "grep", "zzznope")
 	if !strings.Contains(out, "no matches in 1 repo") {
 		t.Errorf("grep no-match = %q, want 'no matches in 1 repo'", out)
+	}
+	if out := runSoko(t, "grep", "zzznope", "--json"); strings.TrimSpace(out) != "[]" {
+		t.Errorf("grep no-match JSON = %q, want []", out)
 	}
 }
 
@@ -273,10 +278,144 @@ func TestIntegration_GrepMissingPathHint(t *testing.T) {
 		t.Fatalf("rm: %v", err)
 	}
 
-	// Missing repo is skipped, not failed; command exits 0 with a prune hint.
-	out := runSoko(t, "grep", "needle")
+	out, err := runSokoErr(t, "grep", "needle")
+	if err == nil || err.Error() != "1 repo failed to search" {
+		t.Errorf("grep error = %v, want missing repository failure", err)
+	}
 	if !strings.Contains(out, "soko prune") {
 		t.Errorf("grep with missing repo = %q, want 'soko prune' hint", out)
+	}
+}
+
+func TestIntegration_GrepRepositoryFailures(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		repos []string
+	}{
+		{name: "missing repository", repos: []string{"missing"}},
+		{name: "git failure", repos: []string{"broken"}},
+		{name: "mixed repositories", repos: []string{"hit", "missing", "clean", "broken"}},
+	} {
+		for _, mode := range []string{"text", "quiet", "json", "json-files-only"} {
+			t.Run(tt.name+"/"+mode, func(t *testing.T) {
+				testEnv(t)
+				base := t.TempDir()
+				cfg := &config.Config{}
+				wantErrors := map[string]string{}
+				for _, name := range tt.repos {
+					path := filepath.Join(base, name)
+					cfg.Repos = append(cfg.Repos, config.RepoEntry{Name: name, Path: path})
+					switch name {
+					case "missing":
+						wantErrors[name] = "path not found"
+					case "broken":
+						if err := os.Mkdir(path, 0o755); err != nil {
+							t.Fatal(err)
+						}
+						wantErrors[name] = "not a git repository"
+					default:
+						initRepo(t, path)
+						if name == "hit" {
+							writeAndCommit(t, path, map[string]string{"match.txt": "needle here\n"})
+						}
+					}
+				}
+				if err := config.Save(cfg); err != nil {
+					t.Fatal(err)
+				}
+
+				args := []string{"grep", "needle"}
+				switch mode {
+				case "quiet":
+					args = append(args, "--quiet")
+				case "json":
+					args = append(args, "--json")
+				case "json-files-only":
+					args = append(args, "--json", "--files-only")
+				}
+				out, err := runSokoErr(t, args...)
+				plural := "repo"
+				if len(wantErrors) != 1 {
+					plural = "repos"
+				}
+				wantErr := fmt.Sprintf("%d %s failed to search", len(wantErrors), plural)
+				if err == nil || err.Error() != wantErr {
+					t.Errorf("grep error = %v, want %q", err, wantErr)
+				}
+
+				if strings.HasPrefix(mode, "json") {
+					var entries []struct {
+						Repo    string `json:"repo"`
+						Path    string `json:"path"`
+						Matches []struct {
+							File string `json:"file"`
+							Line int    `json:"line"`
+							Text string `json:"text"`
+						} `json:"matches"`
+						Error     string  `json:"error"`
+						ErrorCode *string `json:"error_code"`
+					}
+					if err := json.Unmarshal([]byte(out), &entries); err != nil {
+						t.Fatalf("parse JSON: %v\n%s", err, out)
+					}
+					var wantRepos []config.RepoEntry
+					for _, repo := range cfg.Repos {
+						if repo.Name != "clean" {
+							wantRepos = append(wantRepos, repo)
+						}
+					}
+					if len(entries) != len(wantRepos) {
+						t.Fatalf("got %d results, want %d\n%s", len(entries), len(wantRepos), out)
+					}
+					for i, e := range entries {
+						if e.Repo != wantRepos[i].Name || e.Path != wantRepos[i].Path {
+							t.Errorf("result = %+v, want repo %s at %s in config order", e, wantRepos[i].Name, wantRepos[i].Path)
+						}
+						if want, failed := wantErrors[e.Repo]; failed {
+							wantCode := "git_failure"
+							if e.Repo == "missing" {
+								wantCode = "path_missing"
+							}
+							if !strings.Contains(e.Error, want) || e.ErrorCode == nil || *e.ErrorCode != wantCode {
+								t.Errorf("failure = %+v, want %q/%s", e, want, wantCode)
+							}
+							if e.Matches == nil || len(e.Matches) != 0 {
+								t.Errorf("failure matches = %+v, want empty array", e.Matches)
+							}
+							continue
+						}
+						if e.Error != "" || e.ErrorCode != nil || len(e.Matches) != 1 || e.Matches[0].File != "match.txt" {
+							t.Fatalf("successful result = %+v, want match.txt without errors", e)
+						}
+						m := e.Matches[0]
+						if mode == "json-files-only" {
+							if m.Line != 0 || m.Text != "" {
+								t.Errorf("files-only match = %+v, want filename only", m)
+							}
+						} else if m.Line != 1 || m.Text != "needle here" {
+							t.Errorf("match = %+v, want line 1 and exact source text", m)
+						}
+					}
+					return
+				}
+
+				for name, want := range wantErrors {
+					if !strings.Contains(out, name+": ") || !strings.Contains(out, want) {
+						t.Errorf("missing failure for %s: %q\n%s", name, want, out)
+					}
+				}
+				if strings.Contains(out, "no matches") {
+					t.Errorf("failed searches should not claim no matches:\n%s", out)
+				}
+				wantHint := wantErrors["missing"] != "" && mode == "text"
+				if strings.Contains(out, "soko prune") != wantHint {
+					t.Errorf("prune hint present = %t, want %t\n%s", strings.Contains(out, "soko prune"), wantHint, out)
+				}
+				if len(tt.repos) > 1 && !strings.Contains(out, "match.txt") {
+					t.Errorf("missing successful match:\n%s", out)
+				}
+			})
+		}
 	}
 }
 

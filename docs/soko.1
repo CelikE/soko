@@ -508,6 +508,15 @@ across the selected repositories in parallel and group matches by
 repository; repositories with no match drop out silently. Read-only;
 honors each repository's tracked-file set and
 .IR .gitignore .
+Missing paths and Git failures are reported per repository and cause a
+non-zero exit status, while successful matches remain available. JSON
+failures include
+.I error
+and
+.I error_code
+fields with an empty
+.I matches
+array.
 The pattern is a fixed string by default. Options:
 .RS
 .TP
