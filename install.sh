@@ -74,6 +74,11 @@ fi
 FILENAME="${BINARY}_${VERSION_NUM}_${OS}_${ARCH}.${EXT}"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
 
+# Windows executables have a suffix; release archive names do not.
+if [ "$OS" = "windows" ]; then
+  BINARY="${BINARY}.exe"
+fi
+
 echo "downloading soko ${VERSION} for ${OS}/${ARCH}..."
 
 TMPDIR=$(mktemp -d)
@@ -154,9 +159,9 @@ if [ "$OS" != "windows" ] && [ -n "$MAN_SRC" ]; then
 fi
 
 # Verify.
-if command -v soko >/dev/null 2>&1; then
+if command -v "$BINARY" >/dev/null 2>&1; then
   echo ""
-  soko version
+  "$BINARY" version
 else
   echo ""
   echo "note: ${INSTALL_DIR} may not be on your PATH"

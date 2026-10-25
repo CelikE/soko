@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -123,13 +124,68 @@ func TestIntegration_InstallDirectoryPermissions(t *testing.T) {
 	}
 }
 
+func TestIntegration_InstallWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX installer checks require a Unix shell")
+	}
+	script, err := filepath.Abs("../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, osName := range []string{"MINGW64_NT-10.0", "MSYS_NT-10.0", "CYGWIN_NT-10.0"} {
+		t.Run(osName, func(t *testing.T) {
+			base := t.TempDir()
+			tools := filepath.Join(base, "tools")
+			installDir := filepath.Join(base, "install dir", "bin")
+			manDir := filepath.Join(base, "man")
+			if err := os.MkdirAll(tools, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"uname", "curl", "sha256sum"} {
+				if err := os.WriteFile(filepath.Join(tools, name), []byte(installTestTool), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			archive := installTestWindowsArchive(t)
+			archivePath := filepath.Join(base, "release.zip")
+			if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", tools+string(os.PathListSeparator)+installDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("MAN_DIR", manDir)
+			t.Setenv("INSTALL_TEST_OS", osName)
+			t.Setenv("INSTALL_TEST_FILENAME", "soko_0.0.0_windows_amd64.zip")
+			t.Setenv("INSTALL_TEST_ARCHIVE", archivePath)
+			t.Setenv("INSTALL_TEST_CHECKSUM", fmt.Sprintf("%x", sha256.Sum256(archive)))
+			cmd := exec.CommandContext(context.Background(), "sh", script, "--version", "v0.0.0", "--dir", installDir)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("Windows installer failed: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), "installed to "+installDir+"/soko.exe") ||
+				!strings.Contains(string(out), "soko v0.0.0\n") {
+				t.Fatalf("installer did not finish and verify soko.exe:\n%s", out)
+			}
+			binary, err := os.ReadFile(filepath.Join(installDir, "soko.exe"))
+			if err != nil || string(binary) != installTestBinary {
+				t.Fatalf("installed binary = %q, %v; want archive's soko.exe", binary, err)
+			}
+			if _, err := os.Stat(filepath.Join(manDir, "soko.1")); !os.IsNotExist(err) {
+				t.Fatalf("Windows installer should skip man page installation: %v", err)
+			}
+		})
+	}
+}
+
+const installTestBinary = "#!/bin/sh\n[ \"$1\" = version ] || exit 1\nprintf 'soko v0.0.0\\n'\n"
+
 func installTestArchive(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
 	for _, file := range []struct{ name, content string }{
-		{"soko", "#!/bin/sh\n[ \"$1\" = version ] || exit 1\nprintf 'soko v0.0.0\\n'\n"},
+		{"soko", installTestBinary},
 		{"soko.1", ".TH SOKO 1\n"},
 	} {
 		// Leave the binary non-executable so chmod must run on both install paths.
@@ -149,6 +205,28 @@ func installTestArchive(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+func installTestWindowsArchive(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, file := range []struct{ name, content string }{
+		{"soko.exe", installTestBinary},
+		{"soko.1", ".TH SOKO 1\n"},
+	} {
+		entry, err := zw.Create(file.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(file.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 // Stub downloads and privilege boundaries, while using real extraction, file
 // copies, permission changes, and installed-binary execution. No network or
 // actual sudo is needed, and protected paths stay inside the test directory.
@@ -157,11 +235,11 @@ set -eu
 tool=${0##*/}
 case "$tool" in
   uname)
-    case "$1" in -s) printf 'Linux\n' ;; -m) printf 'x86_64\n' ;; esac
+    case "$1" in -s) printf '%s\n' "${INSTALL_TEST_OS:-Linux}" ;; -m) printf 'x86_64\n' ;; esac
     ;;
   curl)
     case "$2" in
-      */checksums.txt) printf '%s  soko_0.0.0_linux_amd64.tar.gz\n' "$INSTALL_TEST_CHECKSUM" > "$4" ;;
+      */checksums.txt) printf '%s  %s\n' "$INSTALL_TEST_CHECKSUM" "${INSTALL_TEST_FILENAME:-soko_0.0.0_linux_amd64.tar.gz}" > "$4" ;;
       *) command -p cp "$INSTALL_TEST_ARCHIVE" "$4" ;;
     esac
     ;;
