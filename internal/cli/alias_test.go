@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -157,5 +158,37 @@ func TestAlias_ConfigPersistence(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "morning") {
 		t.Errorf("config file missing alias 'morning': %s", string(data))
+	}
+}
+
+func TestAlias_RejectMalformedCommand(t *testing.T) {
+	for _, command := range []string{`exec -- echo "hello`, `exec -- echo 'hello`, "exec -- echo \\", "''", `""`} {
+		t.Run(command, func(t *testing.T) {
+			testEnv(t)
+			runSoko(t, "alias", "set", "greet", "status")
+			_, err := runSokoErr(t, "alias", "set", "greet", command)
+			if err == nil || !strings.Contains(err.Error(), "alias command") {
+				t.Fatalf("error = %v, want invalid alias command", err)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Aliases["greet"] != "status" {
+				t.Fatalf("invalid command replaced existing alias: %q", cfg.Aliases["greet"])
+			}
+		})
+	}
+}
+
+func TestParseAliasCommandPreservesArguments(t *testing.T) {
+	command := `exec -- echo "hello world" '' "say \"hello\"" 'C:\Users\My Name' päth '$HOME' '*.go' '$(whoami)'`
+	want := []string{"exec", "--", "echo", "hello world", "", `say "hello"`, `C:\Users\My Name`, "päth", "$HOME", "*.go", "$(whoami)"}
+	got, err := cli.ParseAliasCommand(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("arguments = %#v, want %#v", got, want)
 	}
 }

@@ -815,6 +815,9 @@ makes
 .B soko morning
 run
 .BR "soko sync \-\-tag work" .
+Alias commands support shell-style single and double quotes and backslash
+escapes. Variables, globs, and command substitutions stay literal. Extra
+arguments are appended as supplied; malformed quotes or escapes are rejected.
 .\" ----------------------------------------------------------------------
 .SH "INTERACTIVE DASHBOARD"
 .TP

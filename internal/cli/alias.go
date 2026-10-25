@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/spf13/cobra"
 
 	"github.com/CelikE/soko/internal/config"
@@ -18,7 +19,9 @@ func newAliasCmd() *cobra.Command {
 		Short: "Manage command aliases",
 		Long: `Create, list, and remove user-defined command shortcuts.
 
-Aliases are stored in the soko config and expand transparently when invoked.`,
+Aliases are stored in the soko config and expand transparently when invoked.
+Commands support shell-style quotes and backslash escapes; variables, globs,
+and command substitutions stay literal.`,
 		Example: `  soko alias set morning "sync --tag work"
   soko alias set deploy "exec --tag production -- make deploy"
   soko alias list
@@ -48,8 +51,8 @@ func newAliasSetCmd() *cobra.Command {
 			if strings.TrimSpace(name) == "" || strings.ContainsAny(name, " \t") {
 				return fmt.Errorf("alias name must be a single word without spaces")
 			}
-			if strings.TrimSpace(command) == "" {
-				return fmt.Errorf("alias command must not be empty")
+			if _, err := ParseAliasCommand(command); err != nil {
+				return err
 			}
 
 			// Reject aliases that shadow built-in commands.
@@ -75,6 +78,19 @@ func newAliasSetCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// ParseAliasCommand splits an alias into arguments using shell-style quoting
+// and escaping, without performing shell expansion or executing commands.
+func ParseAliasCommand(command string) ([]string, error) {
+	args, err := shellquote.Split(command)
+	if err != nil {
+		return nil, fmt.Errorf("invalid alias command: %w", err)
+	}
+	if len(args) == 0 || args[0] == "" {
+		return nil, fmt.Errorf("alias command must not be empty")
+	}
+	return args, nil
 }
 
 // isBuiltinName returns true if name matches a registered cobra subcommand.
