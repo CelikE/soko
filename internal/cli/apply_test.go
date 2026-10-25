@@ -237,6 +237,113 @@ func TestIntegration_ApplyBadDestinations(t *testing.T) {
 	}
 }
 
+func TestIntegration_ApplyRejectsEscapingSymlinks(t *testing.T) {
+	for _, scenario := range []string{"absolute directory", "relative directory", "dangling directory", "file", "chain"} {
+		t.Run(scenario, func(t *testing.T) {
+			testEnv(t)
+			base := t.TempDir()
+			dir := filepath.Join(base, "repo")
+			outside := filepath.Join(base, "outside")
+			initRepo(t, dir)
+			runSokoInit(t, dir)
+			if err := os.Mkdir(outside, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			const secret = "private content outside checkout\n"
+			outsideFile := filepath.Join(outside, "f.txt")
+			if err := os.WriteFile(outsideFile, []byte(secret), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			target := outside
+			dest := "link/f.txt"
+			switch scenario {
+			case "relative directory":
+				target = "../outside"
+				dest = "link/new/nested/f.txt"
+			case "dangling directory":
+				target = "../outside/new"
+			case "file":
+				target = "../outside/f.txt"
+				dest = "link"
+			case "chain":
+				target = "hop"
+				if err := os.Symlink("../outside", filepath.Join(dir, "hop")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			}
+			if err := os.Symlink(target, filepath.Join(dir, "link")); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			src := writeSrc(t, applySrc)
+
+			// Preview must neither read external content nor propose an unsafe write.
+			out := runSoko(t, "apply", src, "--to", dest, "--json")
+			e, ok := entryFor(applyEntries(t, out), "repo")
+			if !ok || e.Action != "error" || e.Error == "" || e.Diff != "" || e.Written {
+				t.Errorf("preview = %+v, want unwritten error without a diff", e)
+			}
+			if strings.Contains(out, strings.TrimSpace(secret)) {
+				t.Errorf("preview disclosed external content: %s", out)
+			}
+
+			for _, jsonFlag := range []bool{false, true} {
+				args := []string{"apply", src, "--to", dest, "--write", "--force"}
+				if jsonFlag {
+					args = append(args, "--json")
+				}
+				out, err := runSokoErr(t, args...)
+				if err == nil {
+					t.Errorf("json=%t: escaping symlink should fail: %s", jsonFlag, out)
+				}
+				if jsonFlag {
+					e, ok := entryFor(applyEntries(t, out), "repo")
+					if !ok || e.Action != "error" || e.Error == "" || e.Written {
+						t.Errorf("write = %+v, want unwritten error", e)
+					}
+				}
+				if got, err := os.ReadFile(outsideFile); err != nil || string(got) != secret {
+					t.Errorf("external file = %q, err=%v, want original content", got, err)
+				}
+				if _, err := os.Stat(filepath.Join(outside, "new")); !os.IsNotExist(err) {
+					t.Errorf("apply created external directories: %v", err)
+				}
+				if _, err := os.Readlink(filepath.Join(dir, "link")); err != nil {
+					t.Errorf("apply replaced rejected symlink: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestIntegration_ApplyAllowsContainedDirectorySymlink(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("docs", filepath.Join(dir, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	for _, content := range []string{applySrc, "updated\n"} {
+		src := writeSrc(t, content)
+		out := runSoko(t, "apply", src, "--to", "link/nested/f.txt", "--write", "--force", "--json")
+		e, ok := entryFor(applyEntries(t, out), "repo")
+		if !ok || !e.Written || e.Error != "" {
+			t.Errorf("contained symlink = %+v, want successful write", e)
+		}
+		if got, err := os.ReadFile(filepath.Join(dir, "docs", "nested", "f.txt")); err != nil || string(got) != content {
+			t.Errorf("contained destination = %q, err=%v, want %q", got, err, content)
+		}
+	}
+	if target, err := os.Readlink(filepath.Join(dir, "link")); err != nil || target != "docs" {
+		t.Errorf("directory symlink = %q, err=%v, want docs", target, err)
+	}
+}
+
 func TestIntegration_ApplyPreservesMode(t *testing.T) {
 	testEnv(t)
 	dir := filepath.Join(t.TempDir(), "r")

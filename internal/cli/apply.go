@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -241,7 +242,14 @@ func planApply(ctx context.Context, repos []config.RepoEntry, srcBytes []byte, d
 					r.Error = "destination escapes repo root"
 					break
 				}
-				cur, readErr := os.ReadFile(destAbs)
+				root, openErr := os.OpenRoot(repo.Path)
+				if openErr != nil {
+					r.Action = applyError
+					r.Error = openErr.Error()
+					break
+				}
+				defer func() { _ = root.Close() }()
+				cur, readErr := root.ReadFile(filepath.Clean(dest))
 				switch {
 				case readErr != nil && os.IsNotExist(readErr):
 					r.Action = applyCreate
@@ -281,8 +289,7 @@ func writeApply(ctx context.Context, results []applyResult, srcBytes []byte, mod
 			continue
 		}
 		g.Go(func() error {
-			destAbs := filepath.Join(r.Path, r.Dest)
-			if err := atomicWriteFile(destAbs, srcBytes, mode); err != nil {
+			if err := atomicWriteFile(r.Path, r.Dest, srcBytes, mode); err != nil {
 				r.Error = err.Error()
 			} else {
 				r.Written = true
@@ -294,32 +301,40 @@ func writeApply(ctx context.Context, results []applyResult, srcBytes []byte, mod
 	_ = g.Wait()
 }
 
-// atomicWriteFile writes data to path via a temp file in the destination
-// directory followed by a rename, creating parent directories and applying the
-// given mode, so a crash mid-write never leaves a half-written file.
-func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".soko-apply-*")
+// atomicWriteFile writes data to path beneath rootPath via a temp file and
+// rename. Every path operation is rooted so symlinks cannot escape the repo,
+// including when the destination changes after the plan was computed.
+func atomicWriteFile(rootPath, path string, data []byte, mode os.FileMode) error {
+	root, err := os.OpenRoot(rootPath)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }() // no-op once renamed
+	defer func() { _ = root.Close() }()
+
+	path = filepath.Clean(path)
+	dir := filepath.Dir(path)
+	if err := root.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmpName := filepath.Join(dir, ".soko-apply-"+rand.Text())
+	tmp, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(tmpName) }() // no-op once renamed
 
 	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, mode); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return root.Rename(tmpName, path)
 }
 
 // toApplyRows projects apply results into the output package's view type.
