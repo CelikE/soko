@@ -177,6 +177,126 @@ func TestIntegration_InstallWindows(t *testing.T) {
 	}
 }
 
+func TestIntegration_InstallChecksumStatus(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX installer checks require a Unix shell")
+	}
+	script, err := filepath.Abs("../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		shaTool  string
+		mismatch bool
+	}{
+		{name: "sha256sum", shaTool: "sha256sum"},
+		{name: "shasum fallback", shaTool: "shasum"},
+		{name: "sha256sum mismatch", shaTool: "sha256sum", mismatch: true},
+		{name: "shasum mismatch", shaTool: "shasum", mismatch: true},
+		{name: "no SHA tool"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			tools := filepath.Join(base, "tools")
+			installDir := filepath.Join(base, "install dir", "bin")
+			if err := os.MkdirAll(tools, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// Restrict PATH so host checksum tools cannot mask the unavailable case.
+			for _, name := range []string{"tr", "mktemp", "rm", "grep", "awk", "tar", "gzip", "mkdir", "cp", "chmod"} {
+				path, err := exec.LookPath(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(path, filepath.Join(tools, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, name := range []string{"uname", "curl", tc.shaTool} {
+				if name == "" {
+					continue
+				}
+				if err := os.WriteFile(filepath.Join(tools, name), []byte(installTestTool), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			archive := installTestArchive(t)
+			archivePath := filepath.Join(base, "release.tar.gz")
+			if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			checksum := fmt.Sprintf("%x", sha256.Sum256(archive))
+			actual := checksum
+			if tc.mismatch {
+				actual = strings.Repeat("0", 64)
+			}
+			t.Setenv("PATH", tools+string(os.PathListSeparator)+installDir)
+			t.Setenv("MAN_DIR", filepath.Join(base, "man"))
+			t.Setenv("INSTALL_TEST_ARCHIVE", archivePath)
+			t.Setenv("INSTALL_TEST_CHECKSUM", checksum)
+			t.Setenv("INSTALL_TEST_ACTUAL_CHECKSUM", actual)
+			cmd := exec.CommandContext(context.Background(), sh, script, "--version", "v0.0.0", "--dir", installDir)
+			out, err := cmd.CombinedOutput()
+			if tc.mismatch {
+				if err == nil || !strings.Contains(string(out), "checksum verification failed") {
+					t.Fatalf("installer should reject mismatched checksum: %v\n%s", err, out)
+				}
+				if _, statErr := os.Stat(filepath.Join(installDir, "soko")); !os.IsNotExist(statErr) {
+					t.Fatalf("checksum failure should not install binary: %v", statErr)
+				}
+			} else if err != nil || !strings.Contains(string(out), "soko v0.0.0\n") {
+				t.Fatalf("installer should finish and verify installed binary: %v\n%s", err, out)
+			}
+			if verified := strings.Contains(string(out), "checksum verified."); verified != (tc.shaTool != "" && !tc.mismatch) {
+				t.Errorf("incorrect checksum verification status:\n%s", out)
+			}
+			if skipped := strings.Contains(string(out), "skipping checksum verification"); skipped != (tc.shaTool == "") {
+				t.Errorf("incorrect checksum skip status:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestIntegration_InstallTruncatedScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX installer checks require a Unix shell")
+	}
+	source, err := os.ReadFile("../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := t.TempDir()
+	started := filepath.Join(tools, "started")
+	if err := os.WriteFile(filepath.Join(tools, "uname"), []byte("#!/bin/sh\nprintf started > \"$INSTALL_TEST_STARTED\"\nprintf 'Linux\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tools)
+	t.Setenv("INSTALL_TEST_STARTED", started)
+	var end int
+	for i, line := range bytes.SplitAfter(source, []byte("\n")) {
+		end += len(line)
+		if end == len(source) {
+			break
+		}
+		cmd := exec.CommandContext(context.Background(), sh, "-s", "--", "--version", "v0.0.0")
+		cmd.Stdin = bytes.NewReader(source[:end])
+		// An incomplete function may fail parsing, but must never start installing.
+		out, _ := cmd.CombinedOutput()
+		if _, err := os.Stat(started); !os.IsNotExist(err) {
+			t.Fatalf("script truncated after line %d started installer: %v\n%s", i+1, err, out)
+		}
+	}
+}
+
 const installTestBinary = "#!/bin/sh\n[ \"$1\" = version ] || exit 1\nprintf 'soko v0.0.0\\n'\n"
 
 func installTestArchive(t *testing.T) []byte {
@@ -243,7 +363,7 @@ case "$tool" in
       *) command -p cp "$INSTALL_TEST_ARCHIVE" "$4" ;;
     esac
     ;;
-  sha256sum) printf '%s  %s\n' "$INSTALL_TEST_CHECKSUM" "$1" ;;
+  sha256sum|shasum) printf '%s  archive\n' "${INSTALL_TEST_ACTUAL_CHECKSUM:-$INSTALL_TEST_CHECKSUM}" ;;
   sudo)
     printf '%s\n' "$1" >> "$INSTALL_TEST_LOG"
     if [ "$1" = "$INSTALL_TEST_FAIL_SUDO" ]; then

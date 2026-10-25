@@ -5,166 +5,174 @@
 #   curl -fsSL https://raw.githubusercontent.com/CelikE/soko/master/install.sh | sh -s -- --dir ~/.local/bin
 #   curl -fsSL https://raw.githubusercontent.com/CelikE/soko/master/install.sh | sh -s -- --version v0.13.0
 
-set -e
+main() {
+  set -e
 
-REPO="CelikE/soko"
-BINARY="soko"
-INSTALL_DIR="/usr/local/bin"
-VERSION=""
+  REPO="CelikE/soko"
+  BINARY="soko"
+  INSTALL_DIR="/usr/local/bin"
+  VERSION=""
 
-# Parse flags.
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --dir)
-      INSTALL_DIR="$2"
-      shift 2
-      ;;
-    --version)
-      VERSION="$2"
-      shift 2
-      ;;
+  # Parse flags.
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)
+        INSTALL_DIR="$2"
+        shift 2
+        ;;
+      --version)
+        VERSION="$2"
+        shift 2
+        ;;
+      *)
+        echo "unknown flag: $1"
+        exit 1
+        ;;
+    esac
+  done
+
+  # Detect OS.
+  OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+  case "$OS" in
+    linux)  OS="linux" ;;
+    darwin) OS="darwin" ;;
+    mingw*|msys*|cygwin*) OS="windows" ;;
     *)
-      echo "unknown flag: $1"
+      echo "unsupported OS: $OS"
       exit 1
       ;;
   esac
-done
 
-# Detect OS.
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-case "$OS" in
-  linux)  OS="linux" ;;
-  darwin) OS="darwin" ;;
-  mingw*|msys*|cygwin*) OS="windows" ;;
-  *)
-    echo "unsupported OS: $OS"
-    exit 1
-    ;;
-esac
+  # Detect architecture.
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64|amd64)  ARCH="amd64" ;;
+    arm64|aarch64) ARCH="arm64" ;;
+    *)
+      echo "unsupported architecture: $ARCH"
+      exit 1
+      ;;
+  esac
 
-# Detect architecture.
-ARCH=$(uname -m)
-case "$ARCH" in
-  x86_64|amd64)  ARCH="amd64" ;;
-  arm64|aarch64) ARCH="arm64" ;;
-  *)
-    echo "unsupported architecture: $ARCH"
-    exit 1
-    ;;
-esac
-
-# Determine version.
-if [ -z "$VERSION" ]; then
-  VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d '"' -f4)
+  # Determine version.
   if [ -z "$VERSION" ]; then
-    echo "failed to determine latest version"
+    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d '"' -f4)
+    if [ -z "$VERSION" ]; then
+      echo "failed to determine latest version"
+      exit 1
+    fi
+  fi
+
+  VERSION_NUM="${VERSION#v}"
+
+  # Determine file extension.
+  EXT="tar.gz"
+  if [ "$OS" = "windows" ]; then
+    EXT="zip"
+  fi
+
+  # Download.
+  FILENAME="${BINARY}_${VERSION_NUM}_${OS}_${ARCH}.${EXT}"
+  URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
+
+  # Windows executables have a suffix; release archive names do not.
+  if [ "$OS" = "windows" ]; then
+    BINARY="${BINARY}.exe"
+  fi
+
+  echo "downloading soko ${VERSION} for ${OS}/${ARCH}..."
+
+  TMPDIR=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR"' EXIT
+
+  CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+
+  curl -fsSL "$URL" -o "${TMPDIR}/${FILENAME}"
+  curl -fsSL "$CHECKSUMS_URL" -o "${TMPDIR}/checksums.txt"
+
+  # Verify checksum.
+  cd "$TMPDIR"
+  EXPECTED=$(grep "${FILENAME}" checksums.txt | awk '{print $1}')
+  if [ -z "$EXPECTED" ]; then
+    echo "error: checksum not found for ${FILENAME}"
     exit 1
   fi
-fi
 
-VERSION_NUM="${VERSION#v}"
-
-# Determine file extension.
-EXT="tar.gz"
-if [ "$OS" = "windows" ]; then
-  EXT="zip"
-fi
-
-# Download.
-FILENAME="${BINARY}_${VERSION_NUM}_${OS}_${ARCH}.${EXT}"
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
-
-# Windows executables have a suffix; release archive names do not.
-if [ "$OS" = "windows" ]; then
-  BINARY="${BINARY}.exe"
-fi
-
-echo "downloading soko ${VERSION} for ${OS}/${ARCH}..."
-
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
-
-CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
-
-curl -fsSL "$URL" -o "${TMPDIR}/${FILENAME}"
-curl -fsSL "$CHECKSUMS_URL" -o "${TMPDIR}/checksums.txt"
-
-# Verify checksum.
-cd "$TMPDIR"
-EXPECTED=$(grep "${FILENAME}" checksums.txt | awk '{print $1}')
-if [ -z "$EXPECTED" ]; then
-  echo "error: checksum not found for ${FILENAME}"
-  exit 1
-fi
-
-if command -v sha256sum >/dev/null 2>&1; then
-  ACTUAL=$(sha256sum "$FILENAME" | awk '{print $1}')
-elif command -v shasum >/dev/null 2>&1; then
-  ACTUAL=$(shasum -a 256 "$FILENAME" | awk '{print $1}')
-else
-  echo "warning: no sha256 tool found, skipping checksum verification"
-  ACTUAL="$EXPECTED"
-fi
-
-if [ "$ACTUAL" != "$EXPECTED" ]; then
-  echo "error: checksum verification failed"
-  echo "  expected: ${EXPECTED}"
-  echo "  got:      ${ACTUAL}"
-  exit 1
-fi
-echo "checksum verified."
-
-# Extract.
-if [ "$EXT" = "zip" ]; then
-  unzip -q "$FILENAME"
-else
-  tar xzf "$FILENAME"
-fi
-
-# Install.
-if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
-  echo "creating ${INSTALL_DIR} (requires sudo)..."
-  sudo mkdir -p "$INSTALL_DIR"
-fi
-
-if [ -w "$INSTALL_DIR" ]; then
-  cp "$BINARY" "$INSTALL_DIR/"
-  chmod +x "${INSTALL_DIR}/${BINARY}"
-else
-  echo "installing to ${INSTALL_DIR} (requires sudo)..."
-  sudo cp "$BINARY" "$INSTALL_DIR/"
-  sudo chmod +x "${INSTALL_DIR}/${BINARY}"
-fi
-
-echo "soko ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
-
-# Install the man page (best-effort; never fails the install).
-MAN_SRC=""
-if [ -f "man/soko.1" ]; then
-  MAN_SRC="man/soko.1"
-elif [ -f "soko.1" ]; then
-  MAN_SRC="soko.1"
-fi
-if [ "$OS" != "windows" ] && [ -n "$MAN_SRC" ]; then
-  MAN_DIR="${MAN_DIR:-/usr/local/share/man/man1}"
-  if mkdir -p "$MAN_DIR" 2>/dev/null && [ -w "$MAN_DIR" ]; then
-    cp "$MAN_SRC" "$MAN_DIR/soko.1" 2>/dev/null && echo "man page installed to ${MAN_DIR}/soko.1 (run: man soko)" || true
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo mkdir -p "$MAN_DIR" 2>/dev/null && sudo cp "$MAN_SRC" "$MAN_DIR/soko.1" 2>/dev/null \
-      && echo "man page installed to ${MAN_DIR}/soko.1 (run: man soko)" \
-      || echo "note: skipped man page install (could not write ${MAN_DIR})"
+  CHECKSUM_AVAILABLE=true
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL=$(sha256sum "$FILENAME" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL=$(shasum -a 256 "$FILENAME" | awk '{print $1}')
   else
-    echo "note: skipped man page install (no write access to ${MAN_DIR})"
+    echo "warning: no sha256 tool found, skipping checksum verification"
+    CHECKSUM_AVAILABLE=false
   fi
-fi
 
-# Verify.
-if command -v "$BINARY" >/dev/null 2>&1; then
-  echo ""
-  "$BINARY" version
-else
-  echo ""
-  echo "note: ${INSTALL_DIR} may not be on your PATH"
-  echo "add this to your shell profile:"
-  echo "  export PATH=\"\$PATH:${INSTALL_DIR}\""
-fi
+  if [ "$CHECKSUM_AVAILABLE" = true ]; then
+    if [ "$ACTUAL" != "$EXPECTED" ]; then
+      echo "error: checksum verification failed"
+      echo "  expected: ${EXPECTED}"
+      echo "  got:      ${ACTUAL}"
+      exit 1
+    fi
+    echo "checksum verified."
+  fi
+
+  # Extract.
+  if [ "$EXT" = "zip" ]; then
+    unzip -q "$FILENAME"
+  else
+    tar xzf "$FILENAME"
+  fi
+
+  # Install.
+  if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+    echo "creating ${INSTALL_DIR} (requires sudo)..."
+    sudo mkdir -p "$INSTALL_DIR"
+  fi
+
+  if [ -w "$INSTALL_DIR" ]; then
+    cp "$BINARY" "$INSTALL_DIR/"
+    chmod +x "${INSTALL_DIR}/${BINARY}"
+  else
+    echo "installing to ${INSTALL_DIR} (requires sudo)..."
+    sudo cp "$BINARY" "$INSTALL_DIR/"
+    sudo chmod +x "${INSTALL_DIR}/${BINARY}"
+  fi
+
+  echo "soko ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
+
+  # Install the man page (best-effort; never fails the install).
+  MAN_SRC=""
+  if [ -f "man/soko.1" ]; then
+    MAN_SRC="man/soko.1"
+  elif [ -f "soko.1" ]; then
+    MAN_SRC="soko.1"
+  fi
+  if [ "$OS" != "windows" ] && [ -n "$MAN_SRC" ]; then
+    MAN_DIR="${MAN_DIR:-/usr/local/share/man/man1}"
+    if mkdir -p "$MAN_DIR" 2>/dev/null && [ -w "$MAN_DIR" ]; then
+      cp "$MAN_SRC" "$MAN_DIR/soko.1" 2>/dev/null && echo "man page installed to ${MAN_DIR}/soko.1 (run: man soko)" || true
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo mkdir -p "$MAN_DIR" 2>/dev/null && sudo cp "$MAN_SRC" "$MAN_DIR/soko.1" 2>/dev/null \
+        && echo "man page installed to ${MAN_DIR}/soko.1 (run: man soko)" \
+        || echo "note: skipped man page install (could not write ${MAN_DIR})"
+    else
+      echo "note: skipped man page install (no write access to ${MAN_DIR})"
+    fi
+  fi
+
+  # Verify.
+  if command -v "$BINARY" >/dev/null 2>&1; then
+    echo ""
+    "$BINARY" version
+  else
+    echo ""
+    echo "note: ${INSTALL_DIR} may not be on your PATH"
+    echo "add this to your shell profile:"
+    echo "  export PATH=\"\$PATH:${INSTALL_DIR}\""
+  fi
+}
+
+# Parse the complete installer before running it when piped into a shell.
+main "$@"
