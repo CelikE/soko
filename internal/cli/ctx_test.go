@@ -1,13 +1,18 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/CelikE/soko/internal/config"
+	"github.com/CelikE/soko/internal/git"
 )
 
 // ctxGit runs a git command in dir for ctx tests, returning trimmed stdout.
@@ -117,6 +122,178 @@ func TestIntegration_CtxSaveExistingNeedsForce(t *testing.T) {
 	out := runSoko(t, "ctx", "save", "twice", "--force")
 	if !strings.Contains(out, `context "twice" saved`) {
 		t.Errorf("ctx save --force = %q, want saved summary", out)
+	}
+}
+
+func TestIntegration_CtxSaveConfigFailureRestoresWork(t *testing.T) {
+	for _, mode := range []string{"text", "json", "force"} {
+		t.Run(mode, func(t *testing.T) {
+			cfgRoot := testEnv(t)
+			base := t.TempDir()
+			dirty := []string{filepath.Join(base, "ctx-first"), filepath.Join(base, "ctx-second")}
+			clean := filepath.Join(base, "ctx-clean")
+			for _, repo := range append(append([]string(nil), dirty...), clean) {
+				initRepo(t, repo)
+				runSokoInit(t, repo)
+			}
+			if mode == "force" {
+				runSoko(t, "ctx", "save", "work")
+			}
+
+			statuses := make(map[string]string)
+			stashes := make(map[string]string)
+			for _, repo := range dirty {
+				readme := filepath.Join(repo, "README.md")
+				if err := os.WriteFile(readme, []byte("older work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				// Older stashes with the same context name must not be restored.
+				ctxGit(t, repo, "stash", "push", "-m", "soko-ctx:work")
+				stashes[repo] = ctxGit(t, repo, "stash", "list", "--format=%H %gs")
+				if err := os.WriteFile(readme, []byte("staged work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				ctxGit(t, repo, "add", "README.md")
+				if err := os.WriteFile(readme, []byte("unstaged work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("new work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				statuses[repo] = ctxGit(t, repo, "status", "--porcelain")
+			}
+
+			cfgDir := filepath.Join(cfgRoot, "soko")
+			cfgPath := filepath.Join(cfgDir, "config.yaml")
+			before, err := os.ReadFile(cfgPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Loading remains possible, but atomic config writes must fail.
+			if err := os.Chmod(cfgDir, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(cfgDir, 0o700) })
+			if probe, err := os.CreateTemp(cfgDir, ".write-probe-"); err == nil {
+				_ = probe.Close()
+				_ = os.Remove(probe.Name())
+				t.Skip("directory permissions do not prevent config writes")
+			}
+
+			args := []string{"ctx", "save", "work"}
+			switch mode {
+			case "json":
+				args = append(args, "--json")
+			case "force":
+				args = append(args, "--force")
+			}
+			out, err := runSokoErr(t, args...)
+			if err == nil || !strings.Contains(err.Error(), "saving config") {
+				t.Fatalf("ctx save error = %v, want config write failure", err)
+			}
+			if strings.Contains(out, "saved") {
+				t.Errorf("failed save reported success: %s", out)
+			}
+			for _, repo := range dirty {
+				if got := ctxGit(t, repo, "status", "--porcelain"); got != statuses[repo] {
+					t.Errorf("%s status = %q, want %q", repo, got, statuses[repo])
+				}
+				if got := ctxGit(t, repo, "show", ":README.md"); got != "staged work" {
+					t.Errorf("%s staged content = %q, want staged work", repo, got)
+				}
+				for name, want := range map[string]string{"README.md": "unstaged work\n", "untracked.txt": "new work\n"} {
+					got, err := os.ReadFile(filepath.Join(repo, name))
+					if err != nil || string(got) != want {
+						t.Errorf("%s/%s = %q, %v; want %q", repo, name, got, err, want)
+					}
+				}
+				if got := ctxGit(t, repo, "stash", "list", "--format=%H %gs"); got != stashes[repo] {
+					t.Errorf("%s stashes = %q, want %q", repo, got, stashes[repo])
+				}
+			}
+			if got := ctxGit(t, clean, "status", "--porcelain"); got != "" {
+				t.Errorf("clean repo was modified: %s", got)
+			}
+			after, err := os.ReadFile(cfgPath)
+			if err != nil || !bytes.Equal(after, before) {
+				t.Errorf("config changed after failed save: %s, %v", after, err)
+			}
+		})
+	}
+}
+
+func TestIntegration_CtxSavePartialStashFailureRestoresWork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git fault injection requires a POSIX shell")
+	}
+	for _, partial := range []bool{false, true} {
+		name := "no captured repos"
+		if partial {
+			name = "partial context"
+		}
+		t.Run(name, func(t *testing.T) {
+			testEnv(t)
+			repo := filepath.Join(t.TempDir(), "ctx-failed-stash")
+			initRepo(t, repo)
+			runSokoInit(t, repo)
+			if partial {
+				clean := filepath.Join(t.TempDir(), "ctx-clean")
+				initRepo(t, clean)
+				runSokoInit(t, clean)
+			}
+			if err := os.WriteFile(filepath.Join(repo, "work.txt"), []byte("unsaved work\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			before := ctxGit(t, repo, "status", "--porcelain")
+			realGit, err := exec.LookPath("git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("SOKO_TEST_REAL_GIT", realGit)
+			wrapper := filepath.Join(t.TempDir(), "git")
+			script := `#!/bin/sh
+"$SOKO_TEST_REAL_GIT" "$@"
+status=$?
+if [ "$status" -eq 0 ] && [ "$1" = stash ] && [ "$2" = push ]; then
+  printf 'injected failure after stash creation\n' >&2
+  exit 1
+fi
+exit "$status"
+`
+			if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			originalGit := git.Binary()
+			git.SetBinary(wrapper)
+			t.Cleanup(func() { git.SetBinary(originalGit) })
+
+			_, err = runSokoErr(t, "ctx", "save", "work", "--json")
+			if err == nil {
+				t.Fatal("ctx save succeeded despite a stash failure")
+			}
+			if got := ctxGit(t, repo, "status", "--porcelain"); got != before {
+				t.Errorf("work was not restored: status = %q, want %q", got, before)
+			}
+			data, err := os.ReadFile(filepath.Join(repo, "work.txt"))
+			if err != nil || string(data) != "unsaved work\n" {
+				t.Errorf("work = %q, %v", data, err)
+			}
+			if got := ctxGit(t, repo, "stash", "list"); got != "" {
+				t.Errorf("failed capture left an unrecorded stash: %s", got)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, exists := config.GetContext(cfg, "work")
+			if partial {
+				if !exists || len(entry.Repos) != 1 || entry.Repos[0].Name != "ctx-clean" {
+					t.Errorf("partial context = %+v, exists = %v; want only clean repo", entry, exists)
+				}
+			} else if exists {
+				t.Errorf("failed save persisted a context: %+v", entry)
+			}
+		})
 	}
 }
 
