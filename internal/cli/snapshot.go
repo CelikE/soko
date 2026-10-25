@@ -410,16 +410,10 @@ func newSnapshotListCmd() *cobra.Command {
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 
 			if jsonFlag {
-				type snapListJSON struct {
-					Name    string    `json:"name"`
-					Created time.Time `json:"created"`
-					Repos   int       `json:"repos"`
+				if snaps == nil {
+					snaps = []snapshot.ListEntry{}
 				}
-				entries := make([]snapListJSON, 0, len(snaps))
-				for _, s := range snaps {
-					entries = append(entries, snapListJSON{Name: s.Name, Created: s.Created, Repos: len(s.Repos)})
-				}
-				return output.RenderJSON(w, entries)
+				return output.RenderJSON(w, snaps)
 			}
 
 			if len(snaps) == 0 {
@@ -427,9 +421,13 @@ func newSnapshotListCmd() *cobra.Command {
 				return nil
 			}
 			for _, s := range snaps {
+				if s.Error != "" {
+					_, _ = fmt.Fprintf(w, "  %s  %s\n", s.Name, output.Red("unreadable — "+s.Error))
+					continue
+				}
 				_, _ = fmt.Fprintf(w, "  %s  %s\n", s.Name, output.Dim(fmt.Sprintf(
 					"%d %s · saved %s",
-					len(s.Repos), output.Plural(len(s.Repos), "repo"),
+					s.Repos, output.Plural(s.Repos, "repo"),
 					output.FormatTimeAgo(s.Created))))
 			}
 			return nil
