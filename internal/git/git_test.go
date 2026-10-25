@@ -44,6 +44,36 @@ func TestNameFromURL(t *testing.T) {
 			url:  "git@gitlab.com:org/group/repo.git",
 			want: "repo",
 		},
+		{
+			name: "https with trailing slash",
+			url:  "https://github.com/user/repo/",
+			want: "repo",
+		},
+		{
+			name: "https with .git suffix and trailing slash",
+			url:  "https://github.com/user/repo.git/",
+			want: "repo",
+		},
+		{
+			name: "https with multiple trailing slashes",
+			url:  "https://gitlab.com/org/group/repo.git///",
+			want: "repo",
+		},
+		{
+			name: "ssh with trailing slash",
+			url:  "git@github.com:user/repo/",
+			want: "repo",
+		},
+		{
+			name: "ssh with .git suffix and trailing slash",
+			url:  "git@github.com:user/repo.git/",
+			want: "repo",
+		},
+		{
+			name: "ssh URL with port and trailing slash",
+			url:  "ssh://git@gitlab.com:2222/org/group/repo.git/",
+			want: "repo",
+		},
 	}
 
 	for _, tt := range tests {

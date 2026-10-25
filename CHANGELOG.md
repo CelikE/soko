@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Preserve repository names when Git remote URLs end in one or more slashes, including `.git/`, so registration and name-based commands use the actual repository name.
 - Switch only base repositories in `soko branch switch`, excluding linked worktree entries after name and tag filtering so shared branch refs are not checked out concurrently and linked checkouts stay untouched; worktree-only selections return an empty result.
 - Reject combined repository-name and `--tag` selectors in `soko open` before opening browser tabs, and reject extra positional names instead of silently ignoring them.
 - Print only the new worktree path from `soko worktree add` in quiet mode, including `SOKO_QUIET`, so the documented `cd "$(soko worktree add ... -q)"` workflow works with paths containing spaces.

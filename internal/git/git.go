@@ -412,8 +412,8 @@ func nameFromURL(rawURL string) string {
 		rawURL = rawURL[idx+1:]
 	}
 
-	// Take the last path segment.
-	name := rawURL
+	// Ignore trailing slashes before taking the last path segment.
+	name := strings.TrimRight(rawURL, "/")
 	if idx := strings.LastIndex(name, "/"); idx != -1 {
 		name = name[idx+1:]
 	}
