@@ -240,11 +240,12 @@ func checkDuplicates(cfg *config.Config) []checkResult {
 	}
 	for path, count := range pathCounts {
 		if count > 1 {
+			// Aliases, tags, and metadata can differ between entries, so
+			// choosing which duplicate to keep requires a manual edit.
 			results = append(results, checkResult{
 				Name:    "duplicate",
 				Status:  statusWarn,
-				Message: fmt.Sprintf("path %q appears %d times", path, count),
-				Fixable: true,
+				Message: fmt.Sprintf("path %q appears %d times — resolve duplicates with: soko config edit", path, count),
 			})
 		}
 	}
