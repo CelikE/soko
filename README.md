@@ -761,7 +761,9 @@ soko branch stale --days 30
 ```
 
 `switch` checks out local branches directly and creates tracking branches for
-remote-only ones. A dirty repo is refused and left untouched while the others
+remote-only ones. It switches base repositories only: linked worktree entries
+are excluded even when selected by name or tag, so their checkouts stay untouched.
+A dirty repo is refused and left untouched while the others
 continue — commit, stash, or `soko ctx save` first. `stale` surfaces the
 branches `soko clean` cannot touch: started, never merged, and quietly
 abandoned.

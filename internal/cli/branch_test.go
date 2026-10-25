@@ -181,6 +181,105 @@ func TestIntegration_BranchSwitchRepeatedRepoArgs(t *testing.T) {
 	}
 }
 
+func TestIntegration_BranchSwitchSkipsWorktrees(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		create bool
+		json   bool
+	}{
+		{name: "existing/text"},
+		{name: "existing/json-tag", json: true},
+		{name: "create/text", create: true},
+		{name: "create/json-tag", create: true, json: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testEnv(t)
+			base := t.TempDir()
+			parent := filepath.Join(base, "sw-family")
+			other := filepath.Join(base, "sw-other")
+			for _, dir := range []string{parent, other} {
+				initRepo(t, dir)
+				runSokoInit(t, dir)
+				if !tt.create {
+					wtGit(t, dir, "branch", "feat/selected")
+				}
+			}
+			runSoko(t, "tag", "add", "-r", "sw-family", "backend")
+			runSoko(t, "worktree", "add", "sw-family", "side", "-b")
+			linked := filepath.Join(base, "sw-family-side")
+			before := wtGit(t, linked, "rev-parse", "HEAD")
+
+			args := []string{"branch", "switch", "feat/selected"}
+			if tt.create {
+				args = append(args, "-b")
+			}
+			if tt.json {
+				args = append(args, "--json", "--tag", "backend")
+			}
+			out := runSoko(t, args...)
+			wantStatus := "switched"
+			if tt.create {
+				wantStatus = "created"
+			}
+			if tt.json {
+				var rows []struct {
+					Name   string `json:"name"`
+					Status string `json:"status"`
+				}
+				if err := json.Unmarshal([]byte(out), &rows); err != nil {
+					t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+				}
+				if len(rows) != 1 || rows[0].Name != "sw-family" || rows[0].Status != wantStatus {
+					t.Errorf("switch results = %+v, want only sw-family %s", rows, wantStatus)
+				}
+			} else if !strings.Contains(out, "2 "+wantStatus) || strings.Contains(out, "sw-family/side") {
+				t.Errorf("switch output = %q, want two base repos %s and no linked worktree", out, wantStatus)
+			}
+
+			for dir, want := range map[string]string{parent: "feat/selected", linked: "side", other: "feat/selected"} {
+				if dir == other && tt.json {
+					want = "master"
+				}
+				if got := wtGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD"); got != want {
+					t.Errorf("branch in %s = %q, want %q", dir, got, want)
+				}
+			}
+			if got := wtGit(t, linked, "rev-parse", "HEAD"); got != before {
+				t.Errorf("linked worktree HEAD = %q, want unchanged %q", got, before)
+			}
+		})
+	}
+}
+
+func TestIntegration_BranchSwitchWorktreeOnlySelection(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	parent := filepath.Join(base, "sw-family")
+	initRepo(t, parent)
+	runSokoInit(t, parent)
+	runSoko(t, "worktree", "add", "sw-family", "side", "-b", "--tag", "worktree-only")
+	linked := filepath.Join(base, "sw-family-side")
+
+	for _, filter := range [][]string{{"sw-family/side"}, {"--tag", "worktree-only"}} {
+		args := append([]string{"branch", "switch", "feat/selected", "-b"}, filter...)
+		out := runSoko(t, args...)
+		if !strings.Contains(out, "no repos match the filters") || strings.Contains(out, "RESULT") {
+			t.Errorf("worktree-only switch output = %q, want only no-repos message", out)
+		}
+		if out := strings.TrimSpace(runSoko(t, append(args, "--json")...)); out != "[]" {
+			t.Errorf("worktree-only switch JSON = %q, want []", out)
+		}
+	}
+	for dir, want := range map[string]string{parent: "master", linked: "side"} {
+		if got := wtGit(t, dir, "rev-parse", "--abbrev-ref", "HEAD"); got != want {
+			t.Errorf("branch in %s = %q, want unchanged %q", dir, got, want)
+		}
+	}
+	if got := wtGit(t, parent, "branch", "--list", "feat/selected"); got != "" {
+		t.Errorf("branch created for empty selection: %q", got)
+	}
+}
+
 func TestIntegration_BranchSwitchCreate(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "sw-create")
