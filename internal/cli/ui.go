@@ -311,7 +311,7 @@ func undoLastPullForUI(ctx context.Context) func() (string, error) {
 			}
 			reset++
 		}
-		if _, err := journal.PopLast(); err != nil {
+		if _, err := j.PopLast(); err != nil {
 			return "", fmt.Errorf("updating journal: %w", err)
 		}
 		return fmt.Sprintf("undid pull (%d %s reset)", reset, output.Plural(reset, "repo")), nil
