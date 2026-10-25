@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CelikE/soko/internal/output"
 )
 
 // wtGit runs a git command in dir for worktree tests, returning trimmed stdout.
@@ -50,6 +52,38 @@ func TestIntegration_WorktreeAddCreateBranch(t *testing.T) {
 	listOut := runSoko(t, "list")
 	if !strings.Contains(listOut, "wt-api/feat-x") {
 		t.Errorf("soko list = %q, want the worktree entry", listOut)
+	}
+}
+
+func TestIntegration_WorktreeAddQuietPath(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		env  string
+	}{
+		{name: "short flag", args: []string{"-q"}},
+		{name: "long flag", args: []string{"--quiet"}},
+		{name: "environment", env: "1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testEnv(t)
+			t.Setenv("SOKO_QUIET", tt.env)
+			t.Cleanup(func() { output.SetQuiet(false) })
+			base := filepath.Join(t.TempDir(), "projects with spaces")
+			repo := filepath.Join(base, "wt-api")
+			initRepo(t, repo)
+			runSokoInit(t, repo)
+
+			args := append([]string{"worktree", "add", "wt-api", "feat-quiet", "-b"}, tt.args...)
+			out := runSoko(t, args...)
+			wtPath := resolve(t, filepath.Join(base, "wt-api-feat-quiet"))
+			if out != wtPath+"\n" {
+				t.Fatalf("quiet worktree add stdout = %q, want only %q", out, wtPath+"\n")
+			}
+			if branch := wtGit(t, strings.TrimSuffix(out, "\n"), "rev-parse", "--abbrev-ref", "HEAD"); branch != "feat-quiet" {
+				t.Errorf("worktree branch = %q, want feat-quiet", branch)
+			}
+		})
 	}
 }
 
