@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Maintenance
+
+- Add end-to-end regression coverage for stale branches checked out in the current checkout or a linked worktree (issue #234).
+
 ### Bug Fixes
 
 - Return a non-zero exit status from `soko branch stale` when any repository inspection fails, preserving text reports and per-repository JSON errors.
