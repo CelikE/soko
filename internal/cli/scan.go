@@ -41,8 +41,15 @@ Skips hidden directories and repos already registered.`,
 				root = resolved
 			}
 
-			if _, statErr := os.Stat(root); os.IsNotExist(statErr) {
-				return fmt.Errorf("directory does not exist: %s", root)
+			info, statErr := os.Stat(root)
+			if statErr != nil {
+				if os.IsNotExist(statErr) {
+					return fmt.Errorf("directory does not exist: %s", root)
+				}
+				return fmt.Errorf("inspecting scan directory: %w", statErr)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("not a directory: %s", root)
 			}
 
 			tags, _ := cmd.Flags().GetStringSlice("tag")

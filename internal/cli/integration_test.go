@@ -1271,6 +1271,32 @@ func TestIntegration_ScanEmptyJSON(t *testing.T) {
 	}
 }
 
+func TestIntegration_ScanRejectsFileRoot(t *testing.T) {
+	for _, flags := range [][]string{nil, {"--json"}, {"--dry-run"}} {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) {
+			configDir := testEnv(t)
+			path := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout bytes.Buffer
+			cmd := cli.NewRootCmd("test")
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(append([]string{"scan", path}, flags...))
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not a directory") {
+				t.Fatalf("scan file error = %v, want not a directory", err)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("scan file output = %q, want empty", stdout.String())
+			}
+			if _, err := os.Stat(filepath.Join(configDir, "soko", "config.yaml")); !os.IsNotExist(err) {
+				t.Errorf("invalid scan created config: %v", err)
+			}
+		})
+	}
+}
+
 func TestIntegration_ScanNonExistent(t *testing.T) {
 	testEnv(t)
 
