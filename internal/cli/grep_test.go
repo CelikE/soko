@@ -256,6 +256,63 @@ func TestIntegration_GrepTagAndRepoFilter(t *testing.T) {
 	}
 }
 
+func TestIntegration_GrepUnmatchedRepoFilter(t *testing.T) {
+	testEnv(t)
+	cfg := &config.Config{Repos: []config.RepoEntry{{
+		Name: "svc-a", Path: t.TempDir(), Tags: []string{"backend"},
+	}}}
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, filter := range []struct {
+		name string
+		args []string
+	}{
+		{name: "unknown name", args: []string{"unknown"}},
+		{name: "unknown names", args: []string{"unknown", "missing"}},
+		{name: "tag excludes named repo", args: []string{"svc-a", "--tag", "frontend"}},
+	} {
+		for _, mode := range []string{"text", "quiet", "json", "json-quiet"} {
+			t.Run(filter.name+"/"+mode, func(t *testing.T) {
+				args := append([]string{"grep", "needle"}, filter.args...)
+				if strings.Contains(mode, "json") {
+					args = append(args, "--json")
+				}
+				if strings.Contains(mode, "quiet") {
+					args = append(args, "--quiet")
+				}
+				var stdout, stderr bytes.Buffer
+				cmd := cli.NewRootCmd("test")
+				cmd.SetOut(&stdout)
+				cmd.SetErr(&stderr)
+				cmd.SetArgs(args)
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("soko %v: %v", args, err)
+				}
+				out := strings.TrimSpace(stdout.String())
+				switch mode {
+				case "json", "json-quiet":
+					if out != "[]" {
+						t.Errorf("output = %q, want []", out)
+					}
+				case "quiet":
+					if stdout.Len() != 0 {
+						t.Errorf("quiet output = %q, want no output", stdout.String())
+					}
+				case "text":
+					if !strings.Contains(out, "no repos found matching: "+filter.args[0]) {
+						t.Errorf("output = %q, want unmatched repository hint", out)
+					}
+				}
+				if stderr.Len() != 0 {
+					t.Errorf("stderr = %q, want no progress or errors", stderr.String())
+				}
+			})
+		}
+	}
+}
+
 func TestIntegration_GrepRequiresPattern(t *testing.T) {
 	testEnv(t)
 	var stdout bytes.Buffer
