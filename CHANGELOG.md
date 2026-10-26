@@ -4,9 +4,9 @@
 
 ### Maintenance
 
+- Keep pull request CI to lint/config validation, Linux race coverage, and a native Windows build/PowerShell smoke check; move full macOS and Windows suites to nightly/manual runs so routine merges do not wait for sequential platform integration tests.
 - Add end-to-end regression coverage for `scan --json` persistence, quiet output, dry-run registry preservation, and repeat scans with existing registrations (issue #189).
 - Add end-to-end regression coverage for stale branches checked out in the current checkout or a linked worktree (issue #234).
-- Reduce pull request CI to four jobs: validation, Linux race tests with coverage, and full macOS and Windows tests. Run additional cross-platform race tests weekly or manually, avoiding repeated setup and macOS runner contention from sharded jobs.
 
 ### Bug Fixes
 
