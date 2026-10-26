@@ -92,6 +92,26 @@ func runSokoInit(t *testing.T, dir string) string {
 	return runSokoAt(t, dir, "init")
 }
 
+func TestIntegration_CdArgumentCount(t *testing.T) {
+	for _, args := range [][]string{{"cd"}, {"cd", "api", "front"}} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			testEnv(t)
+			var stdout bytes.Buffer
+			cmd := cli.NewRootCmd("test")
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s)") {
+				t.Fatalf("expected argument-count error before registry access, got %v", err)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("invalid invocation produced navigation output: %q", stdout.String())
+			}
+		})
+	}
+}
+
 func TestIntegration_InitAndList(t *testing.T) {
 	testEnv(t)
 	dir := filepath.Join(t.TempDir(), "my-repo")
