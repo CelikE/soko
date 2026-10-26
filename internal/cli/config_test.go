@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -290,11 +291,9 @@ func TestConfigListJSON_Populated(t *testing.T) {
 // git_path value in tests.
 func testExecutable(t *testing.T) string {
 	t.Helper()
-	for _, p := range []string{"/bin/sh", "/usr/bin/true", "/bin/echo"} {
-		if config.ValidateGitPath(p) == nil {
-			return p
-		}
+	path, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Skip("no suitable executable found for git_path test")
-	return ""
+	return path
 }

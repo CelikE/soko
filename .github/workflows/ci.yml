@@ -26,37 +26,44 @@ jobs:
         with:
           version: v2.14.0
 
-      - name: Install Fish for shell integration tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fish
-
-      - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
-
       - name: Validate release configuration
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           version: "v2.15.2"
           args: check
 
-  windows:
-    runs-on: windows-latest
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - name: Verify native Windows browser opening
-        run: go test -race ./internal/browser
-      - name: Verify native Windows picker input
-        run: go test -race ./internal/picker
-      - name: Verify native Windows config concurrency
-        run: go test -race ./internal/config -run 'Test(SaveTo|ConfigLock|RegisterDiscovered)'
-      - name: Verify native Windows snapshot storage
-        run: go test -race ./internal/snapshot
-      - name: Verify native Windows undo journal storage
-        run: go test -race ./internal/journal
+
+      - name: Install Fish on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fish
+
+      - name: Install Fish on macOS
+        if: runner.os == 'macOS'
+        run: brew install fish
+
+      - name: Add Git for Windows Unix tools to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Join-Path $env:ProgramFiles 'Git/usr/bin' >> $env:GITHUB_PATH
+
+      - name: Test
+        run: go test -race "-coverprofile=coverage.out" ./...
+
       - name: Verify worktree registration and PowerShell navigation
+        if: runner.os == 'Windows'
         shell: pwsh
         run: ./.github/scripts/windows-worktree-smoke.ps1

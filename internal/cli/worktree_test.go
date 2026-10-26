@@ -37,7 +37,7 @@ func TestIntegration_WorktreeAddCreateBranch(t *testing.T) {
 		t.Errorf("worktree add = %q, want 'created worktree wt-api/feat-x'", out)
 	}
 
-	wtPath := filepath.Join(base, "wt-api-feat-x")
+	wtPath := resolve(t, filepath.Join(base, "wt-api-feat-x"))
 	if _, err := os.Stat(wtPath); err != nil {
 		t.Errorf("worktree dir should exist at %s: %v", wtPath, err)
 	}

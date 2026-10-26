@@ -67,7 +67,7 @@ func TestIntegration_StatsTagFilter(t *testing.T) {
 	initRepo(t, dirB)
 	runSokoInit(t, dirA)
 	runSokoInit(t, dirB)
-	runSoko(t, "tag", "add", "alpha", "backend")
+	runSoko(t, "tag", "add", "-r", "alpha", "backend")
 
 	out := runSoko(t, "stats", "--tag", "backend", "--json")
 	var summary struct {

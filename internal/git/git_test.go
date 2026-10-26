@@ -74,6 +74,11 @@ func TestNameFromURL(t *testing.T) {
 			url:  "ssh://git@gitlab.com:2222/org/group/repo.git/",
 			want: "repo",
 		},
+		{
+			name: "local remote with native path separators",
+			url:  filepath.Join(t.TempDir(), "repo.git"),
+			want: "repo",
+		},
 	}
 
 	for _, tt := range tests {
