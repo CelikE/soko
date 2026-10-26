@@ -430,6 +430,25 @@ HEAD, missing remote — but scores and ranks each repo individually instead of
 aggregating workspace totals. It is read-only: it never fetches or mutates a
 repo.
 
+### List pull requests for the current repo
+
+```bash
+soko pr                             # open pull requests: number, title, branch, author
+soko pr --json                      # machine-readable results
+soko pr --limit 100 --json          # request up to 100 pull requests
+```
+
+Run `soko pr` from anywhere inside a repository's working tree; registration
+with soko is not required. Install the [GitHub CLI](https://cli.github.com)
+and authenticate for the repository's host with `gh auth login` first. The
+command uses `gh` to resolve the repository from its Git remotes.
+
+Only open pull requests are listed, up to 50 by default. `--limit` accepts a
+positive number. When the result count reaches that limit, soko prints a hint
+to stderr that more results may be available; `--quiet` suppresses the hint.
+JSON output contains `number`, `title`, `branch`, `state`, `url`, and `author`
+for each pull request, or an empty array when none are open.
+
 ### Run commands across repos
 
 ```bash
