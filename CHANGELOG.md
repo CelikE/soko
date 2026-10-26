@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 
+- Reject extra repository names in `soko remove` before accessing or changing the registry instead of silently unregistering only the first name.
 - Require exactly one repository name for `soko cd`, rejecting missing or extra names before accessing the registry.
 - Return an empty JSON array from `soko grep --json` when positional repository filters match nothing, including tag-excluded names and quiet mode, instead of emitting a text hint or no JSON.
 - Return a non-zero exit status from `soko branch stale` when any repository inspection fails, preserving text reports and per-repository JSON errors.
