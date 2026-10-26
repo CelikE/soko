@@ -1,0 +1,48 @@
+name: Full platform tests
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-platform-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Fish on macOS
+        if: runner.os == 'macOS'
+        run: brew install fish
+
+      - name: Add Git for Windows Unix tools to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Join-Path $env:ProgramFiles 'Git/usr/bin' >> $env:GITHUB_PATH
+
+      - name: Test
+        run: python .github/scripts/ci_test.py --timings "${{ runner.temp }}/test-timings.jsonl"
+
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: timings-${{ matrix.os }}
+          path: ${{ runner.temp }}/test-timings.jsonl
+          retention-days: 14
