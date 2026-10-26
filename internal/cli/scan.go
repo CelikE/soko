@@ -55,6 +55,9 @@ Skips hidden directories and repos already registered.`,
 			tags, _ := cmd.Flags().GetStringSlice("tag")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			maxDepth, _ := cmd.Flags().GetInt("depth")
+			if maxDepth < 0 {
+				return fmt.Errorf("--depth must be non-negative")
+			}
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			worktreesFlag, _ := cmd.Flags().GetBool("worktrees")
 
@@ -96,7 +99,7 @@ Skips hidden directories and repos already registered.`,
 	cmd.Flags().StringSlice("tag", nil, "tags to apply to discovered repos")
 	_ = cmd.RegisterFlagCompletionFunc("tag", tagCompletionFunc())
 	cmd.Flags().Bool("dry-run", false, "show repos that would be registered without registering them")
-	cmd.Flags().Int("depth", 5, "maximum directory depth to scan")
+	cmd.Flags().Int("depth", 5, "maximum directory depth to scan (non-negative; 0 scans only the root)")
 	cmd.Flags().Bool("worktrees", false, "also discover and register linked git worktrees")
 
 	return cmd

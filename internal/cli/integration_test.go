@@ -1297,6 +1297,30 @@ func TestIntegration_ScanRejectsFileRoot(t *testing.T) {
 	}
 }
 
+func TestIntegration_ScanRejectsNegativeDepth(t *testing.T) {
+	for _, flags := range [][]string{nil, {"--json"}, {"--dry-run"}, {"--worktrees"}} {
+		t.Run(strings.Join(flags, " "), func(t *testing.T) {
+			configDir := testEnv(t)
+			path := filepath.Join(t.TempDir(), "repo")
+			initRepo(t, path)
+			var stdout bytes.Buffer
+			cmd := cli.NewRootCmd("test")
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(append([]string{"scan", path, "--depth", "-1"}, flags...))
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--depth must be non-negative") {
+				t.Fatalf("scan negative depth error = %v, want depth validation error", err)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("scan negative depth output = %q, want empty", stdout.String())
+			}
+			if _, err := os.Stat(filepath.Join(configDir, "soko", "config.yaml")); !os.IsNotExist(err) {
+				t.Errorf("invalid scan created config: %v", err)
+			}
+		})
+	}
+}
+
 func TestIntegration_ScanNonExistent(t *testing.T) {
 	testEnv(t)
 
