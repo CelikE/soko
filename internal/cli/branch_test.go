@@ -410,6 +410,32 @@ func TestIntegration_BranchSwitchRemoteSafety(t *testing.T) {
 	}
 }
 
+func TestIntegration_BranchStaleDaysValidation(t *testing.T) {
+	for _, selection := range []string{"empty", "name", "tag"} {
+		t.Run(selection, func(t *testing.T) {
+			testEnv(t)
+			args := []string{"branch", "stale"}
+			if selection != "empty" {
+				repo := filepath.Join(t.TempDir(), "stale-validation")
+				initRepo(t, repo)
+				runSokoInit(t, repo)
+				if selection == "name" {
+					args = append(args, "nonexistent")
+				} else {
+					args = append(args, "--tag", "nonexistent")
+				}
+			}
+			out, err := runSokoErr(t, append(args, "--days", "-1")...)
+			if err == nil || !strings.Contains(err.Error(), "--days must be zero or positive") {
+				t.Fatalf("negative days = %q, %v; want threshold validation error", out, err)
+			}
+			if out, err := runSokoErr(t, append(args, "--days", "0")...); err != nil {
+				t.Fatalf("zero days = %q, %v; want success", out, err)
+			}
+		})
+	}
+}
+
 func TestIntegration_BranchStale(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "br-stale")

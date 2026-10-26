@@ -576,6 +576,11 @@ func runBranchStale(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	w := cmd.OutOrStdout()
 
+	days, _ := cmd.Flags().GetInt("days")
+	if days < 0 {
+		return fmt.Errorf("--days must be zero or positive")
+	}
+
 	cfg, repos, err := loadReposWithTagFilter(cmd)
 	if err != nil {
 		return err
@@ -590,11 +595,6 @@ func runBranchStale(cmd *cobra.Command, args []string) error {
 	if len(repos) == 0 {
 		output.Info(w, noReposMessage(len(cfg.Repos)))
 		return nil
-	}
-
-	days, _ := cmd.Flags().GetInt("days")
-	if days < 0 {
-		return fmt.Errorf("--days must be zero or positive")
 	}
 
 	results := make([]staleResult, len(repos))
