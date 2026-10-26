@@ -76,7 +76,8 @@ type Match struct {
 // exit into an error and discards stdout, whereas Grep must distinguish exit 1
 // from exit >= 2 and keep stdout.
 func Grep(ctx context.Context, dir, pattern string, regex, ignoreCase, filesOnly bool) ([]Match, error) {
-	args := []string{"grep", "--color=never", "--null"}
+	// Keep the parser's record format independent of user presentation settings.
+	args := []string{"grep", "--color=never", "--null", "--no-column", "--no-heading", "--no-break"}
 	if filesOnly {
 		args = append(args, "-l")
 	} else {
