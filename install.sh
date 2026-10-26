@@ -31,6 +31,12 @@ main() {
     esac
   done
 
+  # Resolve relative destinations before entering the temporary directory.
+  case "$INSTALL_DIR" in
+    /*|[A-Za-z]:/*|[A-Za-z]:\\*) ;;
+    *) INSTALL_DIR="$(pwd)/${INSTALL_DIR}" ;;
+  esac
+
   # Detect OS.
   OS=$(uname -s | tr '[:upper:]' '[:lower:]')
   case "$OS" in
