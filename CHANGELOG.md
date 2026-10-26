@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- Return an empty JSON array from `soko tag list --json` when no tags are registered, including quiet mode, instead of emitting a text hint or no JSON (issue #334).
 - Reject extra repository names in `soko remove` before accessing or changing the registry instead of silently unregistering only the first name.
 - Require exactly one repository name for `soko cd`, rejecting missing or extra names before accessing the registry.
 - Return an empty JSON array from `soko grep --json` when positional repository filters match nothing, including tag-excluded names and quiet mode, instead of emitting a text hint or no JSON.

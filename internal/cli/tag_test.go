@@ -1,12 +1,63 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/CelikE/soko/internal/config"
 )
+
+func TestIntegration_TagListJSON(t *testing.T) {
+	type tagCount struct {
+		Tag   string `json:"tag"`
+		Count int    `json:"count"`
+	}
+	for _, registry := range []string{"empty", "untagged", "tagged"} {
+		for _, quiet := range []string{"off", "flag", "environment"} {
+			t.Run(registry+"/quiet-"+quiet, func(t *testing.T) {
+				xdg := testEnv(t)
+				t.Setenv("SOKO_QUIET", "")
+				want := []tagCount{}
+				if registry != "empty" {
+					cfg := &config.Config{Repos: []config.RepoEntry{{Name: "api", Path: t.TempDir()}}}
+					if registry == "tagged" {
+						cfg.Repos[0].Tags = []string{"go", "backend"}
+						cfg.Repos = append(cfg.Repos, config.RepoEntry{Name: "worker", Path: t.TempDir(), Tags: []string{"go"}})
+						want = []tagCount{{Tag: "backend", Count: 1}, {Tag: "go", Count: 2}}
+					}
+					if err := config.Save(cfg); err != nil {
+						t.Fatal(err)
+					}
+				}
+				args := []string{"tag", "list", "--json"}
+				switch quiet {
+				case "flag":
+					args = append(args, "--quiet")
+				case "environment":
+					t.Setenv("SOKO_QUIET", "1")
+				}
+				out := runSoko(t, args...)
+				var got []tagCount
+				if err := json.Unmarshal([]byte(out), &got); err != nil {
+					t.Fatalf("tag list output is not JSON: %q: %v", out, err)
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("tag list = %#v, want %#v", got, want)
+				}
+				if registry == "empty" {
+					if _, err := os.Stat(filepath.Join(xdg, "soko", "config.yaml")); !os.IsNotExist(err) {
+						t.Fatalf("listing tags must not create config, stat: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
 
 func TestIntegration_TagFromSubdirectory(t *testing.T) {
 	for _, checkout := range []string{"repo", "worktree"} {

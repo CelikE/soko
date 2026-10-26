@@ -207,14 +207,13 @@ func newTagListCmd() *cobra.Command {
 			}
 
 			tags := config.ListTags(cfg)
-			if len(tags) == 0 {
-				output.Info(w, "no tags in use")
-				return nil
-			}
-
 			jsonFlag, _ := cmd.Flags().GetBool("json")
 			if jsonFlag {
 				return renderTagListJSON(w, cfg, tags)
+			}
+			if len(tags) == 0 {
+				output.Info(w, "no tags in use")
+				return nil
 			}
 
 			counts := config.TagCount(cfg)
