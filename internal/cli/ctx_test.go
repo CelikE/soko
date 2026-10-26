@@ -77,6 +77,62 @@ func TestIntegration_CtxSaveSwitch(t *testing.T) {
 	}
 }
 
+func TestIntegration_CtxDetachedRoundTrip(t *testing.T) {
+	for _, dirty := range []bool{false, true} {
+		name := "clean"
+		if dirty {
+			name = "dirty"
+		}
+		t.Run(name, func(t *testing.T) {
+			testEnv(t)
+			repo := filepath.Join(t.TempDir(), "ctx-detached")
+			initRepo(t, repo)
+			runSokoInit(t, repo)
+			original := ctxGit(t, repo, "rev-parse", "HEAD")
+			ctxGit(t, repo, "checkout", "--detach", original)
+			wip := filepath.Join(repo, "wip.txt")
+			if dirty {
+				if err := os.WriteFile(wip, []byte("detached work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runSoko(t, "ctx", "save", "detached", "--json")
+			entry, ok := config.GetContext(loadRegistry(t), "detached")
+			if !ok || len(entry.Repos) != 1 {
+				t.Fatalf("saved context = %+v, %v", entry, ok)
+			}
+			member := entry.Repos[0]
+			if !member.Detached || member.Branch != original || member.Stashed != dirty || (member.StashOID != "") != dirty {
+				t.Errorf("saved detached state = %+v", member)
+			}
+			if status := ctxGit(t, repo, "status", "--porcelain"); status != "" {
+				t.Fatalf("save left dirty checkout: %s", status)
+			}
+			ctxGit(t, repo, "checkout", "master")
+			ctxGit(t, repo, "commit", "--allow-empty", "-m", "later work")
+			later := ctxGit(t, repo, "rev-parse", "HEAD")
+			runSoko(t, "ctx", "switch", "detached", "--json")
+			branch, detached, err := git.CurrentBranch(t.Context(), repo)
+			if err != nil || !detached || branch != original {
+				t.Errorf("restored HEAD = %q, %v, %v; want detached %s", branch, detached, err, original)
+			}
+			if got := ctxGit(t, repo, "rev-parse", "master"); got != later {
+				t.Errorf("restore rewound named branch: %s, want %s", got, later)
+			}
+			if dirty {
+				if data, err := os.ReadFile(wip); err != nil || string(data) != "detached work\n" {
+					t.Errorf("restored work = %q, %v", data, err)
+				}
+				if got := ctxGit(t, repo, "stash", "list", "--format=%H"); got != member.StashOID {
+					t.Errorf("restore lost backup: %s, want %s", got, member.StashOID)
+				}
+			} else if status := ctxGit(t, repo, "status", "--porcelain"); status != "" {
+				t.Errorf("clean restore dirtied checkout: %s", status)
+			}
+		})
+	}
+}
+
 // TestIntegration_CtxSwitchRefusesDirty is the safety property: switch never
 // touches a repo that is dirty right now.
 func TestIntegration_CtxSwitchRefusesDirty(t *testing.T) {

@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Match the complete `soko stash` message before restoring a stash, leaving manual stashes with similar messages untouched; report branch-switch fallbacks from unconfigured remote refs as having no upstream instead of claiming tracking was configured.
 - Reject ambiguous repository names before removal, tagging, or metadata access in legacy or edited configs, reporting candidate paths and repair guidance instead of acting on the first match; worktrees with ambiguous parents retain only their own tags.
 - Include the build's short commit SHA in `soko version` for Makefile and release builds, honoring the existing linker flags while keeping version-only output for builds without commit metadata.
 - Decode picker keys across split or combined terminal reads so arrow keys over SSH/tmux neither cancel selection nor corrupt search filters in single- and multi-select modes; keep standalone Escape responsive with a short timeout.
@@ -59,6 +60,7 @@
 
 ### Maintenance
 
+- Cover stash ownership and conflict recovery, detached-HEAD context round trips, worktree identity and parent persistence, and ambiguous or unconfigured remote branch switching with real-Git regression tests.
 - Raise the minimum Go version to 1.27.2 and pin CI linting to golangci-lint v2.14.0 with Go 1.27 support.
 
 ### Upgrade Notes

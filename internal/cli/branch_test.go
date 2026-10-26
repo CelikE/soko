@@ -336,6 +336,80 @@ func TestIntegration_BranchSwitchRemoteTracking(t *testing.T) {
 	}
 }
 
+func TestIntegration_BranchSwitchRemoteSafety(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		for _, ambiguous := range []bool{false, true} {
+			name := "unconfigured-remote/" + format
+			if ambiguous {
+				name = "multiple-remotes/" + format
+			}
+			t.Run(name, func(t *testing.T) {
+				testEnv(t)
+				repo := filepath.Join(t.TempDir(), "remote-safety")
+				initRepo(t, repo)
+				runSokoInit(t, repo)
+				before := wtGit(t, repo, "rev-parse", "HEAD")
+				wtGit(t, repo, "commit", "--allow-empty", "-m", "remote work")
+				tip := wtGit(t, repo, "rev-parse", "HEAD")
+				wtGit(t, repo, "update-ref", "refs/remotes/old/feat/remote", tip)
+				wtGit(t, repo, "reset", "--hard", before)
+				if ambiguous {
+					wtGit(t, repo, "update-ref", "refs/remotes/other/feat/remote", tip)
+				}
+
+				args := []string{"branch", "switch", "feat/remote"}
+				if format == "json" {
+					args = append(args, "--json")
+				}
+				out, err := runSokoErr(t, args...)
+				wantStatus := "switched"
+				if ambiguous {
+					wantStatus = "failed"
+					if err == nil || !strings.Contains(out, "branch exists on multiple remotes") {
+						t.Errorf("ambiguous switch = %s, %v; want refusal", out, err)
+					}
+				} else if err != nil {
+					t.Fatalf("non-tracking fallback failed: %s, %v", out, err)
+				}
+				if format == "json" {
+					var rows []struct {
+						Name   string `json:"name"`
+						Status string `json:"status"`
+					}
+					if err := json.Unmarshal([]byte(out), &rows); err != nil {
+						t.Fatal(err)
+					}
+					if len(rows) != 1 || rows[0].Name != "remote-safety" || rows[0].Status != wantStatus {
+						t.Errorf("switch = %s, want %s", out, wantStatus)
+					}
+				} else if !ambiguous && (!strings.Contains(out, "no upstream") || strings.Contains(out, "tracking remote")) {
+					t.Errorf("fallback output = %q, want accurate non-tracking message", out)
+				}
+
+				wantHEAD, wantBranch := tip, "feat/remote"
+				if ambiguous {
+					wantHEAD, wantBranch = before, "master"
+					if refs := wtGit(t, repo, "for-each-ref", "--format=%(refname)", "refs/heads/feat/remote"); refs != "" {
+						t.Errorf("ambiguous switch created local branch: %s", refs)
+					}
+				}
+				if got := wtGit(t, repo, "rev-parse", "HEAD"); got != wantHEAD {
+					t.Errorf("HEAD = %s, want %s", got, wantHEAD)
+				}
+				if got := wtGit(t, repo, "branch", "--show-current"); got != wantBranch {
+					t.Errorf("branch = %s, want %s", got, wantBranch)
+				}
+				if upstream := wtGit(t, repo, "for-each-ref", "--format=%(upstream)", "refs/heads/feat/remote"); upstream != "" {
+					t.Errorf("fallback configured nonexistent upstream: %s", upstream)
+				}
+				if status := wtGit(t, repo, "status", "--porcelain"); status != "" {
+					t.Errorf("switch dirtied checkout: %s", status)
+				}
+			})
+		}
+	}
+}
+
 func TestIntegration_BranchStale(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "br-stale")

@@ -143,6 +143,39 @@ func TestRun_ReturnsErrorWithStderr(t *testing.T) {
 	}
 }
 
+func TestCurrentBranch(t *testing.T) {
+	for _, detached := range []bool{false, true} {
+		name := "attached"
+		if detached {
+			name = "detached"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := initTestRepo(t)
+			gitMust(t, dir, "commit", "--allow-empty", "-m", "initial")
+			gitMust(t, dir, "checkout", "-b", "feat/current")
+			want := "feat/current"
+			if detached {
+				var err error
+				want, err = Run(t.Context(), dir, "rev-parse", "HEAD")
+				if err != nil {
+					t.Fatal(err)
+				}
+				gitMust(t, dir, "checkout", "--detach", want)
+			}
+			branch, gotDetached, err := CurrentBranch(t.Context(), dir)
+			if err != nil || branch != want || gotDetached != detached {
+				t.Fatalf("CurrentBranch = %q, %v, %v; want %q, %v, nil", branch, gotDetached, err, want, detached)
+			}
+		})
+	}
+	t.Run("not a repository", func(t *testing.T) {
+		branch, detached, err := CurrentBranch(t.Context(), t.TempDir())
+		if err == nil || branch != "" || detached {
+			t.Fatalf("CurrentBranch = %q, %v, %v; want an error without branch or detached state", branch, detached, err)
+		}
+	})
+}
+
 func TestPull(t *testing.T) {
 	ctx := context.Background()
 
