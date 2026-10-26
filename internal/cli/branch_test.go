@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -436,6 +437,46 @@ func TestIntegration_BranchStaleDaysValidation(t *testing.T) {
 	}
 }
 
+func TestIntegration_BranchStaleFailures(t *testing.T) {
+	for _, jsonOut := range []bool{false, true} {
+		for _, failure := range []string{"missing", "not-git"} {
+			t.Run(fmt.Sprintf("json=%t/%s", jsonOut, failure), func(t *testing.T) {
+				testEnv(t)
+				repo := filepath.Join(t.TempDir(), "broken")
+				initRepo(t, repo)
+				runSokoInit(t, repo)
+				remove := repo
+				if failure == "not-git" {
+					remove = filepath.Join(repo, ".git")
+				}
+				if err := os.RemoveAll(remove); err != nil {
+					t.Fatal(err)
+				}
+				args := []string{"branch", "stale"}
+				if jsonOut {
+					args = append(args, "--json")
+				}
+				out, err := runSokoErr(t, args...)
+				if err == nil || !strings.Contains(err.Error(), "1 repo failed to inspect stale branches") {
+					t.Errorf("stale = %q, %v; want repository failure", out, err)
+				}
+				if jsonOut {
+					var results []struct {
+						Error     string `json:"error"`
+						ErrorCode string `json:"error_code"`
+					}
+					if err := json.Unmarshal([]byte(out), &results); err != nil {
+						t.Fatalf("invalid JSON: %v: %s", err, out)
+					}
+					if len(results) != 1 || results[0].Error == "" || results[0].ErrorCode == "" {
+						t.Fatalf("missing error details: %+v", results)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestIntegration_BranchStale(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "br-stale")
@@ -482,5 +523,22 @@ func TestIntegration_BranchStale(t *testing.T) {
 	}
 	if results[0].Branches[0].Branch != "old-work" || results[0].Branches[0].Days < 365 {
 		t.Errorf("stale entry = %+v, want old-work older than a year", results[0].Branches[0])
+	}
+
+	// Failed inspections must not hide stale branches from healthy repositories.
+	broken := filepath.Join(t.TempDir(), "missing")
+	initRepo(t, broken)
+	runSokoInit(t, broken)
+	if err := os.RemoveAll(broken); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"branch", "stale"}, {"branch", "stale", "--json"}} {
+		out, err := runSokoErr(t, args...)
+		if err == nil || !strings.Contains(err.Error(), "1 repo failed to inspect stale branches") {
+			t.Errorf("mixed stale report = %q, %v; want repository failure", out, err)
+		}
+		if !strings.Contains(out, "old-work") || !strings.Contains(out, "path not found") {
+			t.Errorf("mixed stale report lost success or error: %s", out)
+		}
 	}
 }

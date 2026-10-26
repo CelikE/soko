@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Return a non-zero exit status from `soko branch stale` when any repository inspection fails, preserving text reports and per-repository JSON errors.
 - Preserve displayed paths for sibling directories whose names share the home directory prefix instead of incorrectly shortening them with `~`.
 - Reject negative `soko branch stale --days` values even when no repositories are registered or name/tag filters match nothing; zero remains valid.
 - Reject negative `soko scan --depth` values instead of silently reporting no repositories; depth zero still scans only the root.
