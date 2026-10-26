@@ -30,6 +30,9 @@ var (
 	// registered in the config.
 	ErrRepoNotFound = errors.New("repo not found")
 
+	// ErrAmbiguousRepo is returned when an exact name identifies multiple entries.
+	ErrAmbiguousRepo = errors.New("ambiguous repo name")
+
 	// ErrInheritedTag is returned when attempting to remove a tag from a
 	// worktree that the worktree only holds by inheritance from its parent.
 	ErrInheritedTag = errors.New("tag is inherited from the parent repo; retag the parent to change it")
@@ -463,17 +466,16 @@ func AddRepo(cfg *Config, entry *RepoEntry) (*Config, error) {
 	return cfg, nil
 }
 
-// RemoveRepo removes a repo from the config by name. It returns
-// ErrRepoNotFound if no repo with the given name exists.
+// RemoveRepo removes a repo from the config by its unique name. It returns
+// ErrRepoNotFound for an unknown name or ErrAmbiguousRepo for duplicate names.
 func RemoveRepo(cfg *Config, name string) (*Config, RepoEntry, error) {
-	for i, r := range cfg.Repos {
-		if r.Name == name {
-			removed := cfg.Repos[i]
-			cfg.Repos = append(cfg.Repos[:i], cfg.Repos[i+1:]...)
-			return cfg, removed, nil
-		}
+	i, err := repoIndexByName(cfg, name)
+	if err != nil {
+		return cfg, RepoEntry{}, err
 	}
-	return cfg, RepoEntry{}, ErrRepoNotFound
+	removed := cfg.Repos[i]
+	cfg.Repos = append(cfg.Repos[:i], cfg.Repos[i+1:]...)
+	return cfg, removed, nil
 }
 
 // RemoveRepoByPath removes a repo from the config by path. It returns
@@ -495,49 +497,43 @@ func Clear(cfg *Config) *Config {
 	return cfg
 }
 
-// AddTag adds a tag to a repo. Returns ErrRepoNotFound if the repo doesn't
-// exist. No-op if the tag already exists on the repo.
+// AddTag adds a tag to a uniquely named repo. Returns ErrRepoNotFound if the repo
+// doesn't exist or ErrAmbiguousRepo for duplicate names. Existing tags are a no-op.
 func AddTag(cfg *Config, repoName, tag string) (*Config, error) {
-	tag = normalizeTag(tag)
-	for i, r := range cfg.Repos {
-		if r.Name == repoName {
-			for _, t := range r.Tags {
-				if t == tag {
-					return cfg, nil
-				}
-			}
-			cfg.Repos[i].Tags = append(cfg.Repos[i].Tags, tag)
-			return cfg, nil
-		}
+	r, err := FindRepoByName(cfg, repoName)
+	if err != nil {
+		return cfg, err
 	}
-	return cfg, ErrRepoNotFound
+	tag = normalizeTag(tag)
+	if !slices.Contains(r.Tags, tag) {
+		r.Tags = append(r.Tags, tag)
+	}
+	return cfg, nil
 }
 
-// RemoveTag removes a tag from a repo. Returns ErrRepoNotFound if the repo
-// doesn't exist. No-op if the tag doesn't exist on the repo.
+// RemoveTag removes a tag from a uniquely named repo. Returns ErrRepoNotFound if
+// the repo doesn't exist or ErrAmbiguousRepo for duplicate names. Absent tags are
+// a no-op.
 func RemoveTag(cfg *Config, repoName, tag string) (*Config, error) {
-	tag = normalizeTag(tag)
-	for i := range cfg.Repos {
-		r := &cfg.Repos[i]
-		if r.Name != repoName {
-			continue
-		}
-		owns := slices.Contains(r.Tags, tag)
-		// On a worktree, a tag the entry doesn't own but matches via
-		// inheritance can only be removed by retagging the parent.
-		if !owns && r.WorktreeOf != "" && slices.Contains(EffectiveTags(cfg, r), tag) {
-			return cfg, ErrInheritedTag
-		}
-		tags := make([]string, 0, len(r.Tags))
-		for _, t := range r.Tags {
-			if t != tag {
-				tags = append(tags, t)
-			}
-		}
-		r.Tags = tags
-		return cfg, nil
+	r, err := FindRepoByName(cfg, repoName)
+	if err != nil {
+		return cfg, err
 	}
-	return cfg, ErrRepoNotFound
+	tag = normalizeTag(tag)
+	owns := slices.Contains(r.Tags, tag)
+	// On a worktree, a tag the entry doesn't own but matches via
+	// inheritance can only be removed by retagging the parent.
+	if !owns && r.WorktreeOf != "" && slices.Contains(EffectiveTags(cfg, r), tag) {
+		return cfg, ErrInheritedTag
+	}
+	tags := make([]string, 0, len(r.Tags))
+	for _, t := range r.Tags {
+		if t != tag {
+			tags = append(tags, t)
+		}
+	}
+	r.Tags = tags
+	return cfg, nil
 }
 
 // ListTags returns all unique tags across all repos, sorted alphabetically.
@@ -560,19 +556,18 @@ func ListTags(cfg *Config) []string {
 // EffectiveTags returns a repo's effective tag set: its own tags plus, for a
 // worktree entry, the tags of its parent repo (resolved at call time via
 // worktree_of). Inheritance is dynamic — retagging the parent instantly
-// re-scopes the worktree. A worktree whose parent is unregistered falls back to
-// its own tags only. Non-worktree entries return their own tags unchanged.
+// re-scopes the worktree. A worktree whose parent is unregistered or ambiguous
+// falls back to its own tags only. Non-worktree entries return their own tags
+// unchanged.
 func EffectiveTags(cfg *Config, r *RepoEntry) []string {
 	if r.WorktreeOf == "" {
 		return r.Tags
 	}
-	var parentTags []string
-	for i := range cfg.Repos {
-		if cfg.Repos[i].Name == r.WorktreeOf {
-			parentTags = cfg.Repos[i].Tags
-			break
-		}
+	parent, err := FindRepoByName(cfg, r.WorktreeOf)
+	if err != nil {
+		return r.Tags
 	}
+	parentTags := parent.Tags
 	if len(parentTags) == 0 {
 		return r.Tags
 	}
@@ -631,49 +626,46 @@ func normalizeMetaKey(key string) string {
 }
 
 // SetMeta upserts a metadata key/value on a repo, allocating the map lazily and
-// normalizing the key. Returns ErrRepoNotFound for an unknown repo. Values are
-// stored verbatim.
+// normalizing the key. Returns ErrRepoNotFound for an unknown repo or
+// ErrAmbiguousRepo for duplicate names. Values are stored verbatim.
 func SetMeta(cfg *Config, repoName, key, value string) (*Config, error) {
-	key = normalizeMetaKey(key)
-	for i := range cfg.Repos {
-		if cfg.Repos[i].Name == repoName {
-			if cfg.Repos[i].Meta == nil {
-				cfg.Repos[i].Meta = make(map[string]string)
-			}
-			cfg.Repos[i].Meta[key] = value
-			return cfg, nil
-		}
+	r, err := FindRepoByName(cfg, repoName)
+	if err != nil {
+		return cfg, err
 	}
-	return cfg, ErrRepoNotFound
+	if r.Meta == nil {
+		r.Meta = make(map[string]string)
+	}
+	r.Meta[normalizeMetaKey(key)] = value
+	return cfg, nil
 }
 
 // UnsetMeta removes a metadata key from a repo. Returns ErrRepoNotFound for an
-// unknown repo. Removing the last key sets the map back to nil so the meta block
-// disappears from YAML. Removing an absent key is a no-op.
+// unknown repo or ErrAmbiguousRepo for duplicate names. Removing the last key
+// sets the map back to nil so the meta block disappears from YAML. Removing an
+// absent key is a no-op.
 func UnsetMeta(cfg *Config, repoName, key string) (*Config, error) {
-	key = normalizeMetaKey(key)
-	for i := range cfg.Repos {
-		if cfg.Repos[i].Name == repoName {
-			delete(cfg.Repos[i].Meta, key)
-			if len(cfg.Repos[i].Meta) == 0 {
-				cfg.Repos[i].Meta = nil
-			}
-			return cfg, nil
-		}
+	r, err := FindRepoByName(cfg, repoName)
+	if err != nil {
+		return cfg, err
 	}
-	return cfg, ErrRepoNotFound
+	delete(r.Meta, normalizeMetaKey(key))
+	if len(r.Meta) == 0 {
+		r.Meta = nil
+	}
+	return cfg, nil
 }
 
 // ClearMeta removes all metadata from a repo. Returns ErrRepoNotFound for an
-// unknown repo. It touches only the named repo's metadata.
+// unknown repo or ErrAmbiguousRepo for duplicate names. It touches only the
+// named repo's metadata.
 func ClearMeta(cfg *Config, repoName string) (*Config, error) {
-	for i := range cfg.Repos {
-		if cfg.Repos[i].Name == repoName {
-			cfg.Repos[i].Meta = nil
-			return cfg, nil
-		}
+	r, err := FindRepoByName(cfg, repoName)
+	if err != nil {
+		return cfg, err
 	}
-	return cfg, ErrRepoNotFound
+	r.Meta = nil
+	return cfg, nil
 }
 
 // FilterByMeta returns repos whose metadata contains every key=value in
@@ -704,6 +696,35 @@ func FilterByMeta(repos []RepoEntry, constraints map[string]string) []RepoEntry 
 		}
 	}
 	return filtered
+}
+
+// FindRepoByName returns the entry with a unique exact name match. It returns
+// ErrRepoNotFound for an unknown name or ErrAmbiguousRepo with candidate paths
+// when a legacy or hand-edited config contains duplicate names.
+func FindRepoByName(cfg *Config, name string) (*RepoEntry, error) {
+	i, err := repoIndexByName(cfg, name)
+	if err != nil {
+		return nil, err
+	}
+	return &cfg.Repos[i], nil
+}
+
+func repoIndexByName(cfg *Config, name string) (int, error) {
+	index := -1
+	var paths []string
+	for i, r := range cfg.Repos {
+		if r.Name == name {
+			index = i
+			paths = append(paths, fmt.Sprintf("%q", r.Path))
+		}
+	}
+	if len(paths) > 1 {
+		return -1, fmt.Errorf("%w %q: %s; assign unique names with soko config edit", ErrAmbiguousRepo, name, strings.Join(paths, ", "))
+	}
+	if index == -1 {
+		return -1, ErrRepoNotFound
+	}
+	return index, nil
 }
 
 // FindRepoByPath returns the repo entry whose path matches, or ErrRepoNotFound.

@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Reject ambiguous repository names before removal, tagging, or metadata access in legacy or edited configs, reporting candidate paths and repair guidance instead of acting on the first match; worktrees with ambiguous parents retain only their own tags.
 - Include the build's short commit SHA in `soko version` for Makefile and release builds, honoring the existing linker flags while keeping version-only output for builds without commit metadata.
 - Decode picker keys across split or combined terminal reads so arrow keys over SSH/tmux neither cancel selection nor corrupt search filters in single- and multi-select modes; keep standalone Escape responsive with a short timeout.
 - Report duplicate repository paths in `soko doc` as requiring manual repair, with a `soko config edit` hint, instead of advertising an automatic fix that `--fix` cannot perform.
