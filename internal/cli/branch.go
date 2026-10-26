@@ -456,14 +456,15 @@ func switchRepo(ctx context.Context, repo *config.RepoEntry, name string, create
 		}
 		// Prefer a tracking branch; a ref whose remote is no longer
 		// configured cannot track, so fall back to a plain start point.
+		r.message = "switched (tracking remote)"
 		if _, err := git.Run(ctx, repo.Path, "checkout", "-b", name, "--track", refs[0]); err != nil {
 			if _, err := git.Run(ctx, repo.Path, "checkout", "-b", name, refs[0]); err != nil {
 				return fail(err.Error(), gitErrorCode(err))
 			}
+			r.message = "switched (remote start point; no upstream)"
 		}
 		r.status = switchSwitched
 		r.Status = "switched"
-		r.message = "switched (tracking remote)"
 
 	default:
 		if _, err := git.Run(ctx, repo.Path, "checkout", name); err != nil {

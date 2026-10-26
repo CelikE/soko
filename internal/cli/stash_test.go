@@ -377,3 +377,147 @@ func TestIntegration_StashPopRepoCompletion(t *testing.T) {
 		t.Errorf("stash pop completion = %q, want auth and no file completion", out)
 	}
 }
+
+func TestIntegration_StashPopTopMessage(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		message  string
+		restore  bool
+		detached bool
+	}{
+		{name: "soko marker", message: "soko stash", restore: true},
+		{name: "detached soko marker", message: "soko stash", restore: true, detached: true},
+		{name: "manual stash", message: "manual backup"},
+		{name: "marker substring", message: "not a soko stash"},
+		{name: "marker prefix", message: "soko stash backup"},
+		{name: "multiline message", message: "soko stash\nmanual backup"},
+		{name: "message body", message: "soko stash\n\nmanual backup"},
+		{name: "default message contains marker"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testEnv(t)
+			repo := filepath.Join(t.TempDir(), "stash-owner")
+			initRepo(t, repo)
+			runSokoInit(t, repo)
+			// A default WIP stash includes the current commit's subject.
+			runGit(t, repo, "commit", "--allow-empty", "-m", "soko stash")
+			if tt.detached {
+				runGit(t, repo, "checkout", "--detach")
+			}
+			readme := filepath.Join(repo, "README.md")
+			if err := os.WriteFile(readme, []byte("older work\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runSoko(t, "stash")
+			older := wtGit(t, repo, "rev-parse", "refs/stash")
+			if err := os.WriteFile(readme, []byte("newer work\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"stash", "push"}
+			if tt.message != "" {
+				args = append(args, "-m", tt.message)
+			}
+			runGit(t, repo, args...)
+			before := wtGit(t, repo, "stash", "list", "--format=%H %gs")
+
+			out := runSoko(t, "stash", "pop", "--json")
+			var rows []struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal([]byte(out), &rows); err != nil {
+				t.Fatal(err)
+			}
+			wantContent := "# test\n"
+			if tt.restore {
+				wantContent = "newer work\n"
+				if len(rows) != 1 || rows[0].Name != "stash-owner" || rows[0].Status != "restored" {
+					t.Errorf("pop = %s, want restored stash-owner", out)
+				}
+				if got := wtGit(t, repo, "stash", "list", "--format=%H"); got != older {
+					t.Errorf("remaining stash = %s, want older stash %s", got, older)
+				}
+			} else {
+				if len(rows) != 0 {
+					t.Errorf("pop restored unrelated stash: %s", out)
+				}
+				if after := wtGit(t, repo, "stash", "list", "--format=%H %gs"); after != before {
+					t.Errorf("pop changed unrelated stash stack\nbefore: %s\nafter: %s", before, after)
+				}
+				if status := wtGit(t, repo, "status", "--porcelain"); status != "" {
+					t.Errorf("skipped pop changed checkout: %s", status)
+				}
+			}
+			if data, err := os.ReadFile(readme); err != nil || string(data) != wantContent {
+				t.Errorf("README = %q, %v; want %q", data, err, wantContent)
+			}
+		})
+	}
+}
+
+func TestIntegration_StashPopConflictRetainsRecovery(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			testEnv(t)
+			base := t.TempDir()
+			conflict, good := filepath.Join(base, "conflict"), filepath.Join(base, "good")
+			for _, repo := range []string{conflict, good} {
+				initRepo(t, repo)
+				runSokoInit(t, repo)
+				if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("stashed work\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runSoko(t, "stash")
+			stash := wtGit(t, conflict, "rev-parse", "refs/stash")
+			if err := os.WriteFile(filepath.Join(conflict, "README.md"), []byte("newer committed work\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, conflict, "commit", "-am", "conflicting change")
+			head := wtGit(t, conflict, "rev-parse", "HEAD")
+			args := []string{"stash", "pop"}
+			if format == "json" {
+				args = append(args, "--json")
+			}
+			out, err := runSokoErr(t, args...)
+			if err == nil || err.Error() != "1 repo failed to pop stash" {
+				t.Fatalf("pop = %s, %v; want one failed repo", out, err)
+			}
+			if format == "json" {
+				var rows []struct {
+					Name      string `json:"name"`
+					Status    string `json:"status"`
+					Error     string `json:"error"`
+					ErrorCode string `json:"error_code"`
+				}
+				if err := json.Unmarshal([]byte(out), &rows); err != nil {
+					t.Fatal(err)
+				}
+				if len(rows) != 2 || rows[0].Name != "conflict" || rows[0].Status != "failed" || rows[0].Error == "" || rows[0].ErrorCode == "" || rows[1].Name != "good" || rows[1].Status != "restored" {
+					t.Errorf("pop results = %s, want conflict failure and good restored", out)
+				}
+			} else if !strings.Contains(out, "conflict —") || !strings.Contains(out, "good — restored") {
+				t.Errorf("pop output = %q, want failure and success", out)
+			}
+			if got := wtGit(t, conflict, "rev-parse", "refs/stash"); got != stash {
+				t.Errorf("conflict lost recovery stash: %s, want %s", got, stash)
+			}
+			if got := wtGit(t, conflict, "rev-parse", "HEAD"); got != head {
+				t.Errorf("conflict moved HEAD: %s, want %s", got, head)
+			}
+			if got := wtGit(t, conflict, "ls-files", "--unmerged"); got == "" {
+				t.Error("conflict should remain in index for manual resolution")
+			}
+			data, err := os.ReadFile(filepath.Join(conflict, "README.md"))
+			if err != nil || !strings.Contains(string(data), "stashed work") || !strings.Contains(string(data), "newer committed work") {
+				t.Errorf("conflict lost user content: %q, %v", data, err)
+			}
+			if data, err := os.ReadFile(filepath.Join(good, "README.md")); err != nil || string(data) != "stashed work\n" {
+				t.Errorf("other repo was not restored: %q, %v", data, err)
+			}
+			if got := wtGit(t, good, "stash", "list"); got != "" {
+				t.Errorf("successful pop retained stash: %s", got)
+			}
+		})
+	}
+}

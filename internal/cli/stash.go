@@ -231,13 +231,15 @@ func runStashPop(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 
-			// Check if top stash was created by soko.
-			msg, err := git.Run(ctx, repo.Path, "stash", "list", "-1")
+			// Match the complete message, not a substring in a manual stash
+			// or the commit subject included by Git's default WIP message.
+			description, err := git.Run(ctx, repo.Path, "stash", "list", "-1", "--format=%B")
+			_, message, _ := strings.Cut(description, ": ")
 			switch {
 			case err != nil:
 				r.message = err.Error()
 				r.errorCode = gitErrorCode(err)
-			case strings.Contains(msg, stashMessage):
+			case message == stashMessage:
 				if _, err := git.Run(ctx, repo.Path, "stash", "pop"); err != nil {
 					r.message = err.Error()
 					r.errorCode = gitErrorCode(err)

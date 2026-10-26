@@ -74,6 +74,43 @@ func TestIntegration_WorktreeRegistrationRootAndAliases(t *testing.T) {
 	}
 }
 
+func TestIntegration_WorktreeInitPersistsMissingParent(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			testEnv(t)
+			root, linked, _ := familyFixture(t)
+			runSokoAt(t, linked, "init", "--worktree", "--tag", "wip")
+			cfg := loadRegistry(t)
+			// Simulate a legacy registry whose worktree survived parent removal.
+			cfg.Repos = cfg.Repos[1:]
+			cfg.Repos[0].Meta = map[string]string{"note": "preserve me"}
+			if err := config.Save(cfg); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"init", "--worktree"}
+			if format == "json" {
+				args = append(args, "--json")
+			}
+			out := runSokoAt(t, linked, args...)
+			if format == "json" {
+				var row struct {
+					Name              string `json:"name"`
+					AlreadyRegistered bool   `json:"already_registered"`
+				}
+				if err := json.Unmarshal([]byte(out), &row); err != nil || row.Name != "api/feat/oauth" || !row.AlreadyRegistered {
+					t.Errorf("init = %s, %v; want existing worktree", out, err)
+				}
+			} else if !strings.Contains(out, "registered api (") || !strings.Contains(out, "already registered api/feat/oauth") {
+				t.Errorf("init = %q, want new parent and existing worktree", out)
+			}
+			cfg = loadRegistry(t)
+			if len(cfg.Repos) != 2 || cfg.Repos[0].Name != "api/feat/oauth" || cfg.Repos[0].Meta["note"] != "preserve me" || len(cfg.Repos[0].Tags) != 1 || cfg.Repos[0].Tags[0] != "wip" || cfg.Repos[1].Name != "api" || cfg.Repos[1].Path != resolve(t, root) {
+				t.Errorf("parent registration was lost or worktree changed: %+v", cfg.Repos)
+			}
+		})
+	}
+}
+
 func TestIntegration_WorktreeScanLinkedRootJSONAndDryRun(t *testing.T) {
 	testEnv(t)
 	_, alpha, _ := familyFixture(t)
