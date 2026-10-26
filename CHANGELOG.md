@@ -62,7 +62,7 @@
 
 ### Maintenance
 
-- Run the full race-enabled test suite on Linux, macOS, and Windows in CI, including Fish integration on Unix runners and the existing PowerShell worktree smoke check on Windows.
+- Shard CLI integration tests across three isolated runners per platform, run normal tests on Linux, macOS, and Windows, and collect race coverage on Linux. Run sharded macOS/Windows race checks weekly, on demand, and for concurrency-sensitive changes; retain JSON test timings and preserve Fish integration and the Windows PowerShell smoke check.
 - Cover stash ownership and conflict recovery, detached-HEAD context round trips, worktree identity and parent persistence, and ambiguous or unconfigured remote branch switching with real-Git regression tests.
 - Raise the minimum Go version to 1.27.2 and pin CI linting to golangci-lint v2.14.0 with Go 1.27 support.
 

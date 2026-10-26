@@ -17,6 +17,9 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# Python CI helper bytecode
+__pycache__/
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
