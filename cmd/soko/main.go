@@ -12,8 +12,11 @@ import (
 	"github.com/CelikE/soko/internal/git"
 )
 
-// version is set via ldflags at build time.
-var version = "dev"
+// version and commit are set via ldflags at build time.
+var (
+	version = "dev"
+	commit  = ""
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -31,11 +34,16 @@ func run() error {
 		}
 	}
 
+	displayVersion := version
+	if commit != "" {
+		displayVersion += fmt.Sprintf(" (%s)", commit)
+	}
+	rootCmd := cli.NewRootCmd(displayVersion)
+
 	// Expand aliases: if the first argument matches a configured alias
 	// and is NOT a built-in command, replace it with the expanded command.
 	if cfg, err := config.Load(); err == nil && len(cfg.Aliases) > 0 && len(os.Args) > 1 {
 		if expanded, ok := cfg.Aliases[os.Args[1]]; ok {
-			rootCmd := cli.NewRootCmd(version)
 			if !isBuiltinCommand(rootCmd, os.Args[1]) {
 				expandedArgs, err := cli.ParseAliasCommand(expanded)
 				if err != nil {
@@ -46,7 +54,7 @@ func run() error {
 		}
 	}
 
-	return cli.NewRootCmd(version).Execute()
+	return rootCmd.Execute()
 }
 
 // isBuiltinCommand returns true if name matches a registered cobra command.
