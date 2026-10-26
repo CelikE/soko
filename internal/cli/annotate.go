@@ -158,9 +158,9 @@ func runAnnotateClear(cfg *config.Config, repoName string, w io.Writer) error {
 }
 
 func runAnnotateShow(cfg *config.Config, repoName string, jsonOut bool, w io.Writer) error {
-	entry, ok := findRepoByName(cfg, repoName)
-	if !ok {
-		return fmt.Errorf("not found: %s", repoName)
+	entry, err := config.FindRepoByName(cfg, repoName)
+	if err != nil {
+		return notFoundOrErr(err, repoName)
 	}
 
 	if jsonOut {
@@ -301,16 +301,6 @@ func parseMetaConstraints(metaArgs []string) (map[string]string, error) {
 		constraints[key] = value
 	}
 	return constraints, nil
-}
-
-// findRepoByName returns the entry with an exact name match.
-func findRepoByName(cfg *config.Config, name string) (config.RepoEntry, bool) {
-	for _, r := range cfg.Repos {
-		if r.Name == name {
-			return r, true
-		}
-	}
-	return config.RepoEntry{}, false
 }
 
 // notFoundOrErr maps ErrRepoNotFound to the "not found: <name>" message used by

@@ -65,10 +65,12 @@ removing by path or selecting a subset with --all --select.`,
 }
 
 func removeByName(cfg *config.Config, name string, jsonOut bool, w io.Writer) error {
-	for _, repo := range cfg.Repos {
-		if repo.Name == name {
-			return removeEntries(cfg, []config.RepoEntry{repo}, jsonOut, w)
-		}
+	repo, err := config.FindRepoByName(cfg, name)
+	if err == nil {
+		return removeEntries(cfg, []config.RepoEntry{*repo}, jsonOut, w)
+	}
+	if !errors.Is(err, config.ErrRepoNotFound) {
+		return fmt.Errorf("removing repo: %w; use --path to remove a specific entry", err)
 	}
 	if s := suggestRepoNames(cfg.Repos, name); len(s) > 0 {
 		return fmt.Errorf("not found: %s — did you mean: %s?", name, strings.Join(s, ", "))
