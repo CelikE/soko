@@ -286,7 +286,12 @@ func shortenHome(path string) string {
 	if err != nil {
 		return path
 	}
-	if strings.HasPrefix(path, home) {
+	if path == home {
+		return "~"
+	}
+	home = strings.TrimSuffix(home, string(os.PathSeparator))
+	prefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(path, prefix) {
 		return "~" + path[len(home):]
 	}
 	return path
