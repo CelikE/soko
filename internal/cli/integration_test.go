@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/CelikE/soko/internal/cli"
+	"github.com/CelikE/soko/internal/output"
 )
 
 // testEnv sets up a temp config dir and returns the XDG path and a cleanup
@@ -1227,6 +1228,46 @@ func TestIntegration_ScanEmptyDirectory(t *testing.T) {
 	out := runSoko(t, "scan", base)
 	if !strings.Contains(out, "no git repos found") {
 		t.Errorf("scan empty = %q, want 'no git repos found'", out)
+	}
+}
+
+func TestIntegration_ScanEmptyJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		flags    []string
+		repoPath string
+		quietEnv string
+	}{
+		{name: "empty"},
+		{name: "quiet", flags: []string{"--quiet"}},
+		{name: "quiet-env", quietEnv: "1"},
+		{name: "dry-run", flags: []string{"--dry-run"}},
+		{name: "worktrees", flags: []string{"--worktrees"}},
+		{name: "hidden-repo", repoPath: ".hidden"},
+		{name: "depth-limit", repoPath: "nested", flags: []string{"--depth", "0"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			configDir := testEnv(t)
+			t.Setenv("SOKO_QUIET", tt.quietEnv)
+			t.Cleanup(func() { output.SetQuiet(false) })
+			base := t.TempDir()
+			if tt.repoPath != "" {
+				initRepo(t, filepath.Join(base, tt.repoPath))
+			}
+
+			args := append([]string{"scan", base, "--json"}, tt.flags...)
+			out := runSoko(t, args...)
+			var entries []map[string]any
+			if err := json.Unmarshal([]byte(out), &entries); err != nil {
+				t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
+			}
+			if entries == nil || len(entries) != 0 {
+				t.Errorf("scan JSON = %q, want an empty array", out)
+			}
+			if _, err := os.Stat(filepath.Join(configDir, "soko", "config.yaml")); !os.IsNotExist(err) {
+				t.Errorf("empty scan created config: %v", err)
+			}
+		})
 	}
 }
 
