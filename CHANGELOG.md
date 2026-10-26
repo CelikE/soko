@@ -62,6 +62,7 @@
 
 ### Maintenance
 
+- Complete the historical v0.21.0 changelog heading with its verified release date, keeping released notes separate from Unreleased.
 - Shard CLI integration tests across three isolated runners per platform, run normal tests on Linux, macOS, and Windows, and collect race coverage on Linux. Run sharded macOS/Windows race checks weekly, on demand, and for concurrency-sensitive changes; retain JSON test timings and preserve Fish integration and the Windows PowerShell smoke check.
 - Cover stash ownership and conflict recovery, detached-HEAD context round trips, worktree identity and parent persistence, and ambiguous or unconfigured remote branch switching with real-Git regression tests.
 - Raise the minimum Go version to 1.27.2 and pin CI linting to golangci-lint v2.14.0 with Go 1.27 support.
@@ -106,7 +107,7 @@
 
 - Re-evaluate `soko shell-init` or open a new shell after upgrading to activate session-scoped navigation.
 
-## v0.21.0
+## v0.21.0 — 2026-06-12
 
 ### Features
 
