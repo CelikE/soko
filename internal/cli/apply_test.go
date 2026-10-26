@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -230,7 +231,7 @@ func TestIntegration_ApplyBadDestinations(t *testing.T) {
 	}
 
 	// Absolute destination -> per-repo error.
-	out = runSoko(t, "apply", src, "--to", "/tmp/abs.txt", "--json")
+	out = runSoko(t, "apply", src, "--to", filepath.Join(t.TempDir(), "abs.txt"), "--json")
 	e, _ = entryFor(applyEntries(t, out), "r")
 	if e.Action != "error" || !strings.Contains(e.Error, "must be relative") {
 		t.Errorf("absolute entry = %+v, want error/must be relative", e)
@@ -358,14 +359,18 @@ func TestIntegration_ApplyPreservesMode(t *testing.T) {
 	if err := os.Chmod(srcPath, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	runSoko(t, "apply", srcPath, "--to", "exec.sh", "--write", "--force")
 	info, err := os.Stat(filepath.Join(dir, "exec.sh"))
 	if err != nil {
 		t.Fatalf("stat written file: %v", err)
 	}
-	if info.Mode().Perm() != 0o640 {
-		t.Errorf("written mode = %o, want 640", info.Mode().Perm())
+	if info.Mode().Perm() != srcInfo.Mode().Perm() {
+		t.Errorf("written mode = %o, want %o", info.Mode().Perm(), srcInfo.Mode().Perm())
 	}
 }
 
@@ -571,6 +576,9 @@ func TestIntegration_ApplyMissingSource(t *testing.T) {
 }
 
 func TestIntegration_ApplyWriteFailureExitsNonZero(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows directory write access is controlled by ACLs, not Unix permission bits")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("write-permission failure cannot be simulated as root")
 	}

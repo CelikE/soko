@@ -34,9 +34,10 @@ func initRepo(t *testing.T, path string) {
 
 	ctx := context.Background()
 	cmds := [][]string{
-		{"git", "init"},
+		{"git", "init", "-b", "master"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
+		{"git", "config", "core.autocrlf", "false"},
 	}
 	for _, args := range cmds {
 		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
@@ -83,23 +84,11 @@ func runSoko(t *testing.T, args ...string) string {
 	return stdout.String()
 }
 
-// runSokoInDir executes soko init in a specific directory by changing the
-// working directory temporarily.
+// runSokoInit registers a repo without leaving the process inside its directory,
+// so tests can later remove the checkout on Windows.
 func runSokoInit(t *testing.T, dir string) string {
 	t.Helper()
-
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getting cwd: %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir to %s: %v", dir, err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(orig)
-	})
-
-	return runSoko(t, "init")
+	return runSokoAt(t, dir, "init")
 }
 
 func TestIntegration_InitAndList(t *testing.T) {
@@ -1101,8 +1090,9 @@ func TestIntegration_ExecShowsCommand(t *testing.T) {
 func TestIntegration_ConfigPath(t *testing.T) {
 	testEnv(t)
 	out := runSoko(t, "config", "path")
-	if !strings.Contains(out, "soko/config.yaml") {
-		t.Errorf("config path = %q, want 'soko/config.yaml'", out)
+	want := filepath.Join("soko", "config.yaml")
+	if !strings.Contains(out, want) {
+		t.Errorf("config path = %q, want %q", out, want)
 	}
 }
 
@@ -1121,11 +1111,9 @@ func TestIntegration_ConfigSetAndGet(t *testing.T) {
 		t.Errorf("config get default = %q, want 'git (default)'", out)
 	}
 
-	// Create a temporary executable to use as a custom git path.
-	tmpDir := t.TempDir()
-	customGit := filepath.Join(tmpDir, "custom-git")
-	if err := os.WriteFile(customGit, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("creating custom git: %v", err)
+	customGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	out = runSoko(t, "config", "set", "git_path", customGit)

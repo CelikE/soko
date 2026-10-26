@@ -264,7 +264,7 @@ func setupUpstreamClone(t *testing.T, path string) (seed string) {
 	gitExec(t, seed, "commit", "-m", "initial commit")
 	gitExec(t, seed, "push", "origin", "master")
 
-	gitExec(t, "", "clone", bare, path)
+	gitExec(t, "", "-c", "core.autocrlf=false", "clone", bare, path)
 	gitConfigure(t, path)
 
 	return seed
@@ -329,4 +329,5 @@ func gitConfigure(t *testing.T, dir string) {
 	t.Helper()
 	gitExec(t, dir, "config", "user.email", "test@test.com")
 	gitExec(t, dir, "config", "user.name", "Test")
+	gitExec(t, dir, "config", "core.autocrlf", "false")
 }

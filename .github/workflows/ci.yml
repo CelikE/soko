@@ -61,7 +61,7 @@ jobs:
         run: Join-Path $env:ProgramFiles 'Git/usr/bin' >> $env:GITHUB_PATH
 
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -race "-coverprofile=coverage.out" ./...
 
       - name: Verify worktree registration and PowerShell navigation
         if: runner.os == 'Windows'

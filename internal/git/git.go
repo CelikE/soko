@@ -407,6 +407,9 @@ func parseWorktrees(out string) []WorktreeInfo {
 // both SSH (git@host:user/repo.git) and HTTPS (https://host/user/repo.git)
 // formats.
 func nameFromURL(rawURL string) string {
+	// Local Windows remotes use native path separators instead of URL slashes.
+	rawURL = filepath.ToSlash(rawURL)
+
 	// SSH format: git@github.com:user/repo.git
 	if idx := strings.LastIndex(rawURL, ":"); idx != -1 && !strings.Contains(rawURL, "://") {
 		rawURL = rawURL[idx+1:]

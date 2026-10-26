@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -222,7 +223,13 @@ func validateExecutable(path string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%s: not a regular file", path)
 	}
-	if info.Mode()&0o111 == 0 {
+	if runtime.GOOS == "windows" {
+		// Windows files have no Unix executable permission bits. Use the
+		// platform's executable lookup rules instead.
+		if _, err := exec.LookPath(path); err != nil {
+			return fmt.Errorf("%s: not executable: %w", path, err)
+		}
+	} else if info.Mode()&0o111 == 0 {
 		return fmt.Errorf("%s: not executable", path)
 	}
 	return nil

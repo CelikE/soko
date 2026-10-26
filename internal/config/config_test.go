@@ -11,17 +11,14 @@ func TestPath(t *testing.T) {
 	tests := []struct {
 		name    string
 		xdgHome string
-		wantEnd string
 	}{
 		{
 			name:    "uses XDG_CONFIG_HOME when set",
-			xdgHome: "/custom/config",
-			wantEnd: "/custom/config/soko/config.yaml",
+			xdgHome: filepath.Join(t.TempDir(), "config"),
 		},
 		{
 			name:    "falls back to home .config when XDG unset",
 			xdgHome: "",
-			wantEnd: ".config/soko/config.yaml",
 		},
 	}
 
@@ -35,8 +32,9 @@ func TestPath(t *testing.T) {
 			}
 
 			if tt.xdgHome != "" {
-				if got != tt.wantEnd {
-					t.Errorf("Path() = %q, want %q", got, tt.wantEnd)
+				want := filepath.Join(tt.xdgHome, "soko", "config.yaml")
+				if got != want {
+					t.Errorf("Path() = %q, want %q", got, want)
 				}
 			} else {
 				if filepath.Base(filepath.Dir(got)) != "soko" {

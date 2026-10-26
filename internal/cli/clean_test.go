@@ -83,7 +83,12 @@ func TestIntegration_CleanDryRun(t *testing.T) {
 
 	// Verify branches still exist (dry-run doesn't delete).
 	ctx := context.Background()
-	branches, _ := exec.CommandContext(ctx, "git", "branch").Output()
+	cmd := exec.CommandContext(ctx, "git", "branch")
+	cmd.Dir = dir
+	branches, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(branches), "feat/old") {
 		t.Errorf("dry-run deleted branches: %s", string(branches))
 	}

@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Accept native Windows executable paths in `git_path` configuration and derive repository names correctly from local Windows remotes.
 - Match the complete `soko stash` message before restoring a stash, leaving manual stashes with similar messages untouched; report branch-switch fallbacks from unconfigured remote refs as having no upstream instead of claiming tracking was configured.
 - Reject ambiguous repository names before removal, tagging, or metadata access in legacy or edited configs, reporting candidate paths and repair guidance instead of acting on the first match; worktrees with ambiguous parents retain only their own tags.
 - Include the build's short commit SHA in `soko version` for Makefile and release builds, honoring the existing linker flags while keeping version-only output for builds without commit metadata.

@@ -107,7 +107,7 @@ func TestIntegration_ReportLiteralAuthor(t *testing.T) {
 						if jsonOut {
 							args = append(args, "--json")
 						}
-						out := runSoko(t, args...)
+						out := runSokoAt(t, dir, args...)
 						if !strings.Contains(out, "literal author commit") {
 							t.Errorf("report (json=%v) = %q, want literal author's commit", jsonOut, out)
 						}
