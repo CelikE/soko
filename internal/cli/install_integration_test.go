@@ -29,9 +29,12 @@ func TestIntegration_InstallDirectoryPermissions(t *testing.T) {
 		protected bool
 		missing   bool
 		failSudo  string
+		relative  bool
 	}{
 		{name: "writable existing directory"},
 		{name: "writable new directory", missing: true},
+		{name: "relative existing directory", relative: true},
+		{name: "relative new directory", relative: true, missing: true},
 		{name: "protected existing directory", protected: true},
 		{name: "protected new directory", protected: true, missing: true},
 		{name: "sudo mkdir failure", protected: true, missing: true, failSudo: "mkdir"},
@@ -82,7 +85,12 @@ func TestIntegration_InstallDirectoryPermissions(t *testing.T) {
 			t.Setenv("INSTALL_TEST_MISSING", fmt.Sprint(tc.missing))
 			t.Setenv("INSTALL_TEST_FAIL_SUDO", tc.failSudo)
 			t.Setenv("INSTALL_TEST_SUDO", "")
-			cmd := exec.CommandContext(context.Background(), "sh", script, "--version", "v0.0.0", "--dir", installDir)
+			destination := installDir
+			if tc.relative {
+				destination = filepath.Join("install dir", "bin")
+			}
+			cmd := exec.CommandContext(context.Background(), "sh", script, "--version", "v0.0.0", "--dir", destination)
+			cmd.Dir = base
 			out, err := cmd.CombinedOutput()
 			if tc.failSudo != "" {
 				if err == nil || !strings.Contains(string(out), "simulated sudo "+tc.failSudo+" failure") {
@@ -95,6 +103,10 @@ func TestIntegration_InstallDirectoryPermissions(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("installer failed: %v\n%s", err, out)
+			}
+			binary, err := os.ReadFile(filepath.Join(installDir, "soko"))
+			if err != nil || string(binary) != installTestBinary {
+				t.Fatalf("installed binary = %q, %v; want archive's soko", binary, err)
 			}
 			if !strings.Contains(string(out), "installed to "+installDir+"/soko") ||
 				!strings.Contains(string(out), "soko v0.0.0\n") {
