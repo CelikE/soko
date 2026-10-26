@@ -61,6 +61,9 @@ status. JSON failures include error and error_code fields.`,
 			if len(repoArgs) > 0 {
 				repos = findReposMatching(repos, repoArgs)
 				if len(repos) == 0 {
+					if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+						return renderNoRepos(cmd, len(cfg.Repos))
+					}
 					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(repoArgs, ", ")))
 					return nil
 				}
