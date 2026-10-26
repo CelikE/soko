@@ -77,6 +77,32 @@ func TestGrepNoMatchIsNotError(t *testing.T) {
 	}
 }
 
+func TestGrepIgnoresOutputConfig(t *testing.T) {
+	dir := initRepoWithFiles(t, map[string]string{
+		"a.txt": "before\nneedle: text\n",
+		"b.txt": "another needle\n",
+	})
+	ctx := context.Background()
+	for _, key := range []string{"grep.column", "grep.heading", "grep.break"} {
+		if _, err := Run(ctx, dir, "config", key, "true"); err != nil {
+			t.Fatalf("setting %s: %v", key, err)
+		}
+	}
+	for _, filesOnly := range []bool{false, true} {
+		matches, err := Grep(ctx, dir, "needle", false, false, filesOnly)
+		if err != nil {
+			t.Fatalf("Grep(filesOnly=%v): %v", filesOnly, err)
+		}
+		want := []Match{{File: "a.txt", Line: 2, Text: "needle: text"}, {File: "b.txt", Line: 1, Text: "another needle"}}
+		if filesOnly {
+			want = []Match{{File: "a.txt"}, {File: "b.txt"}}
+		}
+		if !reflect.DeepEqual(matches, want) {
+			t.Errorf("Grep(filesOnly=%v) = %#v, want %#v", filesOnly, matches, want)
+		}
+	}
+}
+
 func TestGrepIgnoreCase(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepoWithFiles(t, map[string]string{"a.txt": "Hello World\n"})

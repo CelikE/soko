@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Ignore Git column, heading, and break presentation settings in `soko grep` so match text remains the original source line without extra column fields or NUL bytes.
 - Return an empty JSON array from `soko scan --json` when no repositories are discovered, including quiet and dry-run modes, so successful empty scans remain machine-readable without creating or rewriting configuration.
 - Accept native Windows executable paths in `git_path` configuration and derive repository names correctly from local Windows remotes.
 - Match the complete `soko stash` message before restoring a stash, leaving manual stashes with similar messages untouched; report branch-switch fallbacks from unconfigured remote refs as having no upstream instead of claiming tracking was configured.
