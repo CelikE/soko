@@ -1381,21 +1381,106 @@ func TestIntegration_ScanNonExistent(t *testing.T) {
 }
 
 func TestIntegration_ScanJSON(t *testing.T) {
-	testEnv(t)
-	base := t.TempDir()
-	initRepo(t, filepath.Join(base, "json-scan-repo"))
+	for _, registry := range []string{"empty", "existing"} {
+		for _, quiet := range []bool{false, true} {
+			name := registry + "/normal"
+			if quiet {
+				name = registry + "/quiet"
+			}
+			t.Run(name, func(t *testing.T) {
+				xdg := testEnv(t)
+				base := t.TempDir()
+				paths := map[string]string{
+					"alpha": filepath.Join(base, "alpha"),
+					"beta":  filepath.Join(base, "beta"),
+				}
+				for _, path := range paths {
+					initRepo(t, path)
+				}
+				if registry == "existing" {
+					runSokoAt(t, paths["alpha"], "init", "--tag", "original")
+				}
+				configPath := filepath.Join(xdg, "soko", "config.yaml")
+				before, err := os.ReadFile(configPath)
+				if err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
 
-	out := runSoko(t, "scan", base, "--json")
+				args := []string{"scan", base, "--json", "--tag", "scanned"}
+				if quiet {
+					args = append(args, "--quiet")
+				}
+				for _, phase := range []string{"dry-run", "register", "repeat"} {
+					phaseArgs := append([]string(nil), args...)
+					if phase == "dry-run" {
+						phaseArgs = append(phaseArgs, "--dry-run")
+					}
+					out := runSoko(t, phaseArgs...)
+					var rows []struct {
+						Name              string `json:"name"`
+						Path              string `json:"path"`
+						Registered        bool   `json:"registered"`
+						AlreadyRegistered bool   `json:"already_registered"`
+					}
+					if err := json.Unmarshal([]byte(out), &rows); err != nil {
+						t.Fatalf("%s JSON: %v\n%s", phase, err, out)
+					}
+					if len(rows) != len(paths) {
+						t.Fatalf("%s returned %d repos, want %d: %s", phase, len(rows), len(paths), out)
+					}
+					seen := make(map[string]bool)
+					for _, row := range rows {
+						path, ok := paths[row.Name]
+						if !ok || seen[row.Name] || row.Path != resolve(t, path) {
+							t.Fatalf("%s unexpected repo: %+v", phase, row)
+						}
+						seen[row.Name] = true
+						existing := phase == "repeat" || (registry == "existing" && row.Name == "alpha")
+						if row.AlreadyRegistered != existing || row.Registered == existing {
+							t.Errorf("%s registration status = %+v, want already_registered=%v", phase, row, existing)
+						}
+					}
 
-	var entries []map[string]any
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		t.Fatalf("parsing JSON: %v\noutput: %s", err, out)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("JSON entries = %d, want 1", len(entries))
-	}
-	if entries[0]["name"] != "json-scan-repo" {
-		t.Errorf("JSON name = %v, want 'json-scan-repo'", entries[0]["name"])
+					if phase == "dry-run" {
+						after, err := os.ReadFile(configPath)
+						if registry == "empty" {
+							if !os.IsNotExist(err) {
+								t.Fatalf("dry-run created config: %v", err)
+							}
+						} else if err != nil || !bytes.Equal(before, after) {
+							t.Fatalf("dry-run changed existing config: %v", err)
+						}
+						continue
+					}
+
+					// A fresh command must see every registration reported by scan.
+					out = runSoko(t, "list", "--json")
+					var entries []struct {
+						Name string   `json:"name"`
+						Path string   `json:"path"`
+						Tags []string `json:"tags"`
+					}
+					if err := json.Unmarshal([]byte(out), &entries); err != nil || len(entries) != len(paths) {
+						t.Fatalf("%s registrations not persisted: %s (error: %v)", phase, out, err)
+					}
+					seen = make(map[string]bool)
+					for _, entry := range entries {
+						path, ok := paths[entry.Name]
+						if !ok || seen[entry.Name] || entry.Path != resolve(t, path) {
+							t.Fatalf("%s persisted unexpected repo: %+v", phase, entry)
+						}
+						seen[entry.Name] = true
+						wantTag := "scanned"
+						if registry == "existing" && entry.Name == "alpha" {
+							wantTag = "original"
+						}
+						if len(entry.Tags) != 1 || entry.Tags[0] != wantTag {
+							t.Errorf("%s persisted tags for %s = %v, want [%s]", phase, entry.Name, entry.Tags, wantTag)
+						}
+					}
+				}
+			})
+		}
 	}
 }
 
