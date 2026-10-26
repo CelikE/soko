@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Preserve displayed paths for sibling directories whose names share the home directory prefix instead of incorrectly shortening them with `~`.
 - Reject negative `soko branch stale --days` values even when no repositories are registered or name/tag filters match nothing; zero remains valid.
 - Reject negative `soko scan --depth` values instead of silently reporting no repositories; depth zero still scans only the root.
 - Reject non-directory roots in `soko scan` and report root inspection errors instead of succeeding with an empty scan.
