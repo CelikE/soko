@@ -610,7 +610,11 @@ func runBranchStale(cmd *cobra.Command, args []string) error {
 
 	// Only repos with stale branches (or a real failure) are worth a row.
 	var withStale []staleResult
+	var failed int
 	for i := range results {
+		if results[i].Error != "" {
+			failed++
+		}
 		if len(results[i].Branches) > 0 || results[i].Error != "" {
 			withStale = append(withStale, results[i])
 		}
@@ -627,10 +631,16 @@ func runBranchStale(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonFlag {
-		return output.RenderJSON(w, withStale)
+		if err := output.RenderJSON(w, withStale); err != nil {
+			return err
+		}
+	} else {
+		renderStaleTable(w, withStale, days)
 	}
 
-	renderStaleTable(w, withStale, days)
+	if failed > 0 {
+		return fmt.Errorf("%d %s failed to inspect stale branches", failed, output.Plural(failed, "repo"))
+	}
 	return nil
 }
 
