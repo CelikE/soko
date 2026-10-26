@@ -14,7 +14,7 @@ import (
 func newCdCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "cd <name>",
-		Args:              cobra.MaximumNArgs(1),
+		Args:              cobra.ExactArgs(1),
 		Short:             "Navigate to a registered repo by name",
 		ValidArgsFunction: repoNameCompletionFunc(),
 		Long: `Navigate to a registered repo by name. Supports exact and prefix matching.
@@ -32,12 +32,6 @@ Requires shell integration. See: soko shell-init --help`,
 			if len(cfg.Repos) == 0 {
 				output.Info(stderr, noReposMessage(0))
 				return fmt.Errorf("no repos registered")
-			}
-
-			if len(args) == 0 {
-				output.Info(stderr, "usage: soko cd <name>")
-				output.Info(stderr, "for interactive selection use: soko go")
-				return fmt.Errorf("no repo name provided")
 			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")

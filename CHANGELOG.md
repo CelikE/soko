@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 
+- Require exactly one repository name for `soko cd`, rejecting missing or extra names before accessing the registry.
 - Return an empty JSON array from `soko grep --json` when positional repository filters match nothing, including tag-excluded names and quiet mode, instead of emitting a text hint or no JSON.
 - Return a non-zero exit status from `soko branch stale` when any repository inspection fails, preserving text reports and per-repository JSON errors.
 - Preserve displayed paths for sibling directories whose names share the home directory prefix instead of incorrectly shortening them with `~`.
