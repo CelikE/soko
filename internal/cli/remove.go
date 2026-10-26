@@ -21,6 +21,7 @@ func newRemoveCmd() *cobra.Command {
 		Long: `Remove repos from the registry without deleting their directories.
 Linked worktrees are unregistered alongside a removed parent, including when
 removing by path or selecting a subset with --all --select.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 
