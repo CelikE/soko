@@ -93,20 +93,44 @@ func runSokoInit(t *testing.T, dir string) string {
 }
 
 func TestIntegration_CdArgumentCount(t *testing.T) {
-	for _, args := range [][]string{{"cd"}, {"cd", "api", "front"}} {
-		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			testEnv(t)
-			var stdout bytes.Buffer
-			cmd := cli.NewRootCmd("test")
-			cmd.SetOut(&stdout)
-			cmd.SetErr(&bytes.Buffer{})
-			cmd.SetArgs(args)
-			err := cmd.Execute()
-			if err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s)") {
-				t.Fatalf("expected argument-count error before registry access, got %v", err)
+	for _, registry := range []string{"empty", "registered", "invalid"} {
+		t.Run(registry, func(t *testing.T) {
+			xdg := testEnv(t)
+			switch registry {
+			case "registered":
+				dir := filepath.Join(t.TempDir(), "api")
+				initRepo(t, dir)
+				runSokoInit(t, dir)
+			case "invalid":
+				dir := filepath.Join(xdg, "soko")
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("repos: ["), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if stdout.Len() != 0 {
-				t.Fatalf("invalid invocation produced navigation output: %q", stdout.String())
+			for _, args := range [][]string{
+				{"cd"}, {"cd", "api", "front"},
+				{"cd", "--json"}, {"cd", "--json", "api", "front"},
+			} {
+				t.Run(strings.Join(args, "_"), func(t *testing.T) {
+					var stdout bytes.Buffer
+					cmd := cli.NewRootCmd("test")
+					cmd.SetOut(&stdout)
+					cmd.SetErr(&bytes.Buffer{})
+					cmd.SetArgs(args)
+					err := cmd.Execute()
+					if err == nil || !strings.Contains(err.Error(), "accepts 1 arg(s)") {
+						t.Fatalf("expected argument-count error before registry access, got %v", err)
+					}
+					if stdout.Len() != 0 {
+						t.Fatalf("invalid invocation produced navigation output: %q", stdout.String())
+					}
+					if _, err := os.Stat(filepath.Join(xdg, "soko", ".nav")); !os.IsNotExist(err) {
+						t.Fatalf("invalid invocation must not create a navigation file, stat: %v", err)
+					}
+				})
 			}
 		})
 	}

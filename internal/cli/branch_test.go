@@ -525,6 +525,26 @@ func TestIntegration_BranchStale(t *testing.T) {
 		t.Errorf("stale entry = %+v, want old-work older than a year", results[0].Branches[0])
 	}
 
+	// Git marks branches checked out here with '*' and in linked worktrees
+	// with '+'. Neither marker may leak into the unmerged branch names.
+	linked := filepath.Join(t.TempDir(), "linked-old-work")
+	for _, checkout := range []string{"current", "linked"} {
+		t.Run(checkout, func(t *testing.T) {
+			if checkout == "current" {
+				brGitEnv(t, repo, nil, "checkout", "-q", "old-work")
+			} else {
+				brGitEnv(t, repo, nil, "checkout", "-q", "master")
+				brGitEnv(t, repo, nil, "worktree", "add", "-q", linked, "old-work")
+			}
+			for _, args := range [][]string{{"branch", "stale"}, {"branch", "stale", "--json"}} {
+				out := runSoko(t, args...)
+				if !strings.Contains(out, "old-work") {
+					t.Fatalf("%v = %q, want checked-out stale branch", args, out)
+				}
+			}
+		})
+	}
+
 	// Failed inspections must not hide stale branches from healthy repositories.
 	broken := filepath.Join(t.TempDir(), "missing")
 	initRepo(t, broken)

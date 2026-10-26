@@ -1,42 +1,6 @@
 name: Cross-platform race
 
 on:
-  pull_request:
-    branches: [master]
-    paths:
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/race.yml'
-      - '.github/scripts/*.py'
-      - 'go.mod'
-      - 'go.sum'
-      - 'internal/config/**'
-      - 'internal/exec/**'
-      - 'internal/git/**'
-      - 'internal/journal/**'
-      - 'internal/output/**'
-      - 'internal/picker/**'
-      - 'internal/snapshot/**'
-      - 'internal/ui/**'
-      - 'internal/worktree/**'
-      - 'internal/cli/ctx*'
-      - 'internal/cli/undo*'
-      - 'internal/cli/parallel*'
-      - 'internal/cli/apply*'
-      - 'internal/cli/branch*'
-      - 'internal/cli/clean*'
-      - 'internal/cli/config*'
-      - 'internal/cli/discover*'
-      - 'internal/cli/fetch*'
-      - 'internal/cli/exec*'
-      - 'internal/cli/grep*'
-      - 'internal/cli/pull*'
-      - 'internal/cli/remotes*'
-      - 'internal/cli/snapshot*'
-      - 'internal/cli/stash*'
-      - 'internal/cli/stats*'
-      - 'internal/cli/status*'
-      - 'internal/cli/sync*'
-      - 'internal/cli/worktree*'
   schedule:
     - cron: '23 4 * * 1'
   workflow_dispatch:
@@ -50,14 +14,13 @@ concurrency:
 
 jobs:
   race:
-    name: Race (${{ matrix.os }}, shard ${{ matrix.shard }})
+    name: Race (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
-        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -74,12 +37,12 @@ jobs:
         run: Join-Path $env:ProgramFiles 'Git/usr/bin' >> $env:GITHUB_PATH
 
       - name: Test with race detection
-        run: python .github/scripts/ci_test.py --race --shard ${{ matrix.shard }} --shards 3 --timings "${{ runner.temp }}/race-timings.jsonl"
+        run: python .github/scripts/ci_test.py --race --timings "${{ runner.temp }}/race-timings.jsonl"
 
       - name: Upload test timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: race-timings-${{ matrix.os }}-${{ matrix.shard }}
+          name: race-timings-${{ matrix.os }}
           path: ${{ runner.temp }}/race-timings.jsonl
           retention-days: 14

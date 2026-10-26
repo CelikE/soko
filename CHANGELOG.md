@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+### Maintenance
+
+- Add end-to-end regression coverage for stale branches checked out in the current checkout or a linked worktree (issue #234).
+- Reduce pull request CI to four jobs: validation, Linux race tests with coverage, and full macOS and Windows tests. Run additional cross-platform race tests weekly or manually, avoiding repeated setup and macOS runner contention from sharded jobs.
+
 ### Bug Fixes
 
 - Require exactly one repository name for `soko cd`, rejecting missing or extra names before accessing the registry.
+- Return an empty JSON array from `soko grep --json` when positional repository filters match nothing, including tag-excluded names and quiet mode, instead of emitting a text hint or no JSON.
 - Return a non-zero exit status from `soko branch stale` when any repository inspection fails, preserving text reports and per-repository JSON errors.
 - Preserve displayed paths for sibling directories whose names share the home directory prefix instead of incorrectly shortening them with `~`.
 - Reject negative `soko branch stale --days` values even when no repositories are registered or name/tag filters match nothing; zero remains valid.
