@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Reject negative `soko scan --depth` values instead of silently reporting no repositories; depth zero still scans only the root.
 - Reject non-directory roots in `soko scan` and report root inspection errors instead of succeeding with an empty scan.
 - Resolve relative installer `--dir` destinations against the invocation directory so installed binaries survive temporary archive cleanup, including paths containing spaces.
 - Ignore Git column, heading, and break presentation settings in `soko grep` so match text remains the original source line without extra column fields or NUL bytes.
