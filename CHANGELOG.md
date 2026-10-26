@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Maintenance
+
+- Reduce pull request CI to four jobs: validation, Linux race tests with coverage, and full macOS and Windows tests. Run additional cross-platform race tests weekly or manually, avoiding repeated setup and macOS runner contention from sharded jobs.
+
 ### Bug Fixes
 
 - Return a non-zero exit status from `soko branch stale` when any repository inspection fails, preserving text reports and per-repository JSON errors.
