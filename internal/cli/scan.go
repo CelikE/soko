@@ -62,6 +62,9 @@ Skips hidden directories and repos already registered.`,
 			}
 
 			if len(found) == 0 {
+				if jsonFlag {
+					return renderScanJSON(w, []scanResult{})
+				}
 				output.Info(w, "no git repos found")
 				return nil
 			}
