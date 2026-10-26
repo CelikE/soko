@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+- Reject negative `soko branch stale --days` values even when no repositories are registered or name/tag filters match nothing; zero remains valid.
 - Reject negative `soko scan --depth` values instead of silently reporting no repositories; depth zero still scans only the root.
 - Reject non-directory roots in `soko scan` and report root inspection errors instead of succeeding with an empty scan.
 - Resolve relative installer `--dir` destinations against the invocation directory so installed binaries survive temporary archive cleanup, including paths containing spaces.
