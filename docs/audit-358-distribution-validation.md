@@ -36,7 +36,7 @@ python .github/scripts/audit_distribution.py --source-install --output /path/to/
 
 Reports record platform, source, release and individual outcomes, not tokens or credential-bearing environments. Public PR fixtures can change; drift or insufficient PRs fails the live check rather than producing a false pass. The native distribution script verifies the existing public archive's SHA256, invokes its binary, checks the archived manual, and tests both checkout and published Unix installers in temporary prefixes. The optional source path executes the documented `go install ...@latest`; that build does not set release ldflags, so module metadata identifies its version even if the CLI reports `dev`.
 
-The manual `Distribution audit` workflow runs archive checks on Linux/macOS/Windows, fresh Homebrew installation on a disposable macOS runner, and winget/Scoop on a disposable Windows runner. It is also called by the manual `Full platform tests` workflow so a new audit workflow can be tested before it exists on the default branch. It never invokes the release or Winget publication workflows.
+The manual `Distribution audit` workflow runs archive checks on Linux/macOS/Windows, fresh Homebrew installation on disposable Linux/macOS runners, and winget/Scoop on a disposable Windows runner. It is also called by the manual `Full platform tests` workflow so a new audit workflow can be tested before it exists on the default branch. It never invokes the release or Winget publication workflows.
 
 ## Distribution finding
 
@@ -44,9 +44,11 @@ The published v0.22.0 Homebrew cask declares only the binary, not the archived m
 
 Local GoReleaser 2.15.2 snapshot generation (`release --snapshot --clean --skip=publish,announce,before`, with a temporary dist/config path) passed for all six OS/architecture binaries, archives, deb/rpm packages, Scoop manifest and Homebrew cask. The actual generated cask contains `manpage "man/soko.1"`. Nothing was published. The native workflow additionally installs this generated cask from local archives in a sandbox tap, separately from checking the old published cask. Homebrew's documented Linux and macOS paths are both included in the final audit matrix.
 
-## Remaining work
+## Closure evidence and boundaries
 
-- Complete the corrected native platform rerun and added Linux Homebrew job; retain the already-passing distribution results above. The Alpine container check does not replace native runner or package-manager coverage.
+- The [21c7c6d run](https://github.com/CelikE/soko/actions/runs/40565260983) also installed and invoked the published Linux Homebrew cask. Its corrected-cask sandbox step failed during local tap creation because Homebrew scrubbed the Git identity environment variables. The workflow now supplies Homebrew's supported `HOMEBREW_GIT_NAME`/`HOMEBREW_GIT_EMAIL` variables for that local-only tap instead of changing global Git config. No external tap is modified.
+- Final corrected platform/sandbox outcomes, source SHAs and workflow links are recorded on [issue #358](https://github.com/CelikE/soko/issues/358), [parent #336](https://github.com/CelikE/soko/issues/336) and [PR #379](https://github.com/CelikE/soko/pull/379). Earlier passing jobs do not make a failed overall workflow pass.
+- The Alpine container check does not replace native runner or package-manager coverage.
 - Validate manifest synchronization in an authorized sandbox if execution evidence is required. Actual release publication requires separate authorization.
 
-Issue #358 was closed on request before its validation was complete. Parent #336 remains open until the remaining evidence is recorded; issue closure alone is not a passing result.
+Issue #358 was closed on request before its validation was complete. Closing parent #336 requires the corrected verification evidence; issue closure alone is not a passing result.

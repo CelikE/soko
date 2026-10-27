@@ -33,7 +33,7 @@ the complete matrix passed.
 - [CI on a8d6dd3](https://github.com/CelikE/soko/actions/runs/40562201354)
   passed lint, release configuration, Python runner/helper tests, Linux race and
   coverage, destructive-workflow validation and the Windows worktree/PowerShell
-  smoke check. It does not replace the pending full native matrix.
+  smoke check. It does not replace full native matrix evidence.
 
 ## Reproduction and native runners
 
@@ -75,5 +75,18 @@ Slow tests now emit progress, artifacts are per-shard, and jobs have a ten-minut
 bound. This uses process isolation rather than unsafe parallel execution of
 tests that change process-wide environment or cwd.
 
-The corrected native rerun is pending explicit authorization. Earlier green
-jobs do not make the failed matrix pass.
+## Sharded native run
+
+The [21c7c6d run](https://github.com/CelikE/soko/actions/runs/40565260983)
+passed Linux and macOS suites and three of four Windows shards, including the
+previously failing native path and diagnostic checks. Windows job times were
+3m03s, 2m23s, 4m40s and 2m53s, versus 12m02s for the preceding serial attempt.
+The final shard exposed a README/manpage example parser assuming LF line endings
+in a CRLF Windows checkout. The parser now accepts both, with a focused LF/CRLF
+regression; all five README examples and three manual examples remain required.
+That run remains a failed matrix, not a pass.
+
+Final closure results, exact tested SHAs and workflow links are recorded on
+[issue #357](https://github.com/CelikE/soko/issues/357) and
+[PR #379](https://github.com/CelikE/soko/pull/379). The historical attempts above
+are retained to distinguish executed failures from the corrected verification.

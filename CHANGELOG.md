@@ -11,7 +11,7 @@
 
 ### Maintenance
 
-- Shard the complete Windows CLI suite across four isolated runners, retain per-shard timings, emit slow-test progress, and preserve UTF-8 failure diagnostics; keep Zsh completion checks noninteractive without trusting insecure directories (issue #357).
+- Shard the complete Windows CLI suite across four isolated runners, retain per-shard timings, emit slow-test progress, preserve UTF-8 diagnostics, and accept LF/CRLF documentation fixtures; keep Zsh completion checks noninteractive without trusting insecure directories (issue #357).
 - Add real-shell TAB and PowerShell completion-engine checks, native filesystem-boundary controls, and an opt-in Linux/macOS/Windows audit matrix (issue #357).
 - Add opt-in, read-only live GitHub PR checks and disposable native release archive, installer, Homebrew, winget and Scoop validation (issue #358).
 - Add Unix PTY regression coverage for dashboard pull/undo safety, selection narrowing, interactive display and controlled fetch overlap (issue #356).

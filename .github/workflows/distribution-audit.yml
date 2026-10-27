@@ -89,7 +89,9 @@ jobs:
       - name: Install generated cask in a local sandbox tap
         run: |
           brew uninstall --cask CelikE/tap/soko
-          GIT_AUTHOR_NAME='Soko Audit' GIT_AUTHOR_EMAIL='audit@example.invalid' GIT_COMMITTER_NAME='Soko Audit' GIT_COMMITTER_EMAIL='audit@example.invalid' brew tap-new audit/soko-validation
+          # Homebrew scrubs GIT_AUTHOR_*; use its supported identity variables
+          # for this local-only tap instead of changing global Git config.
+          HOMEBREW_GIT_NAME='Soko Audit' HOMEBREW_GIT_EMAIL='audit@example.invalid' brew tap-new audit/soko-validation
           python - <<'PY'
           from pathlib import Path
           import subprocess
