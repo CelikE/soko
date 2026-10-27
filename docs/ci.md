@@ -36,3 +36,11 @@ python3 .github/scripts/ci_test.py --race --coverprofile /tmp/coverage.out --tim
 ```
 
 A Go test failure remains a nonzero runner exit, and failure output is printed while the JSON event log is preserved. Runs use `-count=1` so timing artifacts describe actual execution rather than replayed cached test results. Go's compiled-package cache remains enabled. The runner still supports `--shard N --shards M` for targeted diagnostics.
+
+### Destructive-workflow fault audit
+
+The manual `CI` workflow also runs the disposable POSIX fault/recovery harness
+in its Linux race job, retaining `audit-355.json` in `linux-race-coverage` even
+when an experiment fails. For local execution, evidence format, supported
+guarantees, and explicitly blocked fault prerequisites, see
+[audit #355](audits/355.md).
