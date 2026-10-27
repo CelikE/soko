@@ -117,9 +117,13 @@ type terminalSession struct {
 }
 
 func (a *terminalAudit) start(args ...string) *terminalSession {
+	return a.startCommand(a.bin, args...)
+}
+
+func (a *terminalAudit) startCommand(name string, args ...string) *terminalSession {
 	a.t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, a.bin, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir, cmd.Env = a.root, a.env
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 180})
 	if err != nil {
@@ -156,7 +160,7 @@ func (a *terminalAudit) start(args ...string) *terminalSession {
 			a.t.Error("terminal reader did not stop")
 		}
 		s.mu.Lock()
-		a.t.Logf("PTY transcript for soko %v:\n%s", args, s.transcript.String())
+		a.t.Logf("PTY transcript for %s %v:\n%s", name, args, s.transcript.String())
 		s.mu.Unlock()
 	})
 	return s

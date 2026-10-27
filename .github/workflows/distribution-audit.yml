@@ -1,0 +1,161 @@
+name: Distribution audit
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  release-archives:
+    name: Published installation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Check public release archive and Unix installers
+        run: python .github/scripts/audit_distribution.py --source-install --output "${{ runner.temp }}/audit-distribution.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: distribution-${{ matrix.os }}
+          path: ${{ runner.temp }}/audit-distribution.json
+
+  windows-packages:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install published winget and Scoop packages
+        shell: pwsh
+        run: ./.github/scripts/audit_windows_packages.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: windows-packages
+          path: ${{ runner.temp }}/audit-windows-packages.json
+
+  homebrew:
+    name: Homebrew (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Ensure Homebrew is available on Linux
+        if: runner.os == 'Linux'
+        run: |
+          if ! command -v brew; then
+            NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+          fi
+      - name: Install the published cask on a disposable runner
+        run: |
+          uname -sm
+          brew --version
+          git rev-parse HEAD
+          brew install CelikE/tap/soko
+          test "$(soko version)" = 'soko 0.22.0'
+          test -x "$(brew --prefix)/bin/soko"
+          if test -f "$(brew --prefix)/share/man/man1/soko.1"; then
+            echo 'Published cask installed its manpage'
+          else
+            echo 'KNOWN v0.22.0 limitation: cask omits manpage; source release config corrected in this change'
+          fi
+
+      - name: Generate corrected cask without publishing
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          version: v2.15.2
+          args: release --snapshot --clean --skip=publish,announce,before
+
+      - name: Install generated cask in a local sandbox tap
+        run: |
+          brew uninstall --cask CelikE/tap/soko
+          # Homebrew scrubs GIT_AUTHOR_*; use its supported identity variables
+          # for this local-only tap instead of changing global Git config.
+          HOMEBREW_GIT_NAME='Soko Audit' HOMEBREW_GIT_EMAIL='audit@example.invalid' brew tap-new audit/soko-validation
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          cask = Path('dist/homebrew/Casks/soko.rb').read_text()
+          cask = cask.replace('https://github.com/CelikE/soko/releases/download/v0.22.0/', Path('dist').resolve().as_uri() + '/')
+          assert 'manpage "man/soko.1"' in cask
+          assert 'url "https://' not in cask
+          tap = Path(subprocess.check_output(['brew', '--repository', 'audit/soko-validation'], text=True).strip())
+          (tap / 'Casks').mkdir(exist_ok=True)
+          (tap / 'Casks/soko.rb').write_text(cask)
+          PY
+          brew install --cask audit/soko-validation/soko
+          soko version | grep SNAPSHOT
+          test -x "$(brew --prefix)/bin/soko"
+          test -f "$(brew --prefix)/share/man/man1/soko.1"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: generated-homebrew-cask-${{ matrix.os }}
+          path: dist/homebrew/Casks/soko.rb
+
+  linux-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install the published deb on a disposable runner
+        run: |
+          base=https://github.com/CelikE/soko/releases/download/v0.22.0
+          curl -fsSL "$base/soko_0.22.0_linux_amd64.deb" -o soko_0.22.0_linux_amd64.deb
+          curl -fsSL "$base/checksums.txt" -o checksums.txt
+          grep '  soko_0.22.0_linux_amd64.deb$' checksums.txt | sha256sum -c -
+          sudo dpkg -i soko_0.22.0_linux_amd64.deb
+          soko version
+          test -x /usr/bin/soko
+          test -f /usr/share/man/man1/soko.1
+
+      - name: Install the published rpm in a disposable Linux container
+        run: |
+          docker run --rm fedora:43 bash -euc '
+            base=https://github.com/CelikE/soko/releases/download/v0.22.0
+            curl -fsSL "$base/soko_0.22.0_linux_amd64.rpm" -o soko_0.22.0_linux_amd64.rpm
+            curl -fsSL "$base/checksums.txt" -o checksums.txt
+            grep "  soko_0.22.0_linux_amd64.rpm$" checksums.txt | sha256sum -c -
+            rpm -i soko_0.22.0_linux_amd64.rpm
+            soko version
+            test -x /usr/bin/soko
+            test -f /usr/share/man/man1/soko.1
+          '
+
+  live-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Read-only live PR service checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/scripts/audit_pr_service.py --output "${{ runner.temp }}/audit-live-pr.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: live-pr
+          path: ${{ runner.temp }}/audit-live-pr.json

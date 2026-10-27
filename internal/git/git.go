@@ -36,10 +36,11 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-// runPath removes only Git's line terminator, preserving whitespace in paths.
+// runPath removes only Git's line terminator, preserving whitespace in paths,
+// and converts Git's slash-separated output to native filesystem separators.
 func runPath(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := run(ctx, dir, args...)
-	return strings.TrimSuffix(out, "\n"), err
+	return filepath.FromSlash(strings.TrimSuffix(out, "\n")), err
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {

@@ -14,12 +14,30 @@ import (
 
 // Execute the examples published in the README so documentation cannot silently
 // drift from the result shapes. Fixture paths are the only substituted values.
+const documentedJSONPattern = "(?s)<!-- json-example: (\\w+) \\| ([^\\n]+) -->\\s*```json\\r?\\n(.*?)\\r?\\n```"
+const manualJSONPattern = `(?s)\.nf\r?\n(.*?)\r?\n\.fi`
+
+func TestDocumentedJSONLineEndings(t *testing.T) {
+	for _, newline := range []string{"\n", "\r\n"} {
+		readme := strings.Join([]string{"<!-- json-example: empty | status --json -->", "```json", "[]", "```"}, newline)
+		examples := regexp.MustCompile(documentedJSONPattern).FindAllStringSubmatch(readme, -1)
+		if len(examples) != 1 || examples[0][2] != "status --json" || examples[0][3] != "[]" {
+			t.Errorf("README examples with %q endings: %q", newline, examples)
+		}
+		manual := strings.Join([]string{".nf", "[]", ".fi"}, newline)
+		blocks := regexp.MustCompile(manualJSONPattern).FindAllStringSubmatch(manual, -1)
+		if len(blocks) != 1 || blocks[0][1] != "[]" {
+			t.Errorf("manual examples with %q endings: %q", newline, blocks)
+		}
+	}
+}
+
 func TestIntegration_DocumentedJSONExamples(t *testing.T) {
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile("(?s)<!-- json-example: (\\w+) \\| ([^\\n]+) -->\\s*```json\\n(.*?)\\n```")
+	pattern := regexp.MustCompile(documentedJSONPattern)
 	examples := pattern.FindAllStringSubmatch(string(readme), -1)
 	if len(examples) != 5 {
 		t.Fatalf("found %d executable JSON examples, want 5", len(examples))
@@ -80,7 +98,7 @@ func TestIntegration_DocumentedJSONExamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks := regexp.MustCompile(`(?s)\.nf\n(.*?)\n\.fi`).FindAllStringSubmatch(string(manual), -1)
+	blocks := regexp.MustCompile(manualJSONPattern).FindAllStringSubmatch(string(manual), -1)
 	var checked int
 	for _, block := range blocks {
 		text := strings.TrimSpace(block[1])
