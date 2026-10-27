@@ -1124,10 +1124,21 @@ for PowerShell. Install it with, respectively:
 Run health checks on the soko setup and print pass / warning / error
 results: git is installed, the config loads, every registered repository
 exists and is a git repository with an origin remote, no duplicate names
-or paths, shell integration is configured, and discovery status. Option:
+or paths, worktree parent names resolve uniquely, shell integration is
+configured, and discovery status. Missing or ambiguous
+.B worktree_of
+references produce warnings even for healthy checkouts, including in quiet
+and JSON output. They affect
+.B \-\-repo
+filters and worktree commands; verify base registrations and correct references
+or duplicate names manually with
+.BR "soko config edit" .
+Option:
 .B \-\-fix
 (remove repositories whose paths no longer exist or are no longer git
-repositories). Honors
+repositories, including their linked worktree registrations, without deleting
+checkout directories). Family-reference warnings are not automatically fixed;
+no parent is guessed and no metadata is merged. Honors
 .BR \-\-json .
 .\" ----------------------------------
 .TP

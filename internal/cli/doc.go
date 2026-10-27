@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -116,6 +117,13 @@ func runDocChecks(ctx context.Context, fixFlag bool) ([]checkResult, *config.Con
 	}
 	results = append(results, repoResults...)
 	results = append(results, checkDuplicates(cfg)...)
+	// Diagnose the surviving registry so --fix does not warn about references
+	// that its family-safe removal has already eliminated.
+	familyCfg := *cfg
+	if fixFlag && len(toRemove) > 0 {
+		removeRegistryTargets(&familyCfg, toRemove)
+	}
+	results = append(results, checkWorktreeFamilies(&familyCfg)...)
 	results = append(results, checkShellInit()...)
 	results = append(results, checkDiscover(cfg)...)
 
@@ -230,6 +238,31 @@ func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results 
 	}
 
 	return results, toRemove
+}
+
+// checkWorktreeFamilies validates exact parent identities without guessing a
+// replacement or modifying registrations, tags, aliases, or metadata.
+func checkWorktreeFamilies(cfg *config.Config) []checkResult {
+	var results []checkResult
+	for _, repo := range cfg.Repos {
+		if !repo.IsWorktreeEntry() {
+			continue
+		}
+		_, err := config.FindRepoByName(cfg, repo.WorktreeOf)
+		if err == nil {
+			continue
+		}
+		message := fmt.Sprintf("worktree_of %q: %s", repo.WorktreeOf, err)
+		if errors.Is(err, config.ErrRepoNotFound) {
+			message = fmt.Sprintf("worktree_of %q: parent repo is not registered; repair with soko config edit", repo.WorktreeOf)
+		}
+		results = append(results, checkResult{
+			Name:    repo.Name,
+			Status:  statusWarn,
+			Message: message + " — affects --repo filters and worktree commands; verify the base registration and parent reference (manual repair only)",
+		})
+	}
+	return results
 }
 
 // checkDuplicates checks for duplicate repo names and paths.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,110 @@ import (
 
 	"github.com/CelikE/soko/internal/config"
 )
+
+func TestIntegration_DocWorktreeFamilyReferences(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		for _, quiet := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/quiet=%t", format, quiet), func(t *testing.T) {
+				testEnv(t)
+				root := t.TempDir()
+				parent := filepath.Join(root, "parent")
+				other := filepath.Join(root, "other")
+				initRepo(t, parent)
+				initRepo(t, other)
+				wtGit(t, parent, "remote", "add", "origin", "https://example.invalid/api.git")
+				wtGit(t, other, "remote", "add", "origin", "https://example.invalid/other.git")
+				child := func(name, family string) config.RepoEntry {
+					t.Helper()
+					path := filepath.Join(root, name)
+					wtGit(t, parent, "worktree", "add", "-b", name, path)
+					return config.RepoEntry{Name: name, Path: path, WorktreeOf: family,
+						Tags: []string{"local"}, Meta: map[string]string{"note": "keep child"}}
+				}
+				cfg := &config.Config{
+					Aliases: map[string]string{"ls": "list"},
+					Repos: []config.RepoEntry{
+						{Name: "api-v2", Path: parent, Tags: []string{"backend"}, Meta: map[string]string{"note": "keep parent"}},
+						child("orphan", "api"), // A prefix match is not a parent identity.
+						child("valid", "api-v2"),
+						{Name: "legacy", Path: parent},
+						{Name: "legacy", Path: other},
+						child("ambiguous", "legacy"),
+					},
+				}
+				if err := config.Save(cfg); err != nil {
+					t.Fatal(err)
+				}
+				cfgPath, err := config.Path()
+				if err != nil {
+					t.Fatal(err)
+				}
+				before, err := os.ReadFile(cfgPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				args := []string{"doc"}
+				if format == "json" {
+					args = append(args, "--json")
+				}
+				if quiet {
+					args = append(args, "--quiet")
+				}
+				for _, fix := range []bool{false, true} {
+					call := append([]string(nil), args...)
+					if fix {
+						call = append(call, "--fix")
+					}
+					out := runSoko(t, call...)
+					if format == "json" {
+						var rows []struct {
+							Name, Status, Message string
+							Fixable, Fixed        bool
+						}
+						if err := json.Unmarshal([]byte(out), &rows); err != nil {
+							t.Fatalf("decoding doc JSON: %v\n%s", err, out)
+						}
+						var families []string
+						for _, row := range rows {
+							if row.Fixed || row.Fixable {
+								t.Errorf("healthy checkout or manual diagnostic advertised repair: %+v", row)
+							}
+							if strings.Contains(row.Message, "worktree_of") {
+								families = append(families, row.Name+":"+row.Status)
+							}
+						}
+						if got := strings.Join(families, ","); got != "orphan:warning,ambiguous:warning" {
+							t.Errorf("family diagnostics = %s\n%s", got, out)
+						}
+					} else if strings.Count(out, "worktree_of") != 2 {
+						t.Errorf("want only orphan and ambiguous family warnings: %s", out)
+					}
+					for _, want := range []string{"orphan", "ambiguous", "not registered", "--repo", "worktree commands", "soko config edit", parent, other, "duplicate"} {
+						// JSON escapes Windows path separators in candidate paths.
+						if format == "json" {
+							encoded, err := json.Marshal(want)
+							if err != nil {
+								t.Fatal(err)
+							}
+							want = string(encoded[1 : len(encoded)-1])
+						}
+						if !strings.Contains(out, want) {
+							t.Errorf("doc output missing %q: %s", want, out)
+						}
+					}
+					if after, err := os.ReadFile(cfgPath); err != nil || !bytes.Equal(before, after) {
+						t.Fatalf("doc fix=%t changed registry bytes: %v", fix, err)
+					}
+					for _, repo := range cfg.Repos {
+						if status := wtGit(t, repo.Path, "status", "--porcelain"); status != "" {
+							t.Errorf("checkout %s changed: %s", repo.Name, status)
+						}
+					}
+				}
+			})
+		}
+	}
+}
 
 func TestIntegration_DocFixDuplicateNames(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
@@ -206,6 +311,9 @@ func TestIntegration_DocFixMissingBaseWithLiveWorktree(t *testing.T) {
 			}
 			if len(loadRegistry(t).Repos) != 1 {
 				t.Fatal("restoring base directory changed repaired registry")
+			}
+			if out := runSoko(t, args...); strings.Contains(out, "worktree_of") {
+				t.Fatalf("repeated repair reported an already-removed family: %s", out)
 			}
 		})
 	}
