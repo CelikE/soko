@@ -715,6 +715,14 @@ soko config get git_path --json     # {"key":"git_path","value":"..."}
 `config path`, `config get`, `config set`, and `config list` all honour the
 global `--json` flag, so soko's configuration is fully scriptable.
 
+`soko doc` also warns when a registered worktree's `worktree_of` parent name
+is missing or ambiguous, even if its checkout is healthy. These warnings remain
+visible with `--quiet` and in `--json`, and identify affected `--repo` filters and
+worktree commands. Use `soko config edit` to verify the base registration and
+correct references or duplicate names manually; `--fix` never guesses a parent
+or merges metadata. Existing stale-path repair still unregisters a removed base's
+linked worktrees as a family, without deleting checkout directories.
+
 ### Git worktrees
 
 soko supports git worktrees natively. If you use worktrees as your primary branching workflow, use `--worktrees` to discover and register them:
