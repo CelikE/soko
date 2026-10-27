@@ -45,6 +45,7 @@ func TestEnsureDiscover(t *testing.T) {
 func TestShouldDiscover(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "proj")
+	filesystemRoot := filepath.VolumeName(base) + string(os.PathSeparator)
 
 	tests := []struct {
 		name string
@@ -79,6 +80,12 @@ func TestShouldDiscover(t *testing.T) {
 		{
 			name: "path equal to a configured root",
 			cfg:  &Config{Discover: &DiscoverConfig{Enabled: true, Roots: []string{repo}}},
+			path: repo,
+			want: true,
+		},
+		{
+			name: "path under filesystem root",
+			cfg:  &Config{Discover: &DiscoverConfig{Enabled: true, Roots: []string{filesystemRoot}}},
 			path: repo,
 			want: true,
 		},
@@ -136,6 +143,8 @@ func TestShouldDiscover(t *testing.T) {
 }
 
 func TestPathWithinRoot(t *testing.T) {
+	base := t.TempDir()
+	filesystemRoot := filepath.VolumeName(base) + string(os.PathSeparator)
 	tests := []struct {
 		name string
 		path string
@@ -144,12 +153,18 @@ func TestPathWithinRoot(t *testing.T) {
 	}{
 		{"equal", "/home/me/proj", "/home/me/proj", true},
 		{"nested", "/home/me/proj/src", "/home/me/proj", true},
+		{"filesystem root itself", "/", "/", true},
+		{"filesystem root descendant", "/tmp/repo", "/", true},
+		{"native volume root descendant", base, filesystemRoot, true},
 		{"sibling prefix is not within", "/home/me/proj", "/home/me/pr", false},
 		{"unrelated", "/var/tmp/x", "/home/me", false},
 		{"trailing slash on root", "/home/me/proj", "/home/me/", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if os.PathSeparator != '/' && (tt.name == "filesystem root itself" || tt.name == "filesystem root descendant") {
+				t.Skip("Unix filesystem root")
+			}
 			if got := PathWithinRoot(tt.path, tt.root); got != tt.want {
 				t.Errorf("PathWithinRoot(%q, %q) = %v, want %v", tt.path, tt.root, got, tt.want)
 			}

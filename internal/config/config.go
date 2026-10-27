@@ -161,10 +161,11 @@ func ShouldDiscover(cfg *Config, path string) bool {
 func PathWithinRoot(path, root string) bool {
 	path = filepath.Clean(path)
 	root = filepath.Clean(root)
-	if path == root {
-		return true
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false // e.g. different Windows volumes
 	}
-	return strings.HasPrefix(path, root+string(os.PathSeparator))
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 // RepoCount returns the number of registered repos.
