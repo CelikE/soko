@@ -129,9 +129,9 @@ man -l docs/soko.1       # preview without installing
 
 | Flag | Scope | Description |
 |------|-------|-------------|
-| `--json` | Global | Output in JSON format |
+| `--json` | Global | Output JSON on supported commands; see [JSON output](#json-output) for capabilities and exceptions |
 | `--quiet`, `-q` | Global | Suppress hints, progress, and summary lines (also via `SOKO_QUIET`) |
-| `--perf` | Global | Report per-repo and aggregate timing after a parallel command (also via `SOKO_PERF`) |
+| `--perf` | Global | Report timing for `status`, `fetch`, `pull`, `sync`, and `exec`; wraps JSON in `repos`/`timing` (also via `SOKO_PERF`) |
 | `--fetch` | `status` | Fetch from remotes before showing status |
 | `--dirty` | `status` | Show only repos with uncommitted changes |
 | `--clean` | `status` | Show only clean repos in sync with remote |
@@ -188,6 +188,181 @@ man -l docs/soko.1       # preview without installing
 | `--fix` | `doc` | Auto-fix issues (remove stale paths) |
 | `--fish` | `shell-init` | Output fish shell syntax |
 | `--pwsh` | `shell-init` | Output PowerShell syntax |
+
+## JSON output
+
+`--json` is inherited globally, but serialization is **command-specific**.
+The table describes current behavior, not a promise that every inherited flag
+changes a command's output. JSON changes rendering, **not side effects**: for
+example, `open --json` still opens browser tabs, and `scan --json` still registers
+repos unless `--dry-run` is given.
+
+For supported result paths, stdout contains one uncolored JSON document.
+`--quiet` suppresses hints, progress, and summaries, **never that document**;
+errors and exit status remain unchanged. Fatal validation/configuration/setup
+errors may return before any document is written. Capture stdout and stderr
+separately and check the exit status before using results. Process exit codes
+are 0 (success) and 1 (failure), not the child process's `exec` exit code.
+
+### Command capabilities
+
+All names below follow `soko`. An **array** is a bare top-level array, normally
+`[]` when empty. **Fatal** means a command error on stderr and exit 1, not a
+universal JSON error object. Row errors do not all imply exit 1; inspect the
+listed fields even when the command succeeds. Quiet preserves the JSON shapes
+in every JSON-capable row below. Only **Yes** in the Perf column means timing;
+other commands accept `--perf` but do not add timing.
+
+| Command / mode | JSON support and normal shape | Empty / no-op shape | Error records and partial-error exit policy | Perf |
+|---|---|---|---|---|
+| `list` | Yes: repo array (`name`, `path`, optional tags/family/metadata) | `[]` | Fatal registry/selector errors | No |
+| `status` | Yes: status array | `[]` | Row `error`; repo read failures do not fail the command | Yes |
+| `remotes` | Yes: remote/upstream array | `[]` | Row `error`; inspection/tracking problems do not fail the command | No |
+| `diff` | Yes: changed-repo array with `files` | `[]`; clean repos omitted | Row `error` + `error_code`; any failed inspection exits 1 | No |
+| `fetch`, `pull`, `sync` | Yes: action-result array | `[]` | Row `error` + `error_code`; actual failures exit 1; skips/attention states are not automatically failures | Yes |
+| `exec -- <command>` | Yes: array with `exit_code`, `stdout`, `stderr` | `[]` | Child nonzero exits fail the command; missing-path/spawn errors also have `error` + `error_code` | Yes |
+| `grep` | Yes: repo array with `matches` | `[]`; no-match repos omitted | Row `error` + `error_code`, empty `matches`; any failed search exits 1 | No |
+| `report` | Yes: active-repo and failure array | `[]`; inactive repos omitted | Row `error` + `error_code`; any failed read exits 1, even with successful activity | No |
+| `stats` | Yes: aggregate **object**, not an array | Zero-valued object; `activity_days` stays 30 | `missing` / `errors` counts; collection problems do not fail the command | No |
+| `health` | Yes: ranked array (`score`, `severity`, `reasons`) | `[]` | Missing/read-error repos have critical reasons; collection problems do not fail the command | No |
+| `branch [name]` | Yes: branch array | `[]` | Row `error` + `error_code`; inspection errors do not fail overview | No |
+| `branch switch`, `branch stale` | Yes: outcome / stale-branch array | `[]`; stale omits repos without findings | Row `error` + `error_code`; failed switches/inspections exit 1 | No |
+| `stash`, `stash pop` | Yes: action array | `[]`; repos with nothing to do omitted | Failures have `status: "failed"`, `error`, `error_code`; any failure exits 1 | No |
+| `clean --dry-run` / `clean --force` | Yes: planned branches / execution-result array | `[]` | Row `error` + `error_code`; inspection, prune, or deletion failures exit 1; execution adds `deleted` / `failed` outcomes | No |
+| `prune --dry-run` / `prune --force` | Yes: affected-registration array | `[]` | Fatal registry/save errors | No |
+| `init` | Yes: repo object with `already_registered` | Existing registration returns object with `already_registered: true` | Fatal registration/save errors | No |
+| `scan <directory>` | Yes: discovered-registration array | `[]` | Row `error` does not fail the scan; root/walk/save failures are fatal | No |
+| `remove <name>` / `remove --path` / `remove --all` | Yes: removed-registration array after removal | Empty `--all` emits a text hint, or nothing with quiet; no JSON document | Fatal lookup/save errors; use `--all --force` to avoid prompting | No |
+| `apply <file> --to <path>` | Yes: plan array; `--write --force` gives write results | `[]` for empty registry/tag selection; unmatched positional repos emit hint/no document | Row `error`; plan errors exit 0, failed writes exit 1 | No |
+| `open` | Yes: opened-repo array with `url` or `error` | Unmatched tag emits hint/no document | Row `error` (no `error_code`); any failed open exits 1; unresolved/ambiguous targets are fatal | No |
+| `pr` | Yes: pull-request array | `[]` | Fatal Git/`gh`/auth errors; reaching `--limit` is only a stderr hint, suppressed by quiet | No |
+| `cd <name>`, `go [filter]` | Yes: selected `{ "name": "...", "path": "..." }` object; JSON does not request shell navigation | No selection is an error, not `[]` | Fatal selection/path errors; `go` still uses picker with a TTY, requires exactly one match without a TTY | No |
+| `worktree add`, `worktree rm` | Yes: created / removed worktree object | No empty-result success contract | Fatal Git/registry/save errors | No |
+| `worktree list`, `worktree adopt` | Yes: inventory / registration array | `[]` | Row `error`; failed family inventory/adoption exits 1; list's other row states do not necessarily fail | No |
+| `ctx list`, `snapshot list` | Yes: saved-item summary array | `[]` | Snapshot list includes unreadable files as row `error` without failing; directory/config errors are fatal | No |
+| `ctx show`, `snapshot show` | Yes: named saved-item object with `repos` | Unknown name is fatal | Fatal lookup/read errors | No |
+| `ctx save`, `ctx switch`, `snapshot save`, `snapshot restore` | Yes: per-repo outcome array when processed | Empty save selection emits hint/no document | Row `error` + `error_code`; partial failures exit 1; save with no successful capture is fatal before JSON | No |
+| `annotate [repo]` (read), `annotate --list` | Yes: metadata object / annotated-repo array | `meta: {}` / `[]` | Fatal target/config errors | No |
+| `tag list`, `alias list` | Yes: tag-count / alias array | `[]` | Fatal config errors | No |
+| `discover`, `discover status` | Yes: settings object | `{ "enabled": false }` when unconfigured | Fatal config errors | No |
+| `config path`, `config get`, `config set`, `config list` | Yes: path / key-value / before-after / effective-settings object | Default settings object, not `[]` | Fatal key/config/save errors | No |
+| `doc` | Yes: check array (`name`, `status`, `message`, `fixable`, `fixed`) | Checks still run without registered repos | Check statuses can report errors with exit 0; failed repair persistence is fatal | No |
+| `undo --list` | Yes: journal array; keys use Go field names (`Op`, `Time`, `Branches`, etc.) | `null` when journal absent | Fatal journal read errors | No |
+| `ui`, `config edit` | No JSON result; dashboard / external editor | Not applicable | Interactive behavior/errors unchanged | No |
+| `tag` shorthand / `tag add` / `tag remove`, `alias set` / `alias remove`, annotation mutations, `discover on` / `discover off`, `ctx drop` / `snapshot drop`, `undo` execution | No JSON result; text confirmations/diagnostics | Quiet may leave no stdout | Normal mutation errors still exit 1 | No |
+| `shell-init`, `completion bash/fish/powershell/zsh` | No JSON result; generated shell script | Not applicable | Generator errors exit 1; `--json` does not serialize scripts | No |
+| `version`, help and command-group usage | No JSON result; text | Not applicable | Normal usage/error behavior unchanged | No |
+
+These no-document exceptions are existing capability boundaries, not alternate
+JSON schemas. Do not substitute `null` or `{}` when a command writes no document.
+For reliable empty bulk results, use `list`, `status`, `remotes`, `diff`, `report`,
+`health`, `branch`, `branch stale`, `stash`, `stash pop`, `clean --force`, `fetch`,
+`pull`, or `sync`: empty registries, unmatched supported selectors, and
+post-collection filters produce `[]`. `stats` intentionally returns an object.
+
+### Interactive restrictions
+
+- `clean --json` and `prune --json` require `--force` or `--dry-run` for normal runs.
+- `--select` cannot be combined with `--json` on `clean`, `prune`, or `remove --all`.
+- `apply --json --write` requires `--force`; `remove --all --json` can still prompt unless forced.
+- `go --json` does not disable its TTY picker; without a TTY exactly one matching repo is required.
+- `ui` needs terminal input/output; use `status --json` for automation. `config edit` runs `$EDITOR`, not a serializer.
+
+Quiet never supplies confirmation or makes an interactive command noninteractive.
+`clean --dry-run --prune` still prunes remotes; omit `--prune` for a read-only preview.
+
+### Array, stats, and perf examples
+
+With one registered repo at `/repos/api`, `soko list --json` returns a bare array:
+
+<!-- json-example: registered | list --json -->
+```json
+[
+  {"name": "api", "path": "/repos/api"}
+]
+```
+
+With an empty registry, `soko status --json` returns:
+
+<!-- json-example: empty | status --json -->
+```json
+[]
+```
+
+For that same empty registry, `soko stats --json` returns this object (optional
+`missing`, `errors`, `most_active`, and `least_active` are absent):
+
+<!-- json-example: empty | stats --json -->
+```json
+{
+  "repos": 0,
+  "tags": 0,
+  "total_commits": 0,
+  "total_branches": 0,
+  "total_size_bytes": 0,
+  "clean": 0,
+  "dirty": 0,
+  "behind_remote": 0,
+  "stale_branches": 0,
+  "stale_repos": 0,
+  "no_remote": 0,
+  "activity_days": 30,
+  "recent_commits": 0,
+  "active_repos": 0,
+  "active_authors": 0
+}
+```
+
+`--perf --json` intentionally changes `status`, `fetch`, `pull`, `sync`, and
+nonempty `exec` output to an object with **`repos` and `timing`**. The original
+rows move under `repos`; measured rows may add `duration_ms` (omitted when it
+rounds to zero). `timing.wall_ms` is elapsed collection time, `git_ms` sums
+per-repo durations (including failures, or child execution for `exec`), `repos`
+counts timed rows, `concurrency` reports the configured limit (currently 8,
+also for `exec --seq`), and `slowest` lists up to 25 rows, slowest first.
+Status filters also filter timed rows. Quiet does not remove timing.
+
+An empty selection starts no work: `soko status --json --perf` returns:
+
+<!-- json-example: empty | status --json --perf -->
+```json
+{
+  "repos": [],
+  "timing": {
+    "wall_ms": 0,
+    "git_ms": 0,
+    "repos": 0,
+    "concurrency": 8,
+    "slowest": []
+  }
+}
+```
+
+The same empty envelope applies to `fetch`, `pull`, and `sync`. Empty `exec`
+currently returns bare `[]` even with perf; it starts no child command.
+Without JSON, perf appends a human-readable timing block on stdout when rows
+were timed. `SOKO_PERF=1` enables perf too; use **`--perf=false`** to pin a bare
+array schema even in an inherited environment:
+
+```bash
+soko status --json --perf=false | jq '.[].name'
+soko status --json --perf | jq '.repos[].name'
+```
+
+When a registered `/repos/missing` checkout is absent, `soko fetch --json`
+exits 1 but retains its failure document on stdout (summary on stderr):
+
+<!-- json-example: missing | fetch --json -->
+```json
+[
+  {"name": "missing", "path": "/repos/missing", "status": "failed", "error": "path not found", "error_code": "path_missing"}
+]
+```
+
+`error_code` is command-specific, not universal. In particular, `exec` child
+failures use `exit_code`/`stderr`, stash failures use `status`/`error`, and diagnostic
+commands may report findings without a failed process exit. Preserve successful
+rows in a partial result, but do not mistake them for a complete successful run.
 
 ## Usage examples
 
