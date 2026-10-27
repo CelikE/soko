@@ -77,6 +77,76 @@ func TestIntegration_CtxSaveSwitch(t *testing.T) {
 	}
 }
 
+// Successful switches restore tracked contents, not the saved index. Failed
+// saves use a different, index-preserving rollback path (tested below).
+func TestIntegration_CtxSwitchRestoresContentsWithoutStaging(t *testing.T) {
+	for _, tc := range []struct {
+		name, staged, working, untracked string
+	}{
+		{name: "staged-only", staged: "staged work\n", working: "staged work\n"},
+		{name: "unstaged-only", working: "unstaged work\n"},
+		{name: "mixed-same-file", staged: "staged work\n", working: "unstaged work\n"},
+		{name: "untracked-only", untracked: "new work\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testEnv(t)
+			repo := filepath.Join(t.TempDir(), "ctx-index")
+			initRepo(t, repo)
+			runSokoInit(t, repo)
+			ctxGit(t, repo, "checkout", "-b", "feature")
+			tracked := filepath.Join(repo, "README.md")
+			if tc.staged != "" {
+				ctxWrite(t, tracked, tc.staged)
+				ctxGit(t, repo, "add", "README.md")
+			}
+			if tc.working != "" {
+				ctxWrite(t, tracked, tc.working)
+			}
+			if tc.untracked != "" {
+				ctxWrite(t, filepath.Join(repo, "new.txt"), tc.untracked)
+			}
+
+			runSoko(t, "ctx", "save", "index-policy")
+			entry, ok := config.GetContext(loadRegistry(t), "index-policy")
+			if !ok || len(entry.Repos) != 1 || !entry.Repos[0].Stashed || entry.Repos[0].StashOID == "" {
+				t.Fatalf("saved context = %+v, exists = %v", entry, ok)
+			}
+			oid := entry.Repos[0].StashOID
+			if got := ctxGit(t, repo, "status", "--porcelain"); got != "" {
+				t.Fatalf("save left dirty checkout: %s", got)
+			}
+			ctxGit(t, repo, "checkout", "master")
+			runSoko(t, "ctx", "switch", "index-policy")
+			if got := ctxGit(t, repo, "symbolic-ref", "--short", "HEAD"); got != "feature" {
+				t.Errorf("branch = %s, want feature", got)
+			}
+			wantTracked := "# test\n"
+			if tc.working != "" {
+				wantTracked = tc.working
+			}
+			ctxContents(t, tracked, wantTracked)
+			if got := ctxGit(t, repo, "show", ":README.md"); got != "# test" {
+				t.Errorf("index content = %q, want original commit", got)
+			}
+			if got := ctxGit(t, repo, "diff", "--cached", "--name-only"); got != "" {
+				t.Errorf("restored staged paths = %q, want none", got)
+			}
+			if tc.untracked != "" {
+				ctxContents(t, filepath.Join(repo, "new.txt"), tc.untracked)
+				if got := ctxGit(t, repo, "ls-files", "--others", "--exclude-standard"); got != "new.txt" {
+					t.Errorf("restored untracked paths = %q, want new.txt", got)
+				}
+			}
+			if got := ctxGit(t, repo, "stash", "list", "--format=%H"); got != oid {
+				t.Errorf("backup = %q, want %s", got, oid)
+			}
+			if got := ctxGit(t, repo, "for-each-ref", "--format=%(objectname)", "refs/soko/ctx-restored/"+oid); got != oid {
+				t.Errorf("completion = %q, want %s", got, oid)
+			}
+		})
+	}
+}
+
 func TestIntegration_CtxDetachedRoundTrip(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		name := "clean"

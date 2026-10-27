@@ -290,6 +290,14 @@ share a stash list; a context-name message alone cannot identify their saved wor
 Backups are retained instead of deleting a numeric position that another Git
 process could change between lookup and cleanup.
 
+Context switches restore file contents, not index staging. On a successful
+switch, staged-only and mixed staged/unstaged tracked edits return **unstaged**;
+untracked files return as untracked. Run `git add` again where needed. This
+contents-only policy avoids the extra conflicts and refusals of Git's
+`stash apply --index`. If `save` fails before recording the context, its rollback
+instead attempts to restore both index and working tree and retains the stash
+for manual recovery if that fails.
+
 Shared `refs/soko/ctx-backups/<stash-oid>` refs pin pending work even if its
 stash-list entry is removed and GC runs from another linked checkout.
 Successful applications create Git refs under `refs/soko/ctx-restored/<stash-oid>`

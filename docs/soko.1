@@ -668,6 +668,8 @@ Record the branch per repository and stash dirty repositories (including
 untracked files), persisting each member's exact stash commit and creating a
 per-worktree ownership ref under
 .IR refs/worktree/soko/ctx/<stash-oid> .
+On a failed save, rollback attempts to restore both the index and working tree;
+the stash remains available for manual recovery if rollback fails.
 Ownership distinguishes replacement worktrees even when Git reuses their
 administrative paths. Shared refs under
 .I refs/soko/ctx-backups/<stash-oid>
@@ -678,6 +680,13 @@ pin pending objects against GC from other linked checkouts. Options:
 .TP
 .B switch <name>
 Restore the saved branches and apply each member's recorded stash commit.
+Restoration is contents-only: tracked edits that were staged at save time
+return unstaged, including mixed staged and unstaged edits to the same file.
+Untracked files return as untracked. Run
+.B git add
+again to stage changes. The index is not restored; avoiding
+index-preserving stash application also avoids its extra conflicts and
+refusals.
 Stash-list entries remain as recoverable backups: numeric stash positions can
 change during concurrent Git operations and are never used for deletion.
 Successful applications are recorded as Git refs under

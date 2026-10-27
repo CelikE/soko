@@ -9,6 +9,7 @@
 
 ### Maintenance
 
+- Document contents-only workspace context switches: saved tracked edits return unstaged, untracked files remain untracked, and failed-save rollback still attempts index recovery; cover staged, mixed, unstaged, and untracked round trips (issue #350).
 - Keep pull request CI to lint/config validation, Linux race coverage, and a native Windows build/PowerShell smoke check; move full macOS and Windows suites to nightly/manual runs so routine merges do not wait for sequential platform integration tests.
 - Add end-to-end regression coverage for `scan --json` persistence, quiet output, dry-run registry preservation, and repeat scans with existing registrations (issue #189).
 - Add end-to-end regression coverage for stale branches checked out in the current checkout or a linked worktree (issue #234).
