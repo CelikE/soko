@@ -24,10 +24,11 @@ __soko_nav_hook() {
   local nav_file="${XDG_CONFIG_HOME:-$HOME/.config}/soko/.nav.$SOKO_NAV_SESSION"
   if [[ -f "$nav_file" ]]; then
     local target
-    target=$(cat "$nav_file")
-    rm -f "$nav_file"
-    if [[ -d "$target" ]]; then
-      builtin cd "$target" || return
+    # The sentinel keeps trailing newlines through command substitution.
+    target=$(cat "$nav_file" && printf '.') || return
+    target=${target%.}
+    if [[ -d "$target" ]] && builtin cd "$target"; then
+      rm -f "$nav_file"
     fi
   fi
 }
@@ -57,10 +58,10 @@ function __soko_nav_hook --on-event fish_postexec
   set -l nav_file $base/soko/.nav.$SOKO_NAV_SESSION
 
   if test -f $nav_file
-    set -l target (string trim -- (cat $nav_file))
-    rm -f $nav_file
-    if test -d $target
-      cd $target
+    # Collect as one argument, retaining spaces and trailing newlines.
+    set -l target (string collect --no-trim-newlines < $nav_file)
+    if test -d "$target"; and cd "$target"
+      rm -f $nav_file
     end
   end
 end

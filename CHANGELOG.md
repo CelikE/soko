@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- Preserve trailing spaces and newlines in registered checkout paths when bash, zsh, or fish shell hooks handle `soko cd` and `soko go`; retain invalid navigation requests for retry (issue #347).
 - Discover eligible repositories beneath a configured filesystem root (`soko discover on --root /`) while preserving path-boundary and ignore-policy checks (issue #346).
 - Report failed `soko clean --prune` operations with per-repository errors and a non-zero exit, without losing independent branch deletions or successful sibling prunes (issue #345).
 - Reject default activity reports when Git cannot resolve `user.name` from the invocation directory, instead of silently including every author; use `--author` or `--all-authors` to select scope explicitly (issue #344).
