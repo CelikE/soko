@@ -19,15 +19,16 @@ import (
 )
 
 type cleanResult struct {
-	Name        string               `json:"name"`
-	Path        string               `json:"path"`
-	Branches    []string             `json:"branches"`
-	Deleted     []string             `json:"deleted,omitempty"`
-	Failed      []cleanBranchFailure `json:"failed,omitempty"`
-	Pruned      bool                 `json:"pruned,omitempty"`
-	Error       string               `json:"error,omitempty"`
-	ErrorCode   string               `json:"error_code,omitempty"`
-	pruneFailed bool
+	Name             string               `json:"name"`
+	Path             string               `json:"path"`
+	Branches         []string             `json:"branches"`
+	Deleted          []string             `json:"deleted,omitempty"`
+	Failed           []cleanBranchFailure `json:"failed,omitempty"`
+	Pruned           bool                 `json:"pruned,omitempty"`
+	Error            string               `json:"error,omitempty"`
+	ErrorCode        string               `json:"error_code,omitempty"`
+	pruneFailed      bool
+	inspectionFailed bool
 }
 
 type cleanBranchFailure struct {
@@ -43,11 +44,12 @@ func newCleanCmd() *cobra.Command {
 		Long: `Find and delete branches that have been merged into the default branch
 (main/master). Skips the default branch and branches checked out in any worktree.
 
-Use --dry-run to preview what would be deleted. Branch deletion failures cause
-a non-zero exit status, including with --json. Failed remote pruning also causes
-a non-zero exit status, but does not prevent branch deletion. JSON keeps the
-planned branches and adds deleted, failed, and pruned outcomes; failures include
-error and error_code.`,
+Use --dry-run to preview what would be deleted. A missing or unreadable repo
+causes a non-zero exit status even in dry-run; other repos are still processed.
+Branch deletion and remote pruning failures also cause a non-zero exit status.
+Failed pruning does not prevent branch deletion. JSON keeps the planned
+branches and adds deleted, failed, and pruned outcomes; repository and branch
+failures include error and error_code. Only successful deletions are journaled.`,
 		Example: `  soko clean --dry-run               # preview stale branches
   soko clean                         # delete with confirmation
   soko clean --force                 # delete without confirmation
@@ -95,12 +97,7 @@ error and error_code.`,
 					pruneFailures++
 				}
 			}
-			pruneError := func() error {
-				if pruneFailures > 0 {
-					return fmt.Errorf("failed to prune remote refs in %d %s", pruneFailures, output.Plural(pruneFailures, "repo"))
-				}
-				return nil
-			}
+			pruneError := func() error { return cleanCompletionError(0, 0, 0, pruneFailures) }
 
 			// Filter to repos that have stale branches.
 			var withBranches []cleanResult
@@ -135,12 +132,16 @@ error and error_code.`,
 				}
 				withBranches = filterCleanResults(withBranches, chosen)
 			}
+			inspectionFailures := countCleanInspectionFailures(withBranches)
+			completionError := func(deleted, failed int) error {
+				return cleanCompletionError(deleted, failed, inspectionFailures, pruneFailures)
+			}
 
 			if jsonFlag && dryRun {
 				if err := output.RenderJSON(w, withBranches); err != nil {
 					return err
 				}
-				return pruneError()
+				return completionError(0, 0)
 			}
 
 			if !jsonFlag {
@@ -148,19 +149,27 @@ error and error_code.`,
 			}
 
 			if dryRun {
-				return pruneError()
+				return completionError(0, 0)
+			}
+			branchesToDelete := 0
+			for i := range withBranches {
+				branchesToDelete += len(withBranches[i].Branches)
+			}
+			if branchesToDelete == 0 {
+				if jsonFlag {
+					if err := output.RenderJSON(w, withBranches); err != nil {
+						return err
+					}
+				}
+				return completionError(0, 0)
 			}
 
 			// Confirm unless --force or --json (machine consumers pass --force explicitly).
 			if !force {
-				totalBranches := 0
-				for i := range withBranches {
-					totalBranches += len(withBranches[i].Branches)
-				}
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"\n  delete %d %s across %d %s? [y/N] ",
-					totalBranches, output.Plural(totalBranches, "branch"),
-					len(withBranches), output.Plural(len(withBranches), "repo"))
+					branchesToDelete, output.Plural(branchesToDelete, "branch"),
+					len(withBranches)-inspectionFailures, output.Plural(len(withBranches)-inspectionFailures, "repo"))
 
 				scanner := bufio.NewScanner(cmd.InOrStdin())
 				if !scanner.Scan() {
@@ -178,12 +187,16 @@ error and error_code.`,
 			// Record the deletion so soko undo can recreate the branches. Journal
 			// failure must never fail the clean itself — warn and move on.
 			if len(refs) > 0 {
+				deletedRepos := make(map[string]bool)
+				for _, ref := range refs {
+					deletedRepos[ref.Path] = true
+				}
 				entry := journal.Entry{
 					Op:   journal.OpClean,
 					Time: time.Now(),
 					Summary: fmt.Sprintf("deleted %d %s across %d %s",
 						deleted, output.Plural(deleted, "branch"),
-						len(withBranches), output.Plural(len(withBranches), "repo")),
+						len(deletedRepos), output.Plural(len(deletedRepos), "repo")),
 					Branches: refs,
 				}
 				if err := journal.Append(&entry); err != nil {
@@ -200,16 +213,8 @@ error and error_code.`,
 			// A partial failure is a real failure: return an error so it stays
 			// visible (the error path is never gated by --quiet) and the exit
 			// code is non-zero, matching pull/fetch/stash.
-			if failed > 0 && pruneFailures > 0 {
-				return fmt.Errorf("deleted %d %s, %d failed to delete; %w",
-					deleted, output.Plural(deleted, "branch"), failed, pruneError())
-			}
-			if failed > 0 {
-				return fmt.Errorf("deleted %d %s, %d failed to delete",
-					deleted, output.Plural(deleted, "branch"), failed)
-			}
-			if pruneFailures > 0 {
-				return pruneError()
+			if err := completionError(deleted, failed); err != nil {
+				return err
 			}
 			if jsonFlag {
 				return nil
@@ -218,7 +223,7 @@ error and error_code.`,
 			_, _ = fmt.Fprintln(w)
 			output.Confirm(w, fmt.Sprintf("deleted %d stale %s across %d %s",
 				deleted, output.Plural(deleted, "branch"),
-				len(withBranches), output.Plural(len(withBranches), "repo")))
+				len(withBranches)-inspectionFailures, output.Plural(len(withBranches)-inspectionFailures, "repo")))
 
 			return nil
 		},
@@ -232,6 +237,28 @@ error and error_code.`,
 	addSelectFlag(cmd)
 
 	return cmd
+}
+
+// cleanCompletionError keeps inspection failures separate from branch deletion
+// failures: undiscovered branches are never counted as failed deletions.
+func cleanCompletionError(deleted, failed, inspectionFailures, pruneFailures int) error {
+	var parts []string
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("deleted %d %s, %d failed to delete",
+			deleted, output.Plural(deleted, "branch"), failed))
+	}
+	if inspectionFailures > 0 {
+		parts = append(parts, fmt.Sprintf("could not inspect %d %s",
+			inspectionFailures, output.Plural(inspectionFailures, "repo")))
+	}
+	if pruneFailures > 0 {
+		parts = append(parts, fmt.Sprintf("failed to prune remote refs in %d %s",
+			pruneFailures, output.Plural(pruneFailures, "repo")))
+	}
+	if len(parts) > 0 {
+		return fmt.Errorf("%s", strings.Join(parts, "; "))
+	}
+	return nil
 }
 
 // filterCleanResults keeps only the results whose repo is in the chosen set,
@@ -286,6 +313,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			if !pathExists(repo.Path) {
 				r.Error = "path not found"
 				r.ErrorCode = codePathMissing
+				r.inspectionFailed = true
 				results[i] = r
 				return nil
 			}
@@ -303,6 +331,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			defBranch := defaultBranch(ctx, repo.Path)
 			if defBranch == "" {
 				r.addError("could not detect default branch", codeGitFailure)
+				r.inspectionFailed = true
 				results[i] = r
 				return nil
 			}
@@ -314,6 +343,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 				"--format=%(refname)%00%(worktreepath)", "refs/heads/")
 			if err != nil {
 				r.addError("failed to list merged branches", gitErrorCode(err))
+				r.inspectionFailed = true
 				results[i] = r
 				return nil
 			}
@@ -397,10 +427,26 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 	if output.Quiet() {
 		return
 	}
-	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(fmt.Sprintf(
+	inspectionFailures := countCleanInspectionFailures(results)
+	summary := fmt.Sprintf(
 		"%d stale %s across %d %s",
 		totalBranches, output.Plural(totalBranches, "branch"),
-		len(results), output.Plural(len(results), "repo"))))
+		len(results)-inspectionFailures, output.Plural(len(results)-inspectionFailures, "repo"))
+	if inspectionFailures > 0 {
+		summary += fmt.Sprintf(" (%d %s could not be inspected)",
+			inspectionFailures, output.Plural(inspectionFailures, "repo"))
+	}
+	_, _ = fmt.Fprintf(w, "\n  %s\n", output.Dim(summary))
+}
+
+func countCleanInspectionFailures(results []cleanResult) int {
+	count := 0
+	for i := range results {
+		if results[i].inspectionFailed {
+			count++
+		}
+	}
+	return count
 }
 
 // deleteBranches deletes stale branches in parallel across repositories, but
@@ -416,7 +462,7 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 
 	for i := range results {
 		r := &results[i]
-		if r.Error != "" && !r.pruneFailed {
+		if r.inspectionFailed {
 			continue
 		}
 		g.Go(func() error {

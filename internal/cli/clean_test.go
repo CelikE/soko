@@ -116,6 +116,151 @@ func TestIntegration_CleanForce(t *testing.T) {
 	}
 }
 
+func TestIntegration_CleanInspectionFailures(t *testing.T) {
+	for _, scope := range []string{"all failed", "mixed"} {
+		for _, phase := range []string{"--dry-run", "--force"} {
+			for _, mode := range []string{"text", "quiet", "json", "quiet json"} {
+				t.Run(scope+"/"+phase+"/"+mode, func(t *testing.T) {
+					testEnv(t)
+					base := t.TempDir()
+					missing := filepath.Join(base, "missing")
+					notGit := filepath.Join(base, "not-git")
+					initRepo(t, missing)
+					initRepo(t, notGit)
+					runSokoInit(t, missing)
+					runSokoInit(t, notGit)
+					if err := os.RemoveAll(missing); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.RemoveAll(filepath.Join(notGit, ".git")); err != nil {
+						t.Fatal(err)
+					}
+					var healthy, sha string
+					if scope == "mixed" {
+						healthy = filepath.Join(base, "healthy")
+						initRepoWithBranches(t, healthy, []string{"merged"})
+						runSokoInit(t, healthy)
+						sha = gitIn(t, healthy, "rev-parse", "refs/heads/merged")
+					}
+
+					args := []string{"clean", phase}
+					for _, flag := range strings.Fields(mode) {
+						if flag != "text" {
+							args = append(args, "--"+flag)
+						}
+					}
+					out, err := runSokoErr(t, args...)
+					if err == nil || err.Error() != "could not inspect 2 repos" {
+						t.Errorf("clean error = %v, want 2 inspection failures", err)
+					}
+					if strings.Contains(mode, "json") {
+						var rows []struct {
+							Name      string   `json:"name"`
+							Branches  []string `json:"branches"`
+							Deleted   []string `json:"deleted"`
+							Failed    []string `json:"failed"`
+							Error     string   `json:"error"`
+							ErrorCode string   `json:"error_code"`
+						}
+						if err := json.Unmarshal([]byte(out), &rows); err != nil {
+							t.Fatalf("invalid JSON: %v\n%s", err, out)
+						}
+						wantRows := 2
+						if scope == "mixed" {
+							wantRows++
+						}
+						if len(rows) != wantRows {
+							t.Fatalf("clean rows = %s, want %d", out, wantRows)
+						}
+						for _, row := range rows {
+							if len(row.Failed) != 0 {
+								t.Errorf("inspection failure counted as branch deletion: %+v", row)
+							}
+							switch row.Name {
+							case "missing":
+								if row.Error != "path not found" || row.ErrorCode != "path_missing" || len(row.Deleted) != 0 {
+									t.Errorf("missing path: %+v", row)
+								}
+							case "not-git":
+								if row.Error != "could not detect default branch" || row.ErrorCode != "git_failure" || len(row.Deleted) != 0 {
+									t.Errorf("non-git directory: %+v", row)
+								}
+							case "healthy":
+								if row.Error != "" || row.ErrorCode != "" || !slices.Equal(row.Branches, []string{"merged"}) {
+									t.Errorf("healthy repo lost: %+v", row)
+								}
+								if phase == "--force" && !slices.Equal(row.Deleted, []string{"merged"}) || phase == "--dry-run" && len(row.Deleted) != 0 {
+									t.Errorf("unexpected deletion outcome: %+v", row)
+								}
+							default:
+								t.Errorf("unexpected row: %+v", row)
+							}
+						}
+					} else {
+						if !strings.Contains(out, "missing") || !strings.Contains(out, "path not found") || !strings.Contains(out, "not-git") || !strings.Contains(out, "could not detect default branch") || strings.Contains(out, "✓ deleted") {
+							t.Errorf("text failure rows or misleading success footer: %q", out)
+						}
+						if mode == "quiet" && strings.Contains(out, "stale branches across") {
+							t.Errorf("quiet mode retained summary: %q", out)
+						}
+						if mode == "text" && strings.Contains(out, "across 2 repos") {
+							t.Errorf("failed repos counted as inspected: %q", out)
+						}
+					}
+					if scope == "mixed" {
+						if got, want := branchExists(t, healthy, "merged"), phase == "--dry-run"; got != want {
+							t.Errorf("healthy merged branch exists = %v, want %v", got, want)
+						}
+					}
+					j, err := journal.Load()
+					if err != nil {
+						t.Fatal(err)
+					}
+					entry, ok := j.Last()
+					if scope == "mixed" && phase == "--force" {
+						if !ok || entry.Op != journal.OpClean || len(entry.Branches) != 1 || entry.Branches[0].Repo != "healthy" || entry.Branches[0].Path != resolve(t, healthy) || entry.Branches[0].Branch != "merged" || entry.Branches[0].SHA != sha || entry.Summary != "deleted 1 branch across 1 repo" {
+							t.Errorf("incomplete successful deletion journal: %+v", entry)
+						}
+					} else if ok {
+						t.Errorf("inspection failure / dry-run created journal: %+v", entry)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestIntegration_CleanPruneAndInspectionFailure(t *testing.T) {
+	for _, phase := range []string{"--dry-run", "--force"} {
+		t.Run(phase, func(t *testing.T) {
+			testEnv(t)
+			dir := filepath.Join(t.TempDir(), "not-git")
+			initRepo(t, dir)
+			runSokoInit(t, dir)
+			if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+				t.Fatal(err)
+			}
+			out, err := runSokoErr(t, "clean", "--prune", phase, "--json")
+			if err == nil || err.Error() != "could not inspect 1 repo; failed to prune remote refs in 1 repo" {
+				t.Errorf("combined failure = %v", err)
+			}
+			var rows []struct {
+				Branches  []string `json:"branches"`
+				Deleted   []string `json:"deleted"`
+				Pruned    bool     `json:"pruned"`
+				Error     string   `json:"error"`
+				ErrorCode string   `json:"error_code"`
+			}
+			if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 1 {
+				t.Fatalf("combined failure JSON = %s: %v", out, err)
+			}
+			if rows[0].Pruned || len(rows[0].Branches) != 0 || len(rows[0].Deleted) != 0 || !strings.Contains(rows[0].Error, "failed to prune remote refs") || !strings.Contains(rows[0].Error, "could not detect default branch") || rows[0].ErrorCode != "git_failure" {
+				t.Errorf("incorrect combined failure: %s", out)
+			}
+		})
+	}
+}
+
 func TestIntegration_CleanPruneOutcomes(t *testing.T) {
 	testEnv(t)
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)

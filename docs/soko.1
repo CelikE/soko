@@ -596,6 +596,27 @@ arrays for actual outcomes. Each failed branch includes
 .BR branch ", " error ", and " error_code ;
 the repository also carries an error summary. Dry-run JSON remains a preview
 without execution outcomes. Only successful deletions enter the undo journal.
+Both dry-run and execution return non-zero if any selected repository cannot
+be inspected; other repositories are still previewed or cleaned. An all-valid
+empty cleanup succeeds; an all-uninspectable selection fails without prompting.
+Inspection failures are counted by repository, not as failed branch deletions.
+Missing paths use JSON
+.B path_missing
+and Git inspection errors use
+.BR git_failure .
+Failed remote pruning and branch deletion independently cause non-zero exits;
+pruning does not prevent branch deletion. Text and quiet modes retain failure
+rows on stdout, with an error summary on stderr; incomplete execution has no
+success footer. JSON (also with quiet) emits a parseable stdout array with
+per-repository
+.B error
+and
+.B error_code
+fields, while actual deletion failures also have
+.B failed
+entries. Dry-run never deletes branches, but
+.B \-\-prune
+still performs remote pruning.
 .\" ----------------------------------
 .TP
 .B soko undo

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- Return non-zero for incomplete `soko clean` repository inspection in previews and execution, while preserving healthy deletions, exact undo records, and per-repo JSON diagnostics (issue #348).
+
 ### Maintenance
 
 - Keep pull request CI to lint/config validation, Linux race coverage, and a native Windows build/PowerShell smoke check; move full macOS and Windows suites to nightly/manual runs so routine merges do not wait for sequential platform integration tests.
