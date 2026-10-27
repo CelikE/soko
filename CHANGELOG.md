@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- Emit valid empty JSON for successful zero-repository and filtered selections across list, status, remotes, diff, report, stats, health, branch, stash, clean, fetch, pull, and sync; preserve stats' object and parallel commands' perf envelope, even with `--quiet` (issue #341).
 - Cascade `soko doc --fix` registry repair from a missing base to its linked worktrees, report every removed registration in text and JSON, and leave checkout directories untouched (issue #340).
 - Count unresolved merge conflicts as dirty in `soko status` and the live dashboard, including clean/dirty selection and summary totals, while keeping conflict and ordinary-change counts separate (issue #339).
 - Normalize and deduplicate tags across repository registration and discovery defaults, and match/remove legacy mixed-case or padded tags consistently while preserving dynamic worktree inheritance (issue #338).

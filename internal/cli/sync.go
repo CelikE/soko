@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -68,8 +67,7 @@ can be brought up to date is, and everything else is listed.`,
 			if len(args) > 0 {
 				repos = findReposMatching(repos, args)
 				if len(repos) == 0 {
-					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
-					return nil
+					return renderNoMatchingRepos(cmd, args)
 				}
 			}
 

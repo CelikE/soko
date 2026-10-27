@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -42,14 +40,12 @@ func newStatusCmd() *cobra.Command {
 			if len(args) > 0 {
 				repos = findReposMatching(repos, args)
 				if len(repos) == 0 {
-					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
-					return nil
+					return renderNoMatchingRepos(cmd, args)
 				}
 			}
 
 			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			fetchFlag, _ := cmd.Flags().GetBool("fetch")
@@ -72,6 +68,9 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			if len(collected) == 0 {
+				if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+					return renderStatusJSON(w, collected, wall)
+				}
 				output.Info(w, "no repos match the filter")
 				return nil
 			}

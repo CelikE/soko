@@ -56,12 +56,14 @@ Use --all-authors to include everyone's commits.`,
 			if len(args) > 0 {
 				repos = findReposMatching(repos, args)
 				if len(repos) == 0 {
-					output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
-					return nil
+					return renderNoMatchingRepos(cmd, args)
 				}
 			}
 
 			if len(repos) == 0 {
+				if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+					return renderEmptySelectionJSON(cmd)
+				}
 				output.Info(w, "no repos registered yet — cd into a repo and run: soko init")
 				return nil
 			}

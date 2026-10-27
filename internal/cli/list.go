@@ -31,8 +31,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			jsonFlag, _ := cmd.Flags().GetBool("json")
