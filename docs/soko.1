@@ -429,6 +429,15 @@ The default author is read from Git's user.name in the current directory;
 if unavailable, specify an author or use
 .B \-\-all\-authors
 explicitly.
+Reports exit nonzero if any selected checkout is missing or Git inspection
+fails; successful activity remains available. Text errors are shown on stderr
+even with
+.BR \-\-quiet .
+An inactive (including unborn) repository is not an error. JSON output is an
+array of active entries plus failure entries with name, path, error, and
+error_code; inactive entries are omitted. A successful report with no matching
+activity returns an empty array. Missing paths use path_missing; Git read
+failures use git_failure or a more specific code.
 .\" ----------------------------------
 .TP
 .B soko stats

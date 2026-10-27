@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -8,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CelikE/soko/internal/cli"
+	"github.com/CelikE/soko/internal/config"
 )
 
 func TestIntegration_ReportWithActivity(t *testing.T) {
@@ -263,5 +267,145 @@ func TestIntegration_ReportRepoArg(t *testing.T) {
 	}
 	if strings.Contains(out, "bravo") {
 		t.Errorf("report alpha = %q, should not contain 'bravo'", out)
+	}
+}
+
+func TestIntegration_ReportIncomplete(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		mixed bool
+	}{
+		{name: "all failed"},
+		{name: "mixed", mixed: true},
+	} {
+		for _, mode := range []string{"text", "quiet", "json"} {
+			t.Run(tc.name+"/"+mode, func(t *testing.T) {
+				testEnv(t)
+				base := t.TempDir()
+				cfg := &config.Config{Repos: []config.RepoEntry{
+					{Name: "missing", Path: filepath.Join(base, "missing")},
+					{Name: "not-git", Path: base},
+				}}
+				if tc.mixed {
+					for _, name := range []string{"active", "inactive"} {
+						path := filepath.Join(base, name)
+						initRepo(t, path)
+						cfg.Repos = append(cfg.Repos, config.RepoEntry{Name: name, Path: path})
+					}
+					runGit(t, filepath.Join(base, "active"), "commit", "--allow-empty", "--author=Dev [Work] <dev@example.invalid>", "-m", "matching activity")
+				}
+				if err := config.Save(cfg); err != nil {
+					t.Fatal(err)
+				}
+
+				args := []string{"report", "--author", "[Work]"}
+				if mode != "text" {
+					args = append(args, "--"+mode)
+				}
+				var stdout, stderr bytes.Buffer
+				cmd := cli.NewRootCmd("test")
+				cmd.SetOut(&stdout)
+				cmd.SetErr(&stderr)
+				cmd.SetArgs(args)
+				err := cmd.Execute()
+				if err == nil || !strings.Contains(err.Error(), "report incomplete: failed to inspect 2 of ") {
+					t.Fatalf("report error = %v, want incomplete inspection", err)
+				}
+
+				if mode == "json" {
+					var results []struct {
+						Name    string `json:"name"`
+						Path    string `json:"path"`
+						Branch  string `json:"branch"`
+						Commits []struct {
+							Message string `json:"message"`
+						} `json:"commits"`
+						Error     string  `json:"error"`
+						ErrorCode *string `json:"error_code"`
+					}
+					if err := json.Unmarshal(stdout.Bytes(), &results); err != nil {
+						t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
+					}
+					wantCount := 2
+					if tc.mixed {
+						wantCount++
+					}
+					if len(results) != wantCount {
+						t.Fatalf("results = %+v, want %d entries", results, wantCount)
+					}
+					start := 0
+					if tc.mixed {
+						start = 1
+						if results[0].Name != "active" || results[0].Branch == "" || len(results[0].Commits) != 1 || results[0].Commits[0].Message != "matching activity" || results[0].Error != "" || results[0].ErrorCode != nil {
+							t.Errorf("successful activity = %+v", results[0])
+						}
+					}
+					for i, want := range []struct{ name, code, message string }{
+						{"missing", "path_missing", "path not found"},
+						{"not-git", "git_failure", "not a git repository"},
+					} {
+						r := results[start+i]
+						if r.Name != want.name || r.Path != cfg.Repos[i].Path || r.ErrorCode == nil || *r.ErrorCode != want.code || !strings.Contains(r.Error, want.message) || r.Branch != "" || len(r.Commits) != 0 {
+							t.Errorf("failure = %+v, want %s: %s (%s)", r, want.name, want.message, want.code)
+						}
+					}
+					return
+				}
+				if strings.Contains(stdout.String(), "no activity") || strings.Contains(stdout.String(), "inactive: missing") || strings.Contains(stdout.String(), "inactive: not-git") {
+					t.Errorf("failure described as inactivity: %q", stdout.String())
+				}
+				for _, want := range []string{"missing (", "path not found", "not-git (", "not a git repository"} {
+					if !strings.Contains(stderr.String(), want) {
+						t.Errorf("stderr = %q, missing %q", stderr.String(), want)
+					}
+				}
+				if tc.mixed && !strings.Contains(stdout.String(), "matching activity") {
+					t.Errorf("lost successful activity: %q", stdout.String())
+				}
+			})
+		}
+	}
+}
+
+func TestIntegration_ReportUnbornIsInactive(t *testing.T) {
+	testEnv(t)
+	path := filepath.Join(t.TempDir(), "unborn")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, path, "init", "-b", "main")
+	if err := config.Save(&config.Config{Repos: []config.RepoEntry{{Name: "unborn", Path: path}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := runSoko(t, "report", "--all-authors", "--json"); strings.TrimSpace(got) != "[]" {
+		t.Errorf("unborn report = %q, want empty successful result", got)
+	}
+}
+
+func TestIntegration_ReportGitLogFailure(t *testing.T) {
+	testEnv(t)
+	path := filepath.Join(t.TempDir(), "broken-log")
+	initRepo(t, path)
+	// HEAD still identifies a branch, but its commit is unreadable to git log.
+	if err := os.WriteFile(filepath.Join(path, ".git", "refs", "heads", "master"), []byte(strings.Repeat("0", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Save(&config.Config{Repos: []config.RepoEntry{{Name: "broken-log", Path: path}}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runSokoErr(t, "report", "--all-authors", "--json")
+	if err == nil || !strings.Contains(err.Error(), "report incomplete") {
+		t.Fatalf("git log failure returned %v, want incomplete report", err)
+	}
+	var rows []struct {
+		Name      string  `json:"name"`
+		Error     string  `json:"error"`
+		ErrorCode *string `json:"error_code"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 1 {
+		t.Fatalf("git log failure JSON = %q: %v", out, err)
+	}
+	if rows[0].Name != "broken-log" || !strings.Contains(rows[0].Error, "bad object HEAD") || rows[0].ErrorCode == nil || *rows[0].ErrorCode != "git_failure" {
+		t.Errorf("git log failure = %+v, want actionable git_failure", rows[0])
 	}
 }
