@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CelikE/soko/internal/git"
 	"github.com/CelikE/soko/internal/journal"
 )
 
@@ -284,6 +285,90 @@ exit 0
 					}
 				}
 			})
+		}
+	}
+}
+
+func TestIntegration_CleanRequiresBranchPreimage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Git failure fixture requires a POSIX shell")
+	}
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "repo")
+	branches := []string{"allowed", "blocked", "later"}
+	initRepoWithBranches(t, dir, branches)
+	runSokoInit(t, dir)
+	wantSHAs := make(map[string]string)
+	for _, branch := range branches {
+		wantSHAs[branch] = gitIn(t, dir, "rev-parse", "refs/heads/"+branch)
+	}
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOKO_CLEAN_REAL_GIT", realGit)
+	wrapper := filepath.Join(t.TempDir(), "git")
+	script := `#!/bin/sh
+if [ "$1" = rev-parse ]; then
+  for ref do
+    case "$ref" in
+      blocked|refs/heads/blocked)
+        printf 'fixture cannot read branch tip\n' >&2
+        exit 1 ;;
+    esac
+  done
+fi
+exec "$SOKO_CLEAN_REAL_GIT" "$@"
+`
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalGit := git.Binary()
+	git.SetBinary(wrapper)
+	t.Cleanup(func() { git.SetBinary(originalGit) })
+
+	out, err := runSokoErr(t, "clean", "--force", "--json")
+	if err == nil || err.Error() != "deleted 2 branches, 1 failed to delete" {
+		t.Errorf("clean error = %v, want partial failure", err)
+	}
+	var rows []struct {
+		Deleted []string `json:"deleted"`
+		Failed  []struct {
+			Branch    string `json:"branch"`
+			Error     string `json:"error"`
+			ErrorCode string `json:"error_code"`
+		} `json:"failed"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || !slices.Equal(rows[0].Deleted, []string{"allowed", "later"}) || len(rows[0].Failed) != 1 {
+		t.Errorf("incorrect deletion outcomes: %s", out)
+	} else if failure := rows[0].Failed[0]; failure.Branch != "blocked" || !strings.Contains(failure.Error, "fixture cannot read branch tip") || failure.ErrorCode != "git_failure" {
+		t.Errorf("incorrect preimage failure: %+v", failure)
+	}
+	if !branchExists(t, dir, "blocked") {
+		t.Error("clean deleted branch without a verified preimage")
+	} else if got := gitIn(t, dir, "rev-parse", "refs/heads/blocked"); got != wantSHAs["blocked"] {
+		t.Errorf("clean changed blocked branch to %s, want %s", got, wantSHAs["blocked"])
+	}
+	j, err := journal.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := j.Last()
+	if !ok || len(entry.Branches) != 2 {
+		t.Fatalf("journal must contain only successful deletions: %+v", entry)
+	}
+	for _, ref := range entry.Branches {
+		if ref.Branch == "blocked" || ref.SHA != wantSHAs[ref.Branch] {
+			t.Errorf("incorrect journal ref: %+v", ref)
+		}
+	}
+	runSoko(t, "undo")
+	for branch, sha := range wantSHAs {
+		if got := gitIn(t, dir, "rev-parse", "refs/heads/"+branch); got != sha {
+			t.Errorf("undo left %s at %s, want %s", branch, got, sha)
 		}
 	}
 }

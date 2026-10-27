@@ -381,9 +381,14 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 		}
 		g.Go(func() error {
 			for _, branch := range r.Branches {
-				// Capture the tip SHA before deleting so undo can restore it.
-				sha, _ := git.Run(ctx, r.Path, "rev-parse", branch)
-				_, err := git.Run(ctx, r.Path, "branch", "-d", branch)
+				// Capture the exact local tip, never a same-named tag. Refuse
+				// deletion if its preimage cannot be verified for undo.
+				sha, err := git.Run(ctx, r.Path, "rev-parse", "--verify", "refs/heads/"+branch)
+				if err != nil {
+					err = fmt.Errorf("could not capture branch tip: %w", err)
+				} else {
+					_, err = git.Run(ctx, r.Path, "branch", "-d", branch)
+				}
 				mu.Lock()
 				if err != nil {
 					failed++
@@ -395,14 +400,12 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 				} else {
 					deleted++
 					r.Deleted = append(r.Deleted, branch)
-					if sha != "" {
-						refs = append(refs, journal.BranchRef{
-							Repo:   r.Name,
-							Path:   r.Path,
-							Branch: branch,
-							SHA:    sha,
-						})
-					}
+					refs = append(refs, journal.BranchRef{
+						Repo:   r.Name,
+						Path:   r.Path,
+						Branch: branch,
+						SHA:    sha,
+					})
 				}
 				mu.Unlock()
 			}

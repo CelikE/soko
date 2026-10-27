@@ -37,37 +37,85 @@ func branchExists(t *testing.T, dir, branch string) bool {
 // TestIntegration_UndoRecreatesBranch is the headline round-trip: clean deletes
 // a merged branch, undo restores it at the same SHA.
 func TestIntegration_UndoRecreatesBranch(t *testing.T) {
-	testEnv(t)
-	dir := filepath.Join(t.TempDir(), "repo")
-	initRepo(t, dir)
-	runSokoInit(t, dir)
+	for _, scenario := range []string{
+		"no tag", "tag before clean", "tag after clean", "tag removed before undo",
+		"annotated tag", "existing local branch",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			testEnv(t)
+			dir := filepath.Join(t.TempDir(), "repo")
+			initRepo(t, dir)
+			runSokoInit(t, dir)
+			oldSHA := gitIn(t, dir, "rev-parse", "HEAD")
+			gitIn(t, dir, "commit", "--allow-empty", "-m", "new branch tip")
+			wantSHA := gitIn(t, dir, "rev-parse", "HEAD")
+			gitIn(t, dir, "branch", "feature")
 
-	// A branch pointing at HEAD is merged into the default branch.
-	wantSHA := gitIn(t, dir, "rev-parse", "HEAD")
-	gitIn(t, dir, "branch", "feature")
-	if !branchExists(t, dir, "feature") {
-		t.Fatal("setup: feature branch missing")
-	}
+			// A colliding tag points to a different commit, never the branch tip.
+			switch scenario {
+			case "tag before clean", "tag removed before undo":
+				gitIn(t, dir, "tag", "feature", oldSHA)
+			case "annotated tag":
+				gitIn(t, dir, "tag", "-a", "feature", oldSHA, "-m", "older tag")
+			}
+			if scenario == "tag before clean" || scenario == "annotated tag" {
+				// Exact refs must work whether loose or packed.
+				gitIn(t, dir, "pack-refs", "--all")
+			}
+			tagSHA := gitIn(t, dir, "for-each-ref", "--format=%(objectname)", "refs/tags/feature")
 
-	runSoko(t, "clean", "--force")
-	if branchExists(t, dir, "feature") {
-		t.Fatal("clean did not delete the merged branch")
-	}
+			runSoko(t, "clean", "--force", "--json")
+			if branchExists(t, dir, "feature") {
+				t.Fatal("clean did not delete the merged branch")
+			}
+			j, err := journal.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, ok := j.Last()
+			if !ok || entry.Op != journal.OpClean || len(entry.Branches) != 1 {
+				t.Fatalf("expected one deleted branch in journal, got %+v", entry)
+			}
+			if ref := entry.Branches[0]; ref.Branch != "feature" || ref.SHA != wantSHA {
+				t.Errorf("journal ref = %+v, want feature at %s", ref, wantSHA)
+			}
 
-	out := runSoko(t, "undo")
-	if !strings.Contains(out, "feature") {
-		t.Errorf("undo output = %q, want it to mention feature", out)
-	}
-	if !branchExists(t, dir, "feature") {
-		t.Fatal("undo did not recreate the branch")
-	}
-	if got := gitIn(t, dir, "rev-parse", "feature"); got != wantSHA {
-		t.Errorf("recreated SHA = %s, want %s", got, wantSHA)
-	}
+			switch scenario {
+			case "tag after clean":
+				gitIn(t, dir, "tag", "feature", oldSHA)
+				tagSHA = oldSHA
+			case "tag removed before undo":
+				gitIn(t, dir, "tag", "-d", "feature")
+				tagSHA = ""
+			case "existing local branch":
+				gitIn(t, dir, "branch", "feature", oldSHA)
+			}
 
-	// Journal is now drained.
-	if out := runSoko(t, "undo"); !strings.Contains(out, "nothing to undo") {
-		t.Errorf("second undo = %q, want 'nothing to undo'", out)
+			out := runSoko(t, "undo")
+			if scenario == "existing local branch" {
+				wantSHA = oldSHA
+				if !strings.Contains(out, "already exists, skipping") {
+					t.Errorf("undo output = %q, want existing branch skipped", out)
+				}
+			} else if !strings.Contains(out, "recreated feature") {
+				t.Errorf("undo output = %q, want feature recreated", out)
+			}
+			if !branchExists(t, dir, "feature") {
+				t.Fatal("undo did not recreate the branch")
+			}
+			if got := gitIn(t, dir, "rev-parse", "refs/heads/feature"); got != wantSHA {
+				t.Errorf("branch SHA = %s, want %s", got, wantSHA)
+			}
+			if got := gitIn(t, dir, "for-each-ref", "--format=%(objectname)", "refs/tags/feature"); got != tagSHA {
+				t.Errorf("clean/undo changed tag to %s, want %s", got, tagSHA)
+			}
+			if out := runSoko(t, "undo", "--list", "--json"); strings.TrimSpace(out) != "[]" {
+				t.Errorf("journal not drained after undo: %s", out)
+			}
+			if out := runSoko(t, "undo"); !strings.Contains(out, "nothing to undo") {
+				t.Errorf("second undo = %q, want 'nothing to undo'", out)
+			}
+		})
 	}
 }
 
