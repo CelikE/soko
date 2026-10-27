@@ -92,6 +92,11 @@ func TestIntegration_DocWorktreeFamilyReferences(t *testing.T) {
 						t.Errorf("want only orphan and ambiguous family warnings: %s", out)
 					}
 					for _, want := range []string{"orphan", "ambiguous", "not registered", "--repo", "worktree commands", "soko config edit", parent, other, "duplicate"} {
+						// Diagnostics quote candidate paths before rendering either
+						// text or JSON; JSON adds its own second layer of escaping.
+						if want == parent || want == other {
+							want = fmt.Sprintf("%q", want)
+						}
 						// JSON escapes Windows path separators in candidate paths.
 						if format == "json" {
 							encoded, err := json.Marshal(want)

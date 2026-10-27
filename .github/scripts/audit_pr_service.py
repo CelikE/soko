@@ -22,6 +22,11 @@ SOURCE = Path(__file__).resolve().parents[2]
 FIELDS = "number,title,headRefName,state,url,author"
 
 
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def run(args, *, cwd=SOURCE, env=None, check=True):
     result = subprocess.run(args, cwd=cwd, env=env, capture_output=True,
                             text=True, encoding="utf-8", timeout=90)
@@ -65,6 +70,7 @@ def main():
         token = run(["gh", "auth", "token", "--hostname", "github.com"]).stdout.strip()
         credential_source = "existing gh credential, reused with explicit authorization"
     report = {"source": run(["git", "rev-parse", "HEAD"]).stdout.strip(),
+              "source_dirty": bool(run(["git", "status", "--porcelain"]).stdout.strip()),
               "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "platform": platform.platform(), "gh": run(["gh", "--version"]).stdout.splitlines()[0],
               "host": "github.com", "credentials": credential_source,
@@ -102,9 +108,9 @@ def main():
                         raise RuntimeError("empty public fixture now has PRs; choose another fixture")
                     for flags in (("--json",), ("--quiet", "--json")):
                         result = soko(*flags)
-                        assert json.loads(result.stdout) == [] and not result.stderr.strip()
-                    assert "no open pull requests" in soko().stdout
-                    assert not soko("--quiet").stdout.strip()
+                        require(json.loads(result.stdout) == [] and not result.stderr.strip(), "empty JSON contract failed")
+                    require("no open pull requests" in soko().stdout, "empty text hint missing")
+                    require(not soko("--quiet").stdout.strip(), "quiet empty output was not suppressed")
                     record("live empty JSON/text/quiet", count=0)
                     continue
 
@@ -117,23 +123,23 @@ def main():
                     actual = json.loads(result.stdout)
                     # Public fixture contents can change: compare exact snapshots,
                     # and fail rather than silently treating drift as a pass.
-                    assert actual == expected, "live PR snapshot changed; rerun with a stable fixture"
-                    assert len(actual) == limit and f"limit ({limit})" in result.stderr
+                    require(actual == expected, "live PR snapshot changed; rerun with a stable fixture")
+                    require(len(actual) == limit and f"limit ({limit})" in result.stderr, "limit or cap hint contract failed")
                     quiet = soko(*flags, "--quiet", "--json")
-                    assert json.loads(quiet.stdout) == actual and not quiet.stderr.strip()
+                    require(json.loads(quiet.stdout) == actual and not quiet.stderr.strip(), "quiet changed JSON or leaked hints")
                     record("live current-repo/JSON/limit/quiet", limit=limit, count=len(actual),
                            pagination="crosses gh's 100-item page boundary" if limit == 101 else "capped")
                 first = baseline[0]
                 url = f"https://github.com/{args.populated}/pull/{first['number']}"
-                assert first["url"] == url
+                require(first["url"] == url, "PR URL does not match repository/number")
                 with urllib.request.urlopen(url, timeout=30) as response:
-                    assert response.status == 200
+                    require(response.status == 200, "public PR URL did not return HTTP 200")
                 record("live PR browser URL", url=url, http_status=200, browser_opened=False)
 
                 unauthorized = env | {"GH_TOKEN": "soko-audit-intentionally-invalid-token"}
                 result = soko("--quiet", "--json", environment=unauthorized, check=False)
-                assert result.returncode != 0 and not result.stdout.strip()
-                assert "gh pr list" in result.stderr and "401" in result.stderr
+                require(result.returncode != 0 and not result.stdout.strip(), "auth error exit/stdout contract failed")
+                require("gh pr list" in result.stderr and "401" in result.stderr, "expected live HTTP 401")
                 record("live authentication failure", exit=result.returncode, stdout="empty", http_status=401)
                 # Reserve a local port without listening; no other service can
                 # occupy it. Real gh must report proxy connection failure.
@@ -143,12 +149,12 @@ def main():
                     offline = env | {"HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "ALL_PROXY": proxy,
                                      "NO_PROXY": "", "no_proxy": "", "https_proxy": proxy}
                     result = soko("--quiet", "--json", environment=offline, check=False)
-                    assert result.returncode != 0 and not result.stdout.strip()
-                    assert "gh pr list" in result.stderr and "connect" in result.stderr.lower()
+                    require(result.returncode != 0 and not result.stdout.strip(), "network error exit/stdout contract failed")
+                    require("gh pr list" in result.stderr and "connect" in result.stderr.lower(), "expected real gh connection failure")
                     record("real gh controlled network failure", exit=result.returncode,
                            stdout="empty", mechanism="non-listening loopback proxy, not service outage")
     except Exception as error:
-        report["checks"].append({"name": "execution", "result": "FAIL", "error_type": type(error).__name__})
+        report["checks"].append({"name": "execution", "result": "FAIL", "error_type": type(error).__name__, "reason": str(error)})
         raise
     finally:
         args.output.parent.mkdir(parents=True, exist_ok=True)

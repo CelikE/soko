@@ -23,6 +23,11 @@ SOURCE = Path(__file__).resolve().parents[2]
 RELEASE = "https://github.com/CelikE/soko/releases/download"
 
 
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
 def run(args, *, env=None, cwd=SOURCE):
     return subprocess.check_output(args, cwd=cwd, env=env, text=True,
                                    encoding="utf-8", stderr=subprocess.STDOUT, timeout=300)
@@ -63,6 +68,7 @@ def main():
     system = {"Darwin": "darwin", "Linux": "linux", "Windows": "windows"}[platform.system()]
     arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64", "amd64": "amd64"}[platform.machine().lower()]
     report = {"source": run(["git", "rev-parse", "HEAD"]).strip(),
+              "source_dirty": bool(run(["git", "status", "--porcelain"]).strip()),
               "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "platform": platform.platform(), "release": args.version, "checks": []}
 
@@ -80,18 +86,18 @@ def main():
             archive_file = root / name
             download(f"{RELEASE}/{args.version}/{name}", archive_file)
             actual = hashlib.sha256(archive_file.read_bytes()).hexdigest()
-            assert actual == expected[name], "release checksum mismatch"
+            require(actual == expected[name], "release checksum mismatch")
             record("public native archive checksum", asset=name, sha256=actual)
             binary = root / ("soko.exe" if system == "windows" else "soko")
             if system == "windows":
                 with zipfile.ZipFile(archive_file) as archive:
                     binary.write_bytes(archive.read("soko.exe"))
-                    assert archive.read("man/soko.1")
+                    require(archive.read("man/soko.1"), "empty archived manpage")
             else:
                 with tarfile.open(archive_file) as archive:
                     binary.write_bytes(archive.extractfile("soko").read())
                     binary.chmod(archive.getmember("soko").mode)
-                    assert archive.extractfile("man/soko.1").read()
+                    require(archive.extractfile("man/soko.1").read(), "empty archived manpage")
             record("native released binary invocation", version=verify_binary(binary, version),
                    manpage="present in archive", executable=os.access(binary, os.X_OK))
 
@@ -105,13 +111,13 @@ def main():
                     bin_dir, man_dir = destination / "bin", destination / "man"
                     env = os.environ | {"MAN_DIR": str(man_dir), "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}
                     output = run(["sh", str(script), "--dir", str(bin_dir), "--version", args.version], env=env)
-                    assert "checksum verified." in output
+                    require("checksum verified." in output, "installer did not verify checksum")
                     installed = bin_dir / "soko"
                     actual_version = verify_binary(installed, version)
                     binary_mode = stat.S_IMODE(installed.stat().st_mode)
                     man_mode = stat.S_IMODE((man_dir / "soko.1").stat().st_mode)
-                    assert binary_mode & 0o111 and not binary_mode & 0o022
-                    assert man_mode & 0o444 and not man_mode & 0o022
+                    require(binary_mode & 0o111 and not binary_mode & 0o022, "unsafe installed binary permissions")
+                    require(man_mode & 0o444 and not man_mode & 0o022, "unsafe installed manpage permissions")
                     record(f"{label} installer native invocation", version=actual_version,
                            binary_mode=oct(binary_mode), manpage_mode=oct(man_mode), checksum="verified")
 
@@ -128,7 +134,7 @@ def main():
                 record("documented go install @latest", version=actual_version, module=module,
                        note="go install does not set release ldflags; version may be dev")
     except Exception as error:
-        report["checks"].append({"name": "execution", "result": "FAIL", "error_type": type(error).__name__})
+        report["checks"].append({"name": "execution", "result": "FAIL", "error_type": type(error).__name__, "reason": str(error)})
         raise
     finally:
         args.output.parent.mkdir(parents=True, exist_ok=True)

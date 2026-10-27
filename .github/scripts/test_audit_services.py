@@ -11,6 +11,11 @@ import audit_pr_service
 
 
 class PRServiceAuditTests(unittest.TestCase):
+    def test_validation_does_not_depend_on_python_assert_statements(self):
+        for module in (audit_pr_service, audit_distribution):
+            with self.subTest(module=module.__name__), self.assertRaises(AssertionError):
+                module.require(False, "failed predicate")
+
     def test_normalizes_real_gh_schema(self):
         data = [{"number": 1, "title": "test", "headRefName": "feature", "state": "OPEN",
                  "url": "https://github.com/test/repo/pull/1", "author": {"login": "tester"}}]

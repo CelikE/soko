@@ -31,6 +31,13 @@ func TestTerminalAuditShellCompletion(t *testing.T) {
 				}
 			}
 			a := newTerminalAudit(t)
+			insecure := filepath.Join(a.root, "insecure-completions")
+			if err := os.Mkdir(insecure, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(insecure, 0o777); err != nil {
+				t.Fatal(err)
+			}
 			repo := filepath.Join(a.root, "audit-target")
 			a.git(a.root, "init", "-b", "main", repo)
 			a.run(repo, a.bin, "init")
@@ -40,7 +47,7 @@ func TestTerminalAuditShellCompletion(t *testing.T) {
 				t.Fatal(err)
 			}
 			argsFile := filepath.Join(a.root, "executed-args")
-			a.env = append(a.env, "PATH="+a.root+string(os.PathListSeparator)+os.Getenv("PATH"), "AUDIT_BINARY="+a.bin, "AUDIT_ARGS="+argsFile, "AUDIT_COMPLETION="+completionFile, "SOKO_NAV_SESSION=completion-audit", "TERM=dumb", "BASH_COMPLETION="+bashCompletion)
+			a.env = append(a.env, "PATH="+a.root+string(os.PathListSeparator)+os.Getenv("PATH"), "AUDIT_BINARY="+a.bin, "AUDIT_ARGS="+argsFile, "AUDIT_COMPLETION="+completionFile, "AUDIT_INSECURE_FPATH="+insecure, "SOKO_NAV_SESSION=completion-audit", "TERM=dumb", "BASH_COMPLETION="+bashCompletion)
 			var args []string
 			setup := `source "$AUDIT_COMPLETION"; soko() { printf '%s\n' "$@" > "$AUDIT_ARGS"; command "$AUDIT_BINARY" "$@"; }; printf 'AUDIT_READY\n'`
 			switch shell {
@@ -49,7 +56,9 @@ func TestTerminalAuditShellCompletion(t *testing.T) {
 				setup = `source "$BASH_COMPLETION"; ` + setup
 			case "zsh":
 				args = []string{"-f", "-i"}
-				setup = "autoload -Uz compinit; compinit -D; " + setup
+				// Ignore insecure completion directories, rather than prompting
+				// or disabling compinit's permission checks with -u.
+				setup = `fpath=("$AUDIT_INSECURE_FPATH" $fpath); autoload -Uz compinit; compinit -i -D; ` + setup
 			case "fish":
 				args = []string{"--no-config", "-i"}
 				setup = `source "$AUDIT_COMPLETION"; function soko; printf '%s\n' $argv > "$AUDIT_ARGS"; command "$AUDIT_BINARY" $argv; end; printf 'AUDIT_READY\n'`

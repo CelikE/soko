@@ -29,6 +29,11 @@ the complete matrix passed.
   This is completion-engine evidence, not PSReadLine keyboard/console evidence.
 - Native volume-root, descendant, parent and sibling-prefix containment controls
   passed locally in `TestPathWithinRoot`.
+- The complete local `go test -race ./...` run passed after these fixes.
+- [CI on a8d6dd3](https://github.com/CelikE/soko/actions/runs/40562201354)
+  passed lint, release configuration, Python runner/helper tests, Linux race and
+  coverage, destructive-workflow validation and the Windows worktree/PowerShell
+  smoke check. It does not replace the pending full native matrix.
 
 ## Reproduction and native runners
 
@@ -45,6 +50,30 @@ the source SHA, OS and tool versions; timing artifacts retain full test events.
 Windows uses only supported ordinary filename cases; Unix-only trailing spaces
 and newlines are not asserted as supported Windows filenames.
 
-Workflow execution requires explicit user authorization. At document creation,
-native runner execution for this change is pending; earlier green runs do not
-establish coverage for these new tests.
+## Native attempt and runtime correction
+
+The authorized [a8d6dd3 native run](https://github.com/CelikE/soko/actions/runs/40562201597)
+passed the full macOS suite, but failed Linux and Windows. It is not a passing
+matrix. Linux's Zsh fixture blocked on compinit's insecure-directory prompt.
+The fixture now uses `compinit -i` to ignore insecure directories without
+disabling permission checks; an intentionally insecure fixture directory makes
+this regression reproducible locally.
+
+Windows exposed slash-separated Git root output failing exact native-path
+lookup, Unix-only quote filenames in a fixture, quoted-path diagnostic assertions
+expecting unescaped backslashes, and a CP1252 Python console crash when printing
+Unicode failure output. These are corrected separately: native path conversion,
+supported filename cases (with Unix cases retained on Unix), exact quoted
+diagnostic expectations, and UTF-8 console configuration with a regression test.
+
+The prior Windows timing artifact at
+[40478520679](https://github.com/CelikE/soko/actions/runs/40478520679) recorded
+584 seconds in one sequential CLI test process. Four isolated CLI shards retain
+all tests and run other packages exactly once; the historical serial work would
+be 108/156/177/144 seconds across those shards, not a claimed new runtime.
+Slow tests now emit progress, artifacts are per-shard, and jobs have a ten-minute
+bound. This uses process isolation rather than unsafe parallel execution of
+tests that change process-wide environment or cwd.
+
+The corrected native rerun is pending explicit authorization. Earlier green
+jobs do not make the failed matrix pass.

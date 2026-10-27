@@ -140,9 +140,9 @@ func TestIntegration_DiffJSONPreservesFilenames(t *testing.T) {
 	testEnv(t)
 	dir := filepath.Join(t.TempDir(), "repo")
 	initRepo(t, dir)
-	names := []string{"space name.txt", "päth.txt", "quote\".txt", "-leading.txt", " trailing.txt"}
+	names := []string{"space name.txt", "päth.txt", "-leading.txt", " trailing.txt"}
 	if runtime.GOOS != "windows" {
-		names = append(names, "a:b.txt", "line\nbreak.txt", "endspace ", "tab\tname.txt")
+		names = append(names, "quote\".txt", "a:b.txt", "line\nbreak.txt", "endspace ", "tab\tname.txt")
 	}
 	files := make(map[string]string, len(names)+1)
 	for _, name := range names {
@@ -205,8 +205,11 @@ func TestIntegration_DiffJSONPreservesFilenames(t *testing.T) {
 		t.Errorf("missing filenames: %v", want)
 	}
 	text := runSoko(t, "diff")
-	if !strings.Contains(text, `"line\nbreak.txt"`) || !strings.Contains(text, `"old name.txt" -> "new name.txt"`) {
+	if !strings.Contains(text, `"old name.txt" -> "new name.txt"`) {
 		t.Errorf("text output should display escaped paths and rename: %q", text)
+	}
+	if runtime.GOOS != "windows" && !strings.Contains(text, `"line\nbreak.txt"`) {
+		t.Errorf("text output should escape newline filenames: %q", text)
 	}
 }
 

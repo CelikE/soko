@@ -16,13 +16,19 @@ jobs:
     uses: ./.github/workflows/distribution-audit.yml
 
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - {os: ubuntu-latest, shard: 1, shards: 1}
+          - {os: macos-latest, shard: 1, shards: 1}
+          - {os: windows-latest, shard: 1, shards: 4}
+          - {os: windows-latest, shard: 2, shards: 4}
+          - {os: windows-latest, shard: 3, shards: 4}
+          - {os: windows-latest, shard: 4, shards: 4}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -45,7 +51,7 @@ jobs:
         run: Join-Path $env:ProgramFiles 'Git/usr/bin' >> $env:GITHUB_PATH
 
       - name: Test
-        run: python .github/scripts/ci_test.py --timings "${{ runner.temp }}/test-timings.jsonl"
+        run: python .github/scripts/ci_test.py --shard ${{ matrix.shard }} --shards ${{ matrix.shards }} --timings "${{ runner.temp }}/test-timings.jsonl"
 
       - name: Record audit source and native tools
         shell: pwsh
@@ -56,6 +62,7 @@ jobs:
           $PSVersionTable | Format-List
 
       - name: Verify PowerShell audit prerequisites and regressions
+        if: matrix.shard == 1
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -64,6 +71,7 @@ jobs:
           go test ./internal/cli -run '^TestIntegration_PowerShell(ExactNavigation|Completion)$' -count=1 -v
 
       - name: Verify native filesystem boundaries
+        if: matrix.shard == 1
         run: go test ./internal/config -run '^(TestPathWithinRoot|TestShouldDiscover)$' -count=1 -v
 
       - name: Verify Unix TAB completion prerequisites
@@ -77,6 +85,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: timings-${{ matrix.os }}
+          name: timings-${{ matrix.os }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/test-timings.jsonl
           retention-days: 14

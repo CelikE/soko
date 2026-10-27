@@ -11,6 +11,7 @@
 
 ### Maintenance
 
+- Shard the complete Windows CLI suite across four isolated runners, retain per-shard timings, emit slow-test progress, and preserve UTF-8 failure diagnostics; keep Zsh completion checks noninteractive without trusting insecure directories (issue #357).
 - Add real-shell TAB and PowerShell completion-engine checks, native filesystem-boundary controls, and an opt-in Linux/macOS/Windows audit matrix (issue #357).
 - Add opt-in, read-only live GitHub PR checks and disposable native release archive, installer, Homebrew, winget and Scoop validation (issue #358).
 - Add Unix PTY regression coverage for dashboard pull/undo safety, selection narrowing, interactive display and controlled fetch overlap (issue #356).
@@ -25,6 +26,7 @@
 
 ### Bug Fixes
 
+- Normalize single-path Git output to native separators so Windows current-checkout selection recognizes registered repositories (issue #357).
 - Preserve exact PowerShell navigation targets, including trailing whitespace and literal brackets; consume requests only after successful navigation (issue #357).
 - Keep unmatched PowerShell repository completions unchanged instead of raising an empty `CompletionResult` conversion error or falling back to filenames (issue #357).
 - Include the archived manpage in future generated Homebrew casks; published v0.22.0 casks require manual manpage installation (issue #358).

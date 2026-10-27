@@ -15,6 +15,14 @@ def shard_tests(names, shard, shards):
     return sorted(names)[shard - 1 :: shards]
 
 
+def configure_console():
+    """Windows redirected consoles may default to CP1252, unlike Go's UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def commands(args):
     flags = ["-json", "-count=1", "-timeout=15m"]
     if args.race:
@@ -53,6 +61,8 @@ def commands(args):
 def run(command, events, timings):
     print(f"Running Go tests ({'race' if '-race' in command else 'normal'})", flush=True)
     output = {}
+    completed = 0
+    last_progress = time.monotonic()
     with subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace",
@@ -78,10 +88,16 @@ def run(command, events, timings):
                     print(f"{action}: {key[0]} ({event.get('Elapsed', 0):.2f}s)", flush=True)
                 elif "/" not in key[1]:
                     timings.append(event)
+                    completed += 1
+                    now = time.monotonic()
+                    if event.get("Elapsed", 0) >= 5 or now - last_progress >= 30:
+                        print(f"{action}: {key[1]} ({event.get('Elapsed', 0):.2f}s; {completed} tests completed)", flush=True)
+                        last_progress = now
         return process.wait()
 
 
 def main():
+    configure_console()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--shard", type=int, default=1)
     parser.add_argument("--shards", type=int, default=1)
