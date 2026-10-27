@@ -457,6 +457,7 @@ func configFilePath(path string) (string, error) {
 
 // AddRepo appends a repo entry to the config if no entry with the same path
 // already exists. It returns ErrRepoAlreadyExists if the path is a duplicate.
+// New entries receive canonical, unique tags, including in the returned entry.
 func AddRepo(cfg *Config, entry *RepoEntry) (*Config, error) {
 	for _, r := range cfg.Repos {
 		if r.Path == entry.Path {
@@ -469,6 +470,7 @@ func AddRepo(cfg *Config, entry *RepoEntry) (*Config, error) {
 		}
 	}
 
+	entry.Tags = NormalizeTags(entry.Tags)
 	cfg.Repos = append(cfg.Repos, *entry)
 	return cfg, nil
 }
@@ -511,10 +513,7 @@ func AddTag(cfg *Config, repoName, tag string) (*Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	tag = normalizeTag(tag)
-	if !slices.Contains(r.Tags, tag) {
-		r.Tags = append(r.Tags, tag)
-	}
+	r.Tags = NormalizeTags(r.Tags, []string{tag})
 	return cfg, nil
 }
 
@@ -527,14 +526,15 @@ func RemoveTag(cfg *Config, repoName, tag string) (*Config, error) {
 		return cfg, err
 	}
 	tag = normalizeTag(tag)
-	owns := slices.Contains(r.Tags, tag)
+	ownTags := NormalizeTags(r.Tags)
+	owns := slices.Contains(ownTags, tag)
 	// On a worktree, a tag the entry doesn't own but matches via
 	// inheritance can only be removed by retagging the parent.
 	if !owns && r.WorktreeOf != "" && slices.Contains(EffectiveTags(cfg, r), tag) {
 		return cfg, ErrInheritedTag
 	}
-	tags := make([]string, 0, len(r.Tags))
-	for _, t := range r.Tags {
+	tags := make([]string, 0, len(ownTags))
+	for _, t := range ownTags {
 		if t != tag {
 			tags = append(tags, t)
 		}
@@ -547,7 +547,7 @@ func RemoveTag(cfg *Config, repoName, tag string) (*Config, error) {
 func ListTags(cfg *Config) []string {
 	seen := make(map[string]bool)
 	for _, r := range cfg.Repos {
-		for _, t := range r.Tags {
+		for _, t := range NormalizeTags(r.Tags) {
 			seen[t] = true
 		}
 	}
@@ -564,29 +564,17 @@ func ListTags(cfg *Config) []string {
 // worktree entry, the tags of its parent repo (resolved at call time via
 // worktree_of). Inheritance is dynamic — retagging the parent instantly
 // re-scopes the worktree. A worktree whose parent is unregistered or ambiguous
-// falls back to its own tags only. Non-worktree entries return their own tags
-// unchanged.
+// falls back to its own tags only. All results are canonical and deduplicated,
+// including legacy values, without changing the stored entry or its parent.
 func EffectiveTags(cfg *Config, r *RepoEntry) []string {
 	if r.WorktreeOf == "" {
-		return r.Tags
+		return NormalizeTags(r.Tags)
 	}
 	parent, err := FindRepoByName(cfg, r.WorktreeOf)
 	if err != nil {
-		return r.Tags
+		return NormalizeTags(r.Tags)
 	}
-	parentTags := parent.Tags
-	if len(parentTags) == 0 {
-		return r.Tags
-	}
-	seen := make(map[string]bool, len(r.Tags)+len(parentTags))
-	tags := make([]string, 0, len(r.Tags)+len(parentTags))
-	for _, t := range append(append([]string{}, r.Tags...), parentTags...) {
-		if !seen[t] {
-			seen[t] = true
-			tags = append(tags, t)
-		}
-	}
-	return tags
+	return NormalizeTags(r.Tags, parent.Tags)
 }
 
 // FilterByTags returns repos that have at least one of the given tags.
@@ -624,6 +612,23 @@ func TagCount(cfg *Config) map[string]int {
 
 func normalizeTag(tag string) string {
 	return strings.ToLower(strings.TrimSpace(tag))
+}
+
+// NormalizeTags combines tag groups in first-seen order, lowercasing and
+// trimming each value, omitting blanks and duplicates. Inputs are not modified.
+func NormalizeTags(groups ...[]string) []string {
+	var tags []string
+	seen := make(map[string]bool)
+	for _, group := range groups {
+		for _, tag := range group {
+			tag = normalizeTag(tag)
+			if tag != "" && !seen[tag] {
+				seen[tag] = true
+				tags = append(tags, tag)
+			}
+		}
+	}
+	return tags
 }
 
 // normalizeMetaKey lowercases and trims a metadata key, the same discipline
