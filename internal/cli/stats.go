@@ -87,6 +87,7 @@ activity over the last 30 days.`,
 		Example: `  soko stats
   soko stats --tag backend
   soko stats --json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 

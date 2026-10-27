@@ -39,6 +39,7 @@ func newDocCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doc",
 		Short: "Check the health of your soko setup",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()

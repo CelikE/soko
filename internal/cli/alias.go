@@ -141,6 +141,7 @@ func newAliasListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all aliases",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 
