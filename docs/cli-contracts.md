@@ -3,7 +3,7 @@
 This inventory records current application-command behavior for audit #354.
 It is a compatibility policy, not evidence that every formerly permissive
 invocation was a defect. See `soko <command> --help` for flag values and the
-[JSON capability table](../README.md#json-output) for output contracts.
+[JSON capability table](guide.md#json-output) for output contracts.
 
 ## Positional arguments
 

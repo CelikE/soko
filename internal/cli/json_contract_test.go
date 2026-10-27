@@ -12,17 +12,17 @@ import (
 	"github.com/CelikE/soko/internal/config"
 )
 
-// Execute the examples published in the README so documentation cannot silently
+// Execute the examples published in the user guide so documentation cannot silently
 // drift from the result shapes. Fixture paths are the only substituted values.
 const documentedJSONPattern = "(?s)<!-- json-example: (\\w+) \\| ([^\\n]+) -->\\s*```json\\r?\\n(.*?)\\r?\\n```"
 const manualJSONPattern = `(?s)\.nf\r?\n(.*?)\r?\n\.fi`
 
 func TestDocumentedJSONLineEndings(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
-		readme := strings.Join([]string{"<!-- json-example: empty | status --json -->", "```json", "[]", "```"}, newline)
-		examples := regexp.MustCompile(documentedJSONPattern).FindAllStringSubmatch(readme, -1)
+		guide := strings.Join([]string{"<!-- json-example: empty | status --json -->", "```json", "[]", "```"}, newline)
+		examples := regexp.MustCompile(documentedJSONPattern).FindAllStringSubmatch(guide, -1)
 		if len(examples) != 1 || examples[0][2] != "status --json" || examples[0][3] != "[]" {
-			t.Errorf("README examples with %q endings: %q", newline, examples)
+			t.Errorf("user guide examples with %q endings: %q", newline, examples)
 		}
 		manual := strings.Join([]string{".nf", "[]", ".fi"}, newline)
 		blocks := regexp.MustCompile(manualJSONPattern).FindAllStringSubmatch(manual, -1)
@@ -33,12 +33,12 @@ func TestDocumentedJSONLineEndings(t *testing.T) {
 }
 
 func TestIntegration_DocumentedJSONExamples(t *testing.T) {
-	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	guide, err := os.ReadFile(filepath.Join("..", "..", "docs", "guide.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	pattern := regexp.MustCompile(documentedJSONPattern)
-	examples := pattern.FindAllStringSubmatch(string(readme), -1)
+	examples := pattern.FindAllStringSubmatch(string(guide), -1)
 	if len(examples) != 5 {
 		t.Fatalf("found %d executable JSON examples, want 5", len(examples))
 	}
@@ -93,7 +93,7 @@ func TestIntegration_DocumentedJSONExamples(t *testing.T) {
 	}
 
 	// The manual publishes the same array, stats, and perf examples in roff.
-	// Compare their decoded documents to the CLI-checked README examples.
+	// Compare their decoded documents to the CLI-checked user guide examples.
 	manual, err := os.ReadFile(filepath.Join("..", "..", "docs", "soko.1"))
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestIntegration_DocumentedJSONExamples(t *testing.T) {
 			}
 		}
 		if !matched {
-			t.Fatalf("manual JSON has no CLI-checked README counterpart: %s", text)
+			t.Fatalf("manual JSON has no CLI-checked user guide counterpart: %s", text)
 		}
 		checked++
 	}

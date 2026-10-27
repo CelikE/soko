@@ -21,7 +21,7 @@ then run soko status from anywhere to see the state of every tracked repo.
 
 JSON support is command-specific; inheriting --json does not guarantee a JSON
 result (for example, version and shell/completion generators remain text).
-See the JSON OUTPUT section in man soko or the README for command capabilities,
+See the JSON OUTPUT section in man soko or docs/guide.md for command capabilities,
 empty results, interactive restrictions, and the --perf repos/timing envelope.`,
 		Example: `  soko init      Register the current repo
   soko status    Show status of all registered repos
