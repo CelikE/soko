@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- Count unresolved merge conflicts as dirty in `soko status` and the live dashboard, including clean/dirty selection and summary totals, while keeping conflict and ordinary-change counts separate (issue #339).
 - Normalize and deduplicate tags across repository registration and discovery defaults, and match/remove legacy mixed-case or padded tags consistently while preserving dynamic worktree inheritance (issue #338).
 - Capture verified local branch tips in `soko clean` and check exact local refs in `soko undo`, so same-named tags cannot corrupt recovery SHAs or prevent restoration; refuse deletion when the branch preimage cannot be read (issue #337).
 - Return an empty JSON array from `soko tag list --json` when no tags are registered, including quiet mode, instead of emitting a text hint or no JSON (issue #334).
