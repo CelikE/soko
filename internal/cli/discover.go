@@ -91,9 +91,7 @@ and apply tags to every discovered repo.
 			for _, r := range roots {
 				d.Roots = appendUnique(d.Roots, normalizeRoot(r))
 			}
-			for _, t := range tags {
-				d.Tags = appendUnique(d.Tags, t)
-			}
+			d.Tags = config.NormalizeTags(d.Tags, tags)
 			for _, ig := range ignore {
 				d.Ignore = appendUnique(d.Ignore, ig)
 			}
