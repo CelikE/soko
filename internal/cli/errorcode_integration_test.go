@@ -259,7 +259,10 @@ func TestIntegration_CleanJSONPathMissing(t *testing.T) {
 		t.Fatalf("rm: %v", err)
 	}
 
-	out := runSoko(t, "clean", "--json", "--dry-run")
+	out, runErr := runSokoErr(t, "clean", "--json", "--dry-run")
+	if runErr == nil || runErr.Error() != "could not inspect 1 repo" {
+		t.Errorf("dry-run missing path error = %v, want incomplete inspection", runErr)
+	}
 	var entries []errEntry
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		t.Fatalf("parse: %v\n%s", err, out)

@@ -642,6 +642,23 @@ arrays for actual outcomes. Each failure includes `branch`, `error`, and
 a preview without execution outcomes. Only successful deletions enter the undo
 journal.
 
+Completeness policy: both `--dry-run` and execution return non-zero when any
+selected repository cannot be inspected (missing path: `path_missing`; existing
+non-Git directory or Git read failure: `git_failure`). Healthy repositories
+still appear in the preview and are deleted on confirmed/`--force` runs; failed
+ones are not touched. An all-valid empty cleanup succeeds, an all-uninspectable
+selection fails without prompting, and a mixed selection fails after processing
+healthy repos. Inspection failures are counted as repositories, **not** failed
+branch deletions. `--prune` may additionally fail independently and never
+prevents healthy branch deletion; failed branch deletions also return non-zero.
+Text and quiet modes retain per-repo failure rows on stdout; quiet hides only
+the summary. The non-zero error summary goes to stderr, and no successful
+deletion footer is printed for an incomplete run. JSON (including quiet) emits
+one parseable stdout array with per-repo `error` and `error_code` on failure;
+`deleted` / `failed` are present only for actual deletion outcomes. The error
+summary remains on stderr. `--dry-run --prune` previews branch deletion but
+still performs remote pruning; omit `--prune` for a mutation-free preview.
+
 `--select` opens the interactive picker (the one `soko go` uses) with every
 matched repo pre-checked; deselect the repos you want to spare with space, press
 enter, and only the chosen subset is touched. It can only ever *narrow* the set,
