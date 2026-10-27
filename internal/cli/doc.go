@@ -48,13 +48,7 @@ func newDocCmd() *cobra.Command {
 
 			// Apply fixes.
 			if fixFlag && len(toRemove) > 0 && cfg != nil {
-				for _, path := range toRemove {
-					var removeErr error
-					cfg, _, removeErr = config.RemoveRepoByPath(cfg, path)
-					if removeErr != nil {
-						return fmt.Errorf("fixing %s: %w", path, removeErr)
-					}
-				}
+				removeRegistryTargets(cfg, toRemove)
 				if saveErr := config.Save(cfg); saveErr != nil {
 					return fmt.Errorf("saving config after fix: %w", saveErr)
 				}
@@ -74,8 +68,8 @@ func newDocCmd() *cobra.Command {
 	return cmd
 }
 
-// runDocChecks performs all health checks and returns results, the loaded config, and paths to remove.
-func runDocChecks(ctx context.Context, fixFlag bool) ([]checkResult, *config.Config, []string) {
+// runDocChecks performs all health checks and returns results, the loaded config, and entries to remove.
+func runDocChecks(ctx context.Context, fixFlag bool) ([]checkResult, *config.Config, []config.RepoEntry) {
 	var results []checkResult
 
 	results = append(results, checkGit(ctx)...)
@@ -98,6 +92,28 @@ func runDocChecks(ctx context.Context, fixFlag bool) ([]checkResult, *config.Con
 	})
 
 	repoResults, toRemove := checkRepos(ctx, cfg, fixFlag)
+	if fixFlag && len(toRemove) > 0 {
+		selected := make(map[string]bool, len(toRemove))
+		for _, repo := range toRemove {
+			selected[entryKey(&repo)] = true
+		}
+		toRemove = registryRemovalTargets(cfg, toRemove)
+		removed := make(map[string]bool, len(toRemove))
+		for _, repo := range toRemove {
+			removed[entryKey(&repo)] = true
+		}
+		for i, repo := range cfg.Repos {
+			if removed[entryKey(&repo)] && !selected[entryKey(&repo)] {
+				repoResults[i] = checkResult{
+					Name:    repo.Name,
+					Status:  statusWarn,
+					Message: fmt.Sprintf("parent repo %q removed — removed from config (checkout untouched)", repo.WorktreeOf),
+					Fixable: true,
+					Fixed:   true,
+				}
+			}
+		}
+	}
 	results = append(results, repoResults...)
 	results = append(results, checkDuplicates(cfg)...)
 	results = append(results, checkShellInit()...)
@@ -157,8 +173,8 @@ func checkGit(ctx context.Context) []checkResult {
 	}}
 }
 
-// checkRepos validates each registered repo and returns results plus paths to remove.
-func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results []checkResult, toRemove []string) {
+// checkRepos validates each registered repo and returns results plus entries to remove.
+func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results []checkResult, toRemove []config.RepoEntry) {
 	for _, repo := range cfg.Repos {
 		if !pathExists(repo.Path) {
 			r := checkResult{
@@ -170,7 +186,7 @@ func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results 
 			if fixFlag {
 				r.Fixed = true
 				r.Message += " — removed from config"
-				toRemove = append(toRemove, repo.Path)
+				toRemove = append(toRemove, repo)
 			} else {
 				r.Message += fmt.Sprintf("\n    → run: soko remove %s", repo.Name)
 			}
@@ -188,7 +204,7 @@ func checkRepos(ctx context.Context, cfg *config.Config, fixFlag bool) (results 
 			if fixFlag {
 				r.Fixed = true
 				r.Message += " — removed from config"
-				toRemove = append(toRemove, repo.Path)
+				toRemove = append(toRemove, repo)
 			} else {
 				r.Message += fmt.Sprintf("\n    → run: soko remove %s", repo.Name)
 			}

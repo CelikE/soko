@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,6 +100,112 @@ func TestIntegration_DocFixDuplicateNames(t *testing.T) {
 			// A repeated repair must leave the surviving entries intact.
 			runSoko(t, args...)
 			assertConfigData(want)
+		})
+	}
+}
+
+func TestIntegration_DocFixMissingBaseWithLiveWorktree(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			testEnv(t)
+			root := t.TempDir()
+			base := filepath.Join(root, "api")
+			admin := filepath.Join(root, "admin")
+			linked := filepath.Join(root, "linked")
+			away := filepath.Join(root, "api-away")
+			other := filepath.Join(root, "other")
+			cmd := exec.Command("git", "init", "-b", "main", "--separate-git-dir", admin, base)
+			cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("init separate-admin repo: %v\n%s", err, out)
+			}
+			wtGit(t, base, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "initial")
+			runSokoAt(t, base, "init")
+			wtGit(t, base, "worktree", "add", "-b", "feature", linked)
+			runSokoAt(t, linked, "init", "--worktree")
+			initRepo(t, other)
+			runSokoAt(t, other, "init")
+			cfg := loadRegistry(t)
+			if len(cfg.Repos) != 3 || cfg.Repos[1].WorktreeOf != cfg.Repos[0].Name {
+				t.Fatalf("initial registry = %+v", cfg.Repos)
+			}
+			cfg.Aliases = map[string]string{"ls": "list"}
+			cfg.Repos[2].Meta = map[string]string{"note": "keep me"}
+			if err := config.Save(cfg); err != nil {
+				t.Fatal(err)
+			}
+			family := cfg.Repos[1].Name
+			if out := runSoko(t, "list", "--repo", family, "--json"); !strings.Contains(out, `"worktree_of": "api"`) {
+				t.Fatalf("family before repair = %s", out)
+			}
+
+			if err := os.Rename(base, away); err != nil {
+				t.Fatal(err)
+			}
+			if out := runSoko(t, "doc", "--json"); strings.Contains(out, `"fixed": true`) {
+				t.Fatalf("doc without --fix claimed repair: %s", out)
+			}
+			if len(loadRegistry(t).Repos) != 3 {
+				t.Fatal("doc without --fix changed registry")
+			}
+			if err := os.Rename(away, base); err != nil {
+				t.Fatal(err)
+			}
+			runSoko(t, "list", "--repo", family, "--json") // restoring base alone preserves family before repair
+			if err := os.Rename(base, away); err != nil {
+				t.Fatal(err)
+			}
+
+			args := []string{"doc", "--fix"}
+			if format == "json" {
+				args = append(args, "--json")
+			}
+			out := runSoko(t, args...)
+			if format == "json" {
+				var rows []struct {
+					Name, Message string
+					Fixed         bool
+				}
+				if err := json.Unmarshal([]byte(out), &rows); err != nil {
+					t.Fatalf("doc JSON: %v\n%s", err, out)
+				}
+				var fixed []string
+				for _, row := range rows {
+					if row.Fixed {
+						fixed = append(fixed, row.Name)
+						if !strings.Contains(row.Message, "removed from config") {
+							t.Errorf("fixed row lacks removal explanation: %+v", row)
+						}
+					}
+				}
+				if len(fixed) != 2 || fixed[0] != "api" || fixed[1] != family {
+					t.Fatalf("fixed rows = %v, want api and %s", fixed, family)
+				}
+			} else if !strings.Contains(out, "api/feature: parent repo") || strings.Count(out, "removed from config") != 2 {
+				t.Fatalf("doc text did not report both removals: %s", out)
+			}
+			saved := loadRegistry(t)
+			if len(saved.Repos) != 1 || saved.Repos[0].Name != "other" || saved.Repos[0].Meta["note"] != "keep me" || saved.Aliases["ls"] != "list" {
+				t.Fatalf("registry after repair = %+v", saved)
+			}
+			if _, err := os.Stat(linked); err != nil {
+				t.Fatalf("linked checkout was touched: %v", err)
+			}
+			if status := wtGit(t, linked, "status", "--porcelain"); status != "" {
+				t.Fatalf("linked checkout changed: %s", status)
+			}
+			if out := runSoko(t, "list", "--json"); strings.Contains(out, `"worktree_of"`) || !strings.Contains(out, `"name": "other"`) {
+				t.Fatalf("registry list after repair = %s", out)
+			}
+			if _, err := runSokoErr(t, "list", "--repo", family, "--json"); err == nil || strings.Contains(err.Error(), "parent repo") {
+				t.Fatalf("family query after removal = %v, want unregistered family without dangling parent", err)
+			}
+			if err := os.Rename(away, base); err != nil {
+				t.Fatal(err)
+			}
+			if len(loadRegistry(t).Repos) != 1 {
+				t.Fatal("restoring base directory changed repaired registry")
+			}
 		})
 	}
 }
