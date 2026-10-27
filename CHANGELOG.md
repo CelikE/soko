@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.23.0 — 2026-10-27
+
 ### Features
 
 - Diagnose missing and ambiguous `worktree_of` parent references in `soko doc`, including JSON and quiet output, with manual repair guidance that leaves registrations and checkout contents unchanged (issue #352).
