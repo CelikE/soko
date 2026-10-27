@@ -198,6 +198,7 @@ func newTagListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all tags in use",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			w := cmd.OutOrStdout()
 

@@ -62,6 +62,32 @@ alias (see
 and is not a built-in command, it is expanded before execution.
 Built-in commands always take priority over aliases.
 .\" ----------------------------------------------------------------------
+.SH "ARGUMENT AND FLAG CONTRACTS"
+Commands without positional operands reject extras, including version extra.
+Shell-init rejects simultaneously enabled
+.B \-\-fish
+and
+.BR \-\-pwsh ;
+neither enabled selects Bash/Zsh. Explicit false disables a boolean mode.
+.PP
+Status predicates dirty, clean, ahead, and behind combine with OR, not AND,
+within the selected repositories. Clean means no uncommitted changes/conflicts
+and no ahead/behind commits, with a successful read. Thus dirty plus clean can
+still omit ahead-only, behind-only, or unreadable repositories.
+.PP
+Global flags may precede or follow commands. Repeated scalar flags use the last
+value; repeated tag values accumulate with OR, and metadata filters with AND.
+Use
+.B \-\-
+before leading-hyphen operands. Everything after exec's
+.B \-\-
+belongs to the child, including flags, empty strings, and whitespace.
+This boundary does not bypass argument counts. Native Git name/revision
+semantics remain operation-specific. Version with JSON remains plain text.
+.PP
+See docs/cli-contracts.md in the source distribution for the complete command
+cardinality and flag composition/precedence inventory.
+.\" ----------------------------------------------------------------------
 .SH GLOBAL OPTIONS
 These persistent options are accepted by every command.
 .TP

@@ -38,6 +38,7 @@ func newConfigPathCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "path",
 		Short: "Print the config file path",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, err := config.Path()
 			if err != nil {
@@ -60,6 +61,7 @@ func newConfigEditCmd() *cobra.Command {
 EDITOR supports shell-style quotes and arguments, for example: EDITOR="code --wait".
 Edit a private copy, validate its YAML, and commit only if the live config has
 not changed. On failure, the edited copy is kept for recovery.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 

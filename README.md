@@ -125,6 +125,21 @@ man -l docs/soko.1       # preview without installing
 | `soko shell-init` | Print shell integration hook |
 | `soko version` | Print the soko version |
 
+### Argument and flag contracts
+
+Commands without positional operands reject extras (including `version extra`).
+`shell-init --fish` and `--pwsh` cannot both be enabled; with neither enabled,
+output is Bash/Zsh.
+Status predicates `--dirty`, `--clean`, `--ahead`, and `--behind` combine with
+**OR** within the selected repos, not AND. Clean means no local changes and no
+ahead/behind commits; failed reads never count as clean.
+
+Use `--` before leading-hyphen operands (`soko status -- -api`). Everything after
+`exec --` belongs to the child, including flags. Global flags may precede or
+follow commands; repeated scalar flags use the last value. `version --json`
+remains plain text, as documented below. See [CLI contracts](docs/cli-contracts.md)
+for the full argument inventory, flag composition, and compatibility decisions.
+
 ## Flags
 
 | Flag | Scope | Description |

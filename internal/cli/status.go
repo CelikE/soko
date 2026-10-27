@@ -21,8 +21,12 @@ const significantBehindThreshold = 5
 // newStatusCmd creates the cobra command for soko status.
 func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               "status [repos...]",
-		Short:             "Show status of all registered repos",
+		Use:   "status [repos...]",
+		Short: "Show status of all registered repos",
+		Long: `Show status of all registered repos, optionally narrowed by name and selectors.
+--dirty, --clean, --ahead, and --behind combine with OR, not AND.
+--clean means no uncommitted changes and no ahead/behind commits; read errors
+never count as clean. Tag, metadata, and family selectors narrow the input set.`,
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: repoNameCompletionFunc(),
 		RunE: func(cmd *cobra.Command, args []string) error {

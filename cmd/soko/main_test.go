@@ -67,6 +67,16 @@ func TestRunBuiltinBeforeAlias(t *testing.T) {
 	}
 }
 
+func TestRunAliasVersionContract(t *testing.T) {
+	setAliasConfig(t, "v", "version")
+	if err := runWithArgs(t, "v", "--json"); err != nil {
+		t.Fatalf("version alias rejected inherited flag: %v", err)
+	}
+	if err := runWithArgs(t, "v", "extra"); err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("version alias bypassed argument validation: %v", err)
+	}
+}
+
 func setAliasConfig(t *testing.T, name, command string) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

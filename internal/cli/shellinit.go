@@ -173,8 +173,10 @@ Fish:
   soko shell-init --fish | source
 
 PowerShell:
-  soko shell-init --pwsh | Invoke-Expression`,
-		Args: func(_ *cobra.Command, args []string) error {
+  soko shell-init --pwsh | Invoke-Expression
+
+--fish and --pwsh cannot both be enabled. With neither enabled, output Bash/Zsh.`,
+		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				hints := map[string]string{
 					"fish":       "--fish",
@@ -188,6 +190,11 @@ PowerShell:
 					return fmt.Errorf("unknown argument %q — bash/zsh is the default, just run: soko shell-init", args[0])
 				}
 				return fmt.Errorf("unknown argument %q — use --fish or --pwsh for non-bash/zsh shells", args[0])
+			}
+			fish, _ := cmd.Flags().GetBool("fish")
+			pwsh, _ := cmd.Flags().GetBool("pwsh")
+			if fish && pwsh {
+				return fmt.Errorf("--fish and --pwsh are mutually exclusive")
 			}
 			return nil
 		},
