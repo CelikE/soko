@@ -815,6 +815,16 @@ func TestMissingRepoGuards(t *testing.T) {
 	}
 }
 
+func TestReadErrorBadge(t *testing.T) {
+	m := New(&Config{})
+	m.Update(rowsMsg{rows: []Row{{Name: "broken", Path: "/broken", StatusText: "✗ error", Severity: SevCrit, ReadError: true, Reasons: []string{"read error"}}}})
+	m.width = 120
+	out := m.View()
+	if !strings.Contains(out, "✗ error") || strings.Contains(out, "✓ ok") || !strings.Contains(out, "1 crit") || !strings.Contains(out, "read error") {
+		t.Errorf("dashboard rendered false healthy badge: %s", out)
+	}
+}
+
 // TestWorktreeMarker marks linked worktrees in the REPO column and names the
 // parent in the detail line.
 func TestWorktreeMarker(t *testing.T) {

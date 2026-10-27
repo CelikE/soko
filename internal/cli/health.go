@@ -20,6 +20,7 @@ const detachedBranch = "(detached)"
 // load-bearing, and live here so they are auditable and unit-testable.
 const (
 	scoreMissing           = 100 // path gone from disk — always crit
+	scoreReadError         = 100 // Git state unreadable — not a verified clean checkout
 	scoreConflict          = 50  // merge conflicts block work
 	scoreDetached          = 40  // detached HEAD blocks work
 	scoreSignificantBehind = 25  // bonus once Behind crosses the threshold
@@ -136,6 +137,9 @@ aggregating workspace totals. Read-only: it never fetches or mutates a repo.`,
 func scoreRepo(r *repoStats) (score int, severity string, reasons []string) {
 	if r.missing {
 		return scoreMissing, sevCrit, []string{"missing"}
+	}
+	if r.readError {
+		return scoreReadError, sevCrit, []string{"read error"}
 	}
 
 	crit := false

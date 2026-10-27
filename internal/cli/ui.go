@@ -143,6 +143,7 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 
 		st := repoStats{
 			missing:   r.err == "path not found",
+			readError: r.err != "" && r.err != "path not found",
 			hasRemote: true, // not known from status cheaply; assume true
 			changes:   r.changes,
 		}
@@ -176,6 +177,7 @@ func collectUIRows(cmd *cobra.Command, repos []config.RepoEntry, fetch bool) []u
 			Reasons:    reasons,
 			WorktreeOf: r.worktreeOf,
 			Missing:    st.missing,
+			ReadError:  st.readError,
 		}
 	}
 	return rows
