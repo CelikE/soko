@@ -48,6 +48,8 @@ func newCtxCmd() *cobra.Command {
 		Short: "Save and restore workspace contexts",
 		Long: `Save and restore the state of the whole workspace under a named context:
 which branch each repo is on, plus uncommitted work (stashed per repo).
+On a successful switch, tracked changes return unstaged even if staged at save
+time; untracked files return as untracked. Index staging is not preserved.
 
 Switch between client projects, oncall firefighting, and feature work in one
 command — no more visiting each repo to stash, note the branch, and reverse
@@ -89,7 +91,10 @@ func newCtxSaveCmd() *cobra.Command {
 		Short: "Record branch per repo and stash dirty trees",
 		Long: `Record the current branch of every selected repo under a named context, and
 stash uncommitted changes (including untracked files) in the repos that have
-any. Clean repos are recorded without a stash.
+any. Clean repos are recorded without a stash. A successful ctx switch restores
+tracked file contents but not their staged state; tracked edits return unstaged,
+and untracked files return as untracked. If save fails, rollback tries to restore
+both the original index and working tree, retaining the stash as a backup.
 
 Re-saving an existing name requires --force and overwrites the recorded
 branches; stashes from the earlier save stay in their repos.`,
@@ -339,6 +344,11 @@ backups: deleting a numeric stash position could consume an unrelated entry
 after concurrent stash activity. Successful applications are recorded in Git
 refs/soko/ctx-restored/<stash-oid> so a later switch does not reapply them.
 
+Switch restores file contents, not index staging: staged-only and mixed
+staged/unstaged tracked edits return unstaged. Untracked files return as
+untracked. Stage files again with git add if needed. This contents-only policy
+avoids --index restoration failures; conflicting applies retain their backup.
+
 A repo that is dirty right now is refused and left exactly as it is — save the
 current state first (soko ctx save <other-name>) or clean it up, then switch
 again. Missing ownership fails that member without blocking the rest. Older
@@ -501,6 +511,7 @@ func ctxSwitchRepo(ctx context.Context, index int, repo *config.RepoEntry, cr *c
 
 	r.message = cr.Branch
 	if needsApply {
+		// Contents-only by design: preserve work, not saved index staging.
 		if _, err := git.Run(ctx, repo.Path, "stash", "apply", cr.StashOID); err != nil {
 			// No positional pop/drop follows application. The owned stash and
 			// every unrelated entry remain recoverable, including on conflicts.
