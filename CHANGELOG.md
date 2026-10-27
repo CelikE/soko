@@ -11,6 +11,7 @@
 
 ### Maintenance
 
+- Add disposable CLI fault experiments for context-save rollback, journal append/reversal overlap, denied writes, interruption recovery, partial undo retries, and submodule/ignored-file restores; retain exact JSON evidence in opt-in CI and document unavailable fault prerequisites (issue #355).
 - Define CLI argument and flag contracts: reject unused positional arguments on zero-argument leaves and simultaneously enabled shell-init modes; retain text-only version output, OR-composed status filters, repeated flag semantics, and `--` passthrough (issue #354).
 - Make CI, full-platform, and cross-platform race workflows manual-only; run checks locally by default and retain opt-in Actions runs without changing release publishing.
 - Document command-specific JSON capabilities, empty results, partial-error policies, interactive exceptions, and the intentional `--perf` `repos`/`timing` envelope; verify published examples against CLI execution (issue #353).
