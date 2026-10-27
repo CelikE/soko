@@ -172,7 +172,7 @@ func undoClean(ctx context.Context, w io.Writer, e *journal.Entry) error {
 			failed++
 			continue
 		}
-		if _, err := git.Run(ctx, b.Path, "rev-parse", "--verify", "--quiet", b.Branch); err == nil {
+		if _, err := git.Run(ctx, b.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+b.Branch); err == nil {
 			output.Warn(w, fmt.Sprintf("%s: branch %s already exists, skipping", b.Repo, b.Branch))
 			continue
 		}
