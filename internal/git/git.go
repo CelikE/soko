@@ -58,6 +58,12 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+// StatusPorcelainZ returns uncommitted changes as raw NUL-delimited porcelain v1.
+// Unlike Run, it does not trim stdout: paths may contain whitespace or newlines.
+func StatusPorcelainZ(ctx context.Context, dir string) (string, error) {
+	return run(ctx, dir, "status", "--porcelain=v1", "-z")
+}
+
 // Match is one git grep hit: a file path, a 1-based line number, and the
 // matched line text. In files-only mode Line is 0 and Text is empty.
 type Match struct {
