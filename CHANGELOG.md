@@ -4,6 +4,7 @@
 
 ### Features
 
+- Resolve `soko open` from nested directories by registered checkout root, keeping linked worktrees and submodules distinct from their parents (issue #351).
 - Keep successful activity while returning nonzero for incomplete `soko report` collections; expose per-repository errors in JSON and text without confusing failures with inactivity (issue #349).
 - Return non-zero for incomplete `soko clean` repository inspection in previews and execution, while preserving healthy deletions, exact undo records, and per-repo JSON diagnostics (issue #348).
 

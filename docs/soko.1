@@ -831,7 +831,11 @@ for the current checkout's family.
 .TP
 .B soko open [name]
 Open a repository in the browser. Auto-detects GitHub, GitLab, or
-Bitbucket from the remote URL. With
+Bitbucket from the remote URL. Without a name or tag, selects the registered
+checkout containing the current directory, including nested directories.
+Linked worktrees and submodules must be registered separately; an unregistered
+checkout never falls back to a registered parent. Outside a Git checkout, use
+an explicit name or tag. With
 .BI \-\-tag " tag"
 it opens every matching repository. A repository name and
 .B \-\-tag
