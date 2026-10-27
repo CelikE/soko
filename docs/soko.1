@@ -1,6 +1,6 @@
 .\" Manpage for soko.
 .\" Contact: https://github.com/CelikE/soko
-.TH SOKO 1 "2026-10-14" "soko 0.22.0" "soko Manual"
+.TH SOKO 1 "2026-10-27" "soko 0.22.0" "soko Manual"
 .\" ----------------------------------------------------------------------
 .SH NAME
 soko \- all your git repositories, one command
@@ -66,8 +66,9 @@ Built-in commands always take priority over aliases.
 These persistent options are accepted by every command.
 .TP
 .B \-\-json
-Emit machine-readable JSON instead of the human-readable table. JSON
-output is never colorized and is suitable for scripting. Some commands
+Emit machine-readable JSON on supported command paths; global inheritance
+does not guarantee serialization. See JSON OUTPUT for capabilities and empty
+shapes. JSON output is never colorized. Some commands
 restrict
 .B \-\-json
 (for example,
@@ -84,15 +85,204 @@ Suppress hints, progress indicators, and trailing summary lines; print
 only essential output. May also be enabled with the
 .B SOKO_QUIET
 environment variable (an explicit flag always wins over the variable).
+Supported JSON result documents and errors are never suppressed.
 .TP
 .B \-\-perf
-After a parallel command, report per-repository and aggregate timing.
+Report per-repository and aggregate timing for status, fetch, pull, sync,
+and exec. With JSON, wrap results in a repos/timing object (see JSON OUTPUT).
 May also be enabled with the
 .B SOKO_PERF
 environment variable (an explicit flag always wins).
 .TP
 .BR \-\-help ", " \-h
 Show help for soko or any subcommand and exit.
+.\" ----------------------------------------------------------------------
+.SH "JSON OUTPUT"
+JSON is a command-specific interface, not a universal effect of the inherited
+.BR \-\-json
+flag. It changes rendering, not side effects: open still opens browser tabs,
+and scan still registers repositories unless dry-run is requested.
+Supported result paths write one uncolored stdout document, even with
+.BR \-\-quiet .
+Quiet suppresses hints, progress, and summaries, not results or errors;
+it never supplies confirmation. Capture stdout and stderr separately and
+check the process exit status (0 or 1). Fatal validation, configuration,
+or setup errors may occur before any document is written.
+.SS "Command capabilities"
+An array below is a bare top-level array, empty as [] unless noted.
+Fatal errors print a diagnostic to stderr and exit 1; there is no universal
+JSON error object. Row errors do not necessarily cause exit 1. Quiet preserves
+every supported JSON shape below. Only status, fetch, pull, sync, and exec
+support perf; other commands accept the flag without adding timing.
+.TP
+.B list
+Repository array; empty []. Registry/selector errors are fatal.
+.TP
+.B status; remotes; branch [name]
+Status, remote/upstream, or branch array; empty []. Per-repository inspection
+errors appear in error without failing the command; branch overview also
+includes error_code. Missing remote/upstream is a diagnostic, not a failed run.
+.TP
+.B diff; grep; report; branch stale
+Changed-repository, search-match, active-repository, or stale-branch array;
+empty []. Omit clean, no-match, inactive, or no-finding repositories
+respectively.
+Failed inspections remain as error/error_code rows and cause exit 1 even when
+successful rows remain. A report with no activity is not a failed report.
+.TP
+.B fetch; pull; sync; branch switch; stash; stash pop
+Action/outcome array; empty []. Failures carry error/error_code and cause
+exit 1; skipped or attention states do not automatically fail the run.
+Stash failures use status "failed"; repositories with nothing to stash/pop
+are omitted. Branch switch excludes linked worktrees.
+.TP
+.B exec \-\- command
+Array with exit_code, stdout, and stderr; empty []. Nonzero child exits
+cause soko to exit 1, not the child's exit code. Missing-path/spawn errors
+also carry error/error_code.
+.TP
+.B stats; health
+Stats is an aggregate object, including when empty: counters are zero and
+activity_days remains 30. Optional missing/errors count unreadable repos;
+they are not counted as clean. Health is a ranked array, empty [], with
+score/severity/reasons; missing/read errors have critical reasons. Collection
+problems do not fail either command.
+.TP
+.B clean \-\-dry-run; clean \-\-force; prune \-\-dry-run; prune \-\-force
+Planned/executed cleanup or affected-registration array; empty []. Clean
+inspection, pruning, and deletion errors carry error/error_code and cause
+exit 1; execution adds deleted/failed outcomes. Prune registry/save errors
+are fatal. JSON requires force or dry-run for normal runs. Select cannot
+be combined with JSON on clean, prune, or remove.
+.TP
+.B init; scan directory
+Init returns a repository object with already_registered, including on
+repeat registration. Scan returns an array, empty []; row error does not
+fail the scan. Root/walk/save errors are fatal.
+.TP
+.B remove name; remove \-\-path; remove \-\-all
+Removed-registration array after removal. Empty all emits a text hint,
+or no stdout with quiet, not a JSON document. Lookup/save errors are fatal.
+Use all with force to avoid prompting.
+.TP
+.B apply file \-\-to path; open
+Plan/write-result or opened-repository array. Apply returns [] for empty
+registry/tag selections, but unmatched positional repositories emit a hint
+or no stdout with quiet. Open has the same no-document behavior for an
+unmatched tag. Row error has no error_code; apply plan errors exit 0,
+failed writes and failed opens exit 1. JSON writes require force. Fatal
+input/target errors may occur before rendering.
+.TP
+.B pr
+Pull-request array, empty []. Git/gh/auth errors are fatal; reaching the
+limit is only a stderr hint, suppressed by quiet.
+.TP
+.B cd name; go [filter]
+Selected name/path object. No selection is an error, not []. JSON does not
+request shell navigation. Go still uses its picker with a TTY; without a
+TTY exactly one matching repo is required. Selection/path errors are fatal.
+.TP
+.B worktree add; worktree rm; worktree list; worktree adopt
+Add/rm return a created/removed worktree object. List/adopt return inventory/
+registration arrays, empty []. Row error records remain; failed family
+inventory/adoption exits 1, while other list row states need not fail.
+Git/registry/save errors in add/rm are fatal.
+.TP
+.B ctx list; snapshot list; ctx show; snapshot show
+List returns a summary array, empty []; show returns a named object with
+repos. Snapshot list retains unreadable files as error rows without failing.
+Directory/config/lookup errors are fatal; an unknown name is not an empty
+result.
+.TP
+.B ctx save; ctx switch; snapshot save; snapshot restore
+Per-repository outcome array when processed. Empty save selections emit a
+hint or no stdout with quiet, not JSON. Row error/error_code accompanies
+partial failure and exit 1. Save with no successful capture is fatal before
+JSON.
+.TP
+.B annotate [repo]; annotate \-\-list; tag list; alias list
+Metadata object (empty meta is {}), annotated-repository array, tag-count
+array, or alias array. Empty lists return []. Target/config errors are fatal.
+.TP
+.B discover; discover status; config path; config get; config set; config list
+Settings, path, key/value, before/after, or effective-settings object;
+defaults are objects, not []. Unconfigured discovery is {"enabled":false}.
+Key/config/save errors are fatal.
+.TP
+.B doc
+Check array with name/status/message/fixable/fixed; checks still run with no
+registered repositories. Check status may be error with exit 0. Failed
+repair persistence is fatal.
+.TP
+.B undo \-\-list
+Journal array with Go field names (Op, Time, Branches, etc.); an absent
+journal returns null. Journal read errors are fatal.
+.TP
+.B Commands without JSON result semantics
+UI is a terminal dashboard (requires terminal input/output); use status for
+automation. Config edit runs the external editor. Tag mutations, alias
+set/remove,
+annotation mutations, discover on/off, ctx/snapshot drop, and undo execution
+remain text confirmations/diagnostics; quiet may leave no stdout. Normal
+mutation errors still exit 1.
+.PP
+Shell-init and completion bash/fish/powershell/zsh generate shell scripts,
+not JSON. Version, help, and command-group usage remain text. Accepting
+the inherited JSON flag does not serialize any of these outputs.
+Do not substitute null or {} when a no-op path produces no document.
+.SS "Array and object examples"
+With one registered repo, list JSON is a bare array:
+.PP
+.nf
+[{"name":"api","path":"/repos/api"}]
+.fi
+.PP
+An empty status selection returns []. Empty stats returns an object:
+.PP
+.nf
+{
+  "repos":0,"tags":0,"total_commits":0,"total_branches":0,
+  "total_size_bytes":0,"clean":0,"dirty":0,"behind_remote":0,
+  "stale_branches":0,"stale_repos":0,"no_remote":0,
+  "activity_days":30,"recent_commits":0,
+  "active_repos":0,"active_authors":0
+}
+.fi
+.SS "Intentional perf envelope"
+With JSON, perf wraps status/fetch/pull/sync and nonempty exec arrays in an
+object with repos and timing. Measured rows may add duration_ms (omitted
+when rounded to zero). Timing includes wall_ms (elapsed collection time),
+git_ms (sum of per-repo durations, including failures or exec child execution),
+repos (timed row count), concurrency (configured limit, currently 8, also for
+exec sequential mode), and slowest (up to 25 rows, slowest first). Status
+filters also filter timed rows. Quiet does not remove timing.
+.PP
+An empty status/fetch/pull/sync selection with JSON and perf returns:
+.PP
+.nf
+{
+  "repos":[],
+  "timing":{"wall_ms":0,"git_ms":0,"repos":0,
+            "concurrency":8,"slowest":[]}
+}
+.fi
+.PP
+Empty exec currently returns bare [] even with perf; no child starts.
+Text perf appends a stdout timing block only when rows were timed.
+SOKO_PERF can enable the envelope implicitly; use an explicit
+.B \-\-perf=false
+to pin the bare-array schema. For example:
+.PP
+.nf
+soko status \-\-json \-\-perf=false | jq '.[].name'
+soko status \-\-json \-\-perf | jq '.repos[].name'
+.fi
+.PP
+Per-repository error_code is command-specific, not universal; exec child
+failures instead use exit_code/stderr. A partial result can retain successful
+rows while the command exits 1. See EXIT STATUS and the individual commands.
+Clean dry-run with prune still prunes remotes; omit prune for a read-only
+preview.
 .\" ----------------------------------------------------------------------
 .SH "COMMON OPTIONS"
 Several options recur across many commands and share identical meaning.
@@ -1221,7 +1411,7 @@ Failure. Any error returned by a command is printed to standard error as
 .RI "  \[u2717] " message
 and the process exits 1. There are no other process exit codes.
 .PP
-Per-repository JSON failures additionally carry a stable
+Commands documented as providing error_code use a stable
 .I error_code
 string field \(em one of
 .IR path_missing ", " no_upstream ", " dirty_tree ", "

@@ -17,7 +17,12 @@ func NewRootCmd(version string) *cobra.Command {
 		Short: "All your repos, one command.",
 		Long: `soko (倉庫) gives developers instant visibility and control across all
 their git repositories from a single command. Register repos with soko init,
-then run soko status from anywhere to see the state of every tracked repo.`,
+then run soko status from anywhere to see the state of every tracked repo.
+
+JSON support is command-specific; inheriting --json does not guarantee a JSON
+result (for example, version and shell/completion generators remain text).
+See the JSON OUTPUT section in man soko or the README for command capabilities,
+empty results, interactive restrictions, and the --perf repos/timing envelope.`,
 		Example: `  soko init      Register the current repo
   soko status    Show status of all registered repos
   soko list      List all registered repos`,
@@ -45,9 +50,9 @@ then run soko status from anywhere to see the state of every tracked repo.`,
 		},
 	}
 
-	cmd.PersistentFlags().Bool("json", false, "output in JSON format")
+	cmd.PersistentFlags().Bool("json", false, "output JSON on supported commands (see man soko: JSON OUTPUT)")
 	cmd.PersistentFlags().BoolP("quiet", "q", false, "suppress hints, progress, and summary lines")
-	cmd.PersistentFlags().Bool("perf", false, "report per-repo and aggregate timing after a parallel command")
+	cmd.PersistentFlags().Bool("perf", false, "report timing for status/fetch/pull/sync/exec (wraps JSON in repos/timing)")
 
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newScanCmd())
