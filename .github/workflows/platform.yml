@@ -5,12 +5,16 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: full-platform-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  distribution:
+    uses: ./.github/workflows/distribution-audit.yml
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -18,16 +22,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
-      - name: Install Fish on macOS
+      - name: Install completion prerequisites on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fish zsh bash-completion
+
+      - name: Install completion prerequisites on macOS
         if: runner.os == 'macOS'
-        run: brew install fish
+        run: brew install fish bash-completion
 
       - name: Add Git for Windows Unix tools to PATH
         if: runner.os == 'Windows'
@@ -36,6 +46,32 @@ jobs:
 
       - name: Test
         run: python .github/scripts/ci_test.py --timings "${{ runner.temp }}/test-timings.jsonl"
+
+      - name: Record audit source and native tools
+        shell: pwsh
+        run: |
+          git rev-parse HEAD
+          git --version
+          go version
+          $PSVersionTable | Format-List
+
+      - name: Verify PowerShell audit prerequisites and regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Get-Command pwsh
+          go test ./internal/cli -run '^TestIntegration_PowerShell(ExactNavigation|Completion)$' -count=1 -v
+
+      - name: Verify native filesystem boundaries
+        run: go test ./internal/config -run '^(TestPathWithinRoot|TestShouldDiscover)$' -count=1 -v
+
+      - name: Verify Unix TAB completion prerequisites
+        if: runner.os != 'Windows'
+        run: |
+          command -v bash zsh fish
+          test -f /usr/share/bash-completion/bash_completion || test -f "$(brew --prefix)/etc/bash_completion"
+          go test ./internal/cli -run '^TestTerminalAuditShellCompletion$' -count=1 -v
 
       - name: Upload test timings
         if: always()

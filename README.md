@@ -75,6 +75,11 @@ other manual:
 man soko
 ```
 
+The published v0.22.0 Homebrew cask omits the manpage. For that release,
+install it from a source checkout with `make man` (below), or use the Unix
+installer. The release configuration includes the manpage for future casks;
+no new release is implied by this source change.
+
 From a source checkout, install or preview it directly:
 
 ```bash

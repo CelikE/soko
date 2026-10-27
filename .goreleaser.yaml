@@ -58,6 +58,8 @@ homebrew_casks:
     homepage: https://github.com/CelikE/soko
     description: A fast CLI to manage multiple git repositories at once.
     directory: Casks
+    manpages:
+      - man/soko.1
     hooks:
       post:
         install: |

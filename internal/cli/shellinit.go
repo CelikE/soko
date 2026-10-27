@@ -85,11 +85,11 @@ function __soko_nav_hook {
     }
     $navFile = Join-Path (Join-Path $base "soko") ".nav.$env:SOKO_NAV_SESSION"
 
-    if (Test-Path $navFile) {
-        $target = (Get-Content $navFile -Raw).Trim()
-        Remove-Item $navFile -Force
-        if (Test-Path $target -PathType Container) {
-            Set-Location $target
+    if (Test-Path -LiteralPath $navFile) {
+        $target = Get-Content -LiteralPath $navFile -Raw -Encoding utf8
+        if ($target -and (Test-Path -LiteralPath $target -PathType Container)) {
+            Set-Location -LiteralPath $target -ErrorAction Stop
+            Remove-Item -LiteralPath $navFile -Force
         }
     }
 }

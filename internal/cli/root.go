@@ -26,8 +26,9 @@ empty results, interactive restrictions, and the --perf repos/timing envelope.`,
 		Example: `  soko init      Register the current repo
   soko status    Show status of all registered repos
   soko list      List all registered repos`,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		SilenceUsage:       true,
+		SilenceErrors:      true,
+		PersistentPostRunE: finishShellCompletion,
 		// Read --quiet/--perf (and their SOKO_QUIET/SOKO_PERF fallbacks) once for
 		// every subcommand and flip the output gates before any command runs.
 		PersistentPreRunE: func(c *cobra.Command, _ []string) error {

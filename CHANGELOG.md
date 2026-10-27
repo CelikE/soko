@@ -11,6 +11,8 @@
 
 ### Maintenance
 
+- Add real-shell TAB and PowerShell completion-engine checks, native filesystem-boundary controls, and an opt-in Linux/macOS/Windows audit matrix (issue #357).
+- Add opt-in, read-only live GitHub PR checks and disposable native release archive, installer, Homebrew, winget and Scoop validation (issue #358).
 - Add Unix PTY regression coverage for dashboard pull/undo safety, selection narrowing, interactive display and controlled fetch overlap (issue #356).
 - Add disposable CLI fault experiments for context-save rollback, journal append/reversal overlap, denied writes, interruption recovery, partial undo retries, and submodule/ignored-file restores; retain exact JSON evidence in opt-in CI and document unavailable fault prerequisites (issue #355).
 - Define CLI argument and flag contracts: reject unused positional arguments on zero-argument leaves and simultaneously enabled shell-init modes; retain text-only version output, OR-composed status filters, repeated flag semantics, and `--` passthrough (issue #354).
@@ -23,6 +25,9 @@
 
 ### Bug Fixes
 
+- Preserve exact PowerShell navigation targets, including trailing whitespace and literal brackets; consume requests only after successful navigation (issue #357).
+- Keep unmatched PowerShell repository completions unchanged instead of raising an empty `CompletionResult` conversion error or falling back to filenames (issue #357).
+- Include the archived manpage in future generated Homebrew casks; published v0.22.0 casks require manual manpage installation (issue #358).
 - Preserve trailing spaces and newlines in registered checkout paths when bash, zsh, or fish shell hooks handle `soko cd` and `soko go`; retain invalid navigation requests for retry (issue #347).
 - Discover eligible repositories beneath a configured filesystem root (`soko discover on --root /`) while preserving path-boundary and ignore-policy checks (issue #346).
 - Report failed `soko clean --prune` operations with per-repository errors and a non-zero exit, without losing independent branch deletions or successful sibling prunes (issue #345).

@@ -5,12 +5,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 // Exercise emitted integration in real shells; comparing stdout verbatim is
 // essential because trimming the cwd would hide the trailing-whitespace bug.
 func TestIntegration_ShellNavigationPreservesWhitespace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix filename semantics; PowerShell native paths have separate coverage")
+	}
 	binary := filepath.Join(t.TempDir(), "soko")
 	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "../../cmd/soko")
 	if out, err := build.CombinedOutput(); err != nil {
