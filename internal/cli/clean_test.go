@@ -116,6 +116,122 @@ func TestIntegration_CleanForce(t *testing.T) {
 	}
 }
 
+func TestIntegration_CleanPruneOutcomes(t *testing.T) {
+	testEnv(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	base := t.TempDir()
+	broken := filepath.Join(base, "broken")
+	healthy := filepath.Join(base, "healthy")
+	initRepoWithBranches(t, broken, []string{"merged"})
+	initRepoWithBranches(t, healthy, []string{"merged"})
+	runSokoInit(t, broken)
+	runSokoInit(t, healthy)
+
+	runGit(t, broken, "remote", "add", "origin", filepath.Join(base, "absent.git"))
+	remote := filepath.Join(base, "remote.git")
+	runGit(t, base, "init", "--bare", remote)
+	runGit(t, healthy, "remote", "add", "origin", remote)
+	runGit(t, healthy, "update-ref", "refs/remotes/origin/gone", gitIn(t, healthy, "rev-parse", "HEAD"))
+	if got := gitIn(t, healthy, "show-ref", "--verify", "refs/remotes/origin/gone"); got == "" {
+		t.Fatal("fixture missing stale remote ref")
+	}
+
+	out, err := runSokoErr(t, "clean", "--prune", "--force", "--json")
+	if err == nil || !strings.Contains(err.Error(), "prune") {
+		t.Errorf("clean error = %v, want prune failure", err)
+	}
+	var rows []struct {
+		Name      string   `json:"name"`
+		Branches  []string `json:"branches"`
+		Deleted   []string `json:"deleted"`
+		Pruned    bool     `json:"pruned"`
+		Error     string   `json:"error"`
+		ErrorCode string   `json:"error_code"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("parse clean JSON: %v\n%s", err, out)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("want both repositories: %s", out)
+	}
+	for _, row := range rows {
+		if !slices.Equal(row.Branches, []string{"merged"}) || !slices.Equal(row.Deleted, []string{"merged"}) {
+			t.Errorf("branch planning/deletion lost for %s: %s", row.Name, out)
+		}
+		switch row.Name {
+		case "broken":
+			if row.Pruned || !strings.Contains(row.Error, "prune") || row.ErrorCode != "git_failure" {
+				t.Errorf("failed prune reported success: %s", out)
+			}
+		case "healthy":
+			if !row.Pruned || row.Error != "" || row.ErrorCode != "" {
+				t.Errorf("successful prune reported failure: %s", out)
+			}
+		default:
+			t.Errorf("unexpected repository: %s", row.Name)
+		}
+	}
+	for _, dir := range []string{broken, healthy} {
+		if branchExists(t, dir, "merged") {
+			t.Errorf("merged branch remains in %s", dir)
+		}
+	}
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", healthy, "show-ref", "--verify", "refs/remotes/origin/gone").CombinedOutput(); err == nil {
+		t.Errorf("stale remote ref remains: %s", out)
+	}
+}
+
+func TestIntegration_CleanPruneFailureWithoutBranches(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+	runGit(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "absent.git"))
+
+	out, err := runSokoErr(t, "clean", "--prune", "--force", "--json")
+	if err == nil {
+		t.Fatal("failed prune without merged branches returned success")
+	}
+	var rows []struct {
+		Pruned    bool   `json:"pruned"`
+		Error     string `json:"error"`
+		ErrorCode string `json:"error_code"`
+	}
+	if json.Unmarshal([]byte(out), &rows) != nil || len(rows) != 1 || rows[0].Pruned || rows[0].Error == "" || rows[0].ErrorCode != "git_failure" {
+		t.Errorf("failed prune without branches hidden: %s", out)
+	}
+
+	text, err := runSokoErr(t, "clean", "--prune", "--force")
+	if err == nil || !strings.Contains(text, "failed to prune") || strings.Contains(text, "deleted 0 stale") {
+		t.Errorf("text mode hid prune failure: output %q, error %v", text, err)
+	}
+}
+
+func TestIntegration_CleanPruneWithoutBranchesReportsSuccess(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	dir := filepath.Join(base, "repo")
+	initRepo(t, dir)
+	runSokoInit(t, dir)
+	remote := filepath.Join(base, "remote.git")
+	runGit(t, base, "init", "--bare", remote)
+	runGit(t, dir, "remote", "add", "origin", remote)
+	runGit(t, dir, "update-ref", "refs/remotes/origin/gone", gitIn(t, dir, "rev-parse", "HEAD"))
+
+	out := runSoko(t, "clean", "--prune", "--force", "--json")
+	var rows []struct {
+		Name   string `json:"name"`
+		Pruned bool   `json:"pruned"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 1 || rows[0].Name != "repo" || !rows[0].Pruned {
+		t.Errorf("successful prune without branches missing: %s (%v)", out, err)
+	}
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", dir, "show-ref", "--verify", "refs/remotes/origin/gone").CombinedOutput(); err == nil {
+		t.Errorf("stale remote ref remains: %s", out)
+	}
+}
+
 func TestIntegration_CleanDeletionOutcomes(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("reference-transaction fixture requires a POSIX shell")
