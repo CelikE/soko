@@ -425,6 +425,10 @@ Summarize recent commit activity across repositories. Options:
 .BI \-\-max " n"
 (max commits per repository, default 5, 0 for all),
 .BI \-\-tag " tag" .
+The default author is read from Git's user.name in the current directory;
+if unavailable, specify an author or use
+.B \-\-all\-authors
+explicitly.
 .\" ----------------------------------
 .TP
 .B soko stats

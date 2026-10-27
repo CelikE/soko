@@ -35,7 +35,8 @@ func newReportCmd() *cobra.Command {
 Built for standups, timesheets, and weekly updates.
 
 By default shows only your commits (based on git config user.name).
-Use --all-authors to include everyone's commits.`,
+If Git cannot resolve user.name from the current directory, use --author
+to choose a name or --all-authors to include everyone's commits.`,
 		Example: `  soko report                         # your commits, last 7 days
   soko report --days 1                # standup: your commits yesterday
   soko report --days 30               # monthly summary
@@ -79,7 +80,10 @@ Use --all-authors to include everyone's commits.`,
 
 			author := authorFlag
 			if author == "" && !allAuthors {
-				author = gitUserName(ctx)
+				author, err = gitUserName(ctx)
+				if err != nil {
+					return err
+				}
 			}
 
 			since := fmt.Sprintf("%d days ago", days)
@@ -109,13 +113,14 @@ Use --all-authors to include everyone's commits.`,
 	return cmd
 }
 
-// gitUserName returns the current git user.name, or empty string on failure.
-func gitUserName(ctx context.Context) string {
+// gitUserName requires a configured author so a default report cannot broaden
+// silently to all authors when Git cannot resolve the current identity.
+func gitUserName(ctx context.Context) (string, error) {
 	name, err := git.Run(ctx, ".", "config", "user.name")
-	if err != nil {
-		return ""
+	if err != nil || name == "" {
+		return "", fmt.Errorf("cannot determine default report author from git config user.name; use --author NAME or --all-authors")
 	}
-	return name
+	return name, nil
 }
 
 // collectReport gathers commit activity across repos.
