@@ -1,10 +1,13 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -130,6 +133,80 @@ func TestIntegration_DiffRepositoryFailures(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestIntegration_DiffJSONPreservesFilenames(t *testing.T) {
+	testEnv(t)
+	dir := filepath.Join(t.TempDir(), "repo")
+	initRepo(t, dir)
+	names := []string{"space name.txt", "päth.txt", "quote\".txt", "-leading.txt", " trailing.txt"}
+	if runtime.GOOS != "windows" {
+		names = append(names, "a:b.txt", "line\nbreak.txt", "endspace ", "tab\tname.txt")
+	}
+	files := make(map[string]string, len(names)+1)
+	for _, name := range names {
+		files[name] = "before\n"
+	}
+	files["old name.txt"] = "renamed\n"
+	writeAndCommit(t, dir, files)
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("after\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.CommandContext(context.Background(), "git", "mv", "old name.txt", "new name.txt")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git mv: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked name.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runSokoInit(t, dir)
+
+	out := runSoko(t, "diff", "--json")
+	var entries []struct {
+		Files []struct {
+			Status       string `json:"status"`
+			Name         string `json:"name"`
+			OriginalName string `json:"original_name"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("parse JSON: %v\n%s", err, out)
+	}
+	if len(entries) != 1 || len(entries[0].Files) != len(names)+2 {
+		t.Fatalf("diff results = %+v, want %d files", entries, len(names)+2)
+	}
+	want := make(map[string]string, len(names)+2)
+	for _, name := range names {
+		want[name] = "M"
+	}
+	want["new name.txt"] = "R"
+	want["untracked name.txt"] = "??"
+	for _, file := range entries[0].Files {
+		status, ok := want[file.Name]
+		if !ok || file.Status != status {
+			t.Errorf("unexpected file: %+v", file)
+			continue
+		}
+		delete(want, file.Name)
+		if file.Name == "new name.txt" && file.OriginalName != "old name.txt" {
+			t.Errorf("rename original_name = %q, want old name.txt", file.OriginalName)
+		} else if file.Name != "new name.txt" && file.OriginalName != "" {
+			t.Errorf("non-rename original_name = %q", file.OriginalName)
+		}
+		if _, err := os.Stat(filepath.Join(dir, file.Name)); err != nil {
+			t.Errorf("JSON filename %q does not identify a real file: %v", file.Name, err)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("missing filenames: %v", want)
+	}
+	text := runSoko(t, "diff")
+	if !strings.Contains(text, `"line\nbreak.txt"`) || !strings.Contains(text, `"old name.txt" -> "new name.txt"`) {
+		t.Errorf("text output should display escaped paths and rename: %q", text)
 	}
 }
 

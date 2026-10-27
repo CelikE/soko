@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -18,7 +20,8 @@ func newDiffCmd() *cobra.Command {
 		Short: "Show uncommitted file changes across repos",
 		Long: `Show a file-level summary of uncommitted changes across all dirty repos.
 Clean repos are silently skipped. Missing paths and Git failures are reported
-per repo and cause a non-zero exit status.`,
+per repo and cause a non-zero exit status. In JSON, file names are actual paths;
+renames and copies use the destination as name and include original_name.`,
 		Example: `  soko diff
   soko diff auth
   soko diff --tag backend`,
@@ -60,7 +63,7 @@ per repo and cause a non-zero exit status.`,
 					continue
 				}
 
-				statusOut, err := git.Run(ctx, repo.Path, "status", "--porcelain")
+				statusOut, err := git.StatusPorcelainZ(ctx, repo.Path)
 				if err != nil {
 					r.Error = err.Error()
 					r.ErrorCode = gitErrorCode(err)
@@ -72,26 +75,7 @@ per repo and cause a non-zero exit status.`,
 					continue
 				}
 
-				lines := strings.Split(statusOut, "\n")
-				var files []diffFile
-				for _, line := range lines {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					// After TrimSpace, format is: "XY filename" or "?? filename".
-					// Split into status and filename at the first space after status.
-					parts := strings.SplitN(line, " ", 2)
-					if len(parts) != 2 {
-						continue
-					}
-					status := parts[0]
-					name := strings.TrimSpace(parts[1])
-					if name == "" {
-						continue
-					}
-					files = append(files, diffFile{Status: status, Name: name})
-				}
+				files := parseDiffPorcelainZ(statusOut)
 
 				if len(files) > 0 {
 					r.Files = files
@@ -131,16 +115,20 @@ per repo and cause a non-zero exit status.`,
 					output.Dim(fmt.Sprintf("(%d files)", len(r.Files))))
 
 				for _, f := range r.Files {
+					name := displayDiffName(f.Name)
+					if f.OriginalName != "" {
+						name = displayDiffName(f.OriginalName) + " -> " + name
+					}
 					var colored string
 					switch {
 					case strings.Contains(f.Status, "M"):
-						colored = output.Yellow(fmt.Sprintf("    %s  %s", f.Status, f.Name))
+						colored = output.Yellow(fmt.Sprintf("    %s  %s", f.Status, name))
 					case strings.Contains(f.Status, "A"):
-						colored = output.Green(fmt.Sprintf("    %s  %s", f.Status, f.Name))
+						colored = output.Green(fmt.Sprintf("    %s  %s", f.Status, name))
 					case strings.Contains(f.Status, "D"):
-						colored = output.Red(fmt.Sprintf("    %s  %s", f.Status, f.Name))
+						colored = output.Red(fmt.Sprintf("    %s  %s", f.Status, name))
 					default:
-						colored = output.Dim(fmt.Sprintf("    %s  %s", f.Status, f.Name))
+						colored = output.Dim(fmt.Sprintf("    %s  %s", f.Status, name))
 					}
 					_, _ = fmt.Fprintln(w, colored)
 				}
@@ -174,8 +162,42 @@ type diffResult struct {
 }
 
 type diffFile struct {
-	Status string `json:"status"`
-	Name   string `json:"name"`
+	Status       string `json:"status"`
+	Name         string `json:"name"`
+	OriginalName string `json:"original_name,omitempty"`
+}
+
+// parseDiffPorcelainZ reads XY SP path NUL records. For renames and copies,
+// Git puts the destination first and the original path in a second NUL record.
+func parseDiffPorcelainZ(out string) []diffFile {
+	var files []diffFile
+	for out != "" {
+		var record string
+		var ok bool
+		record, out, ok = strings.Cut(out, "\x00")
+		if !ok || len(record) < 4 || record[2] != ' ' {
+			break
+		}
+		file := diffFile{Status: strings.TrimSpace(record[:2]), Name: record[3:]}
+		if strings.ContainsAny(record[:2], "RC") {
+			file.OriginalName, out, ok = strings.Cut(out, "\x00")
+			if !ok {
+				break
+			}
+		}
+		files = append(files, file)
+	}
+	return files
+}
+
+// Keep control characters from splitting text rows; JSON still carries raw paths.
+func displayDiffName(name string) string {
+	if strings.IndexFunc(name, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) || r == '"' || r == '\\'
+	}) >= 0 {
+		return strconv.Quote(name)
+	}
+	return name
 }
 
 func renderDiffJSON(w io.Writer, results []diffResult) error {
