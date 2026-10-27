@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -114,7 +115,7 @@ func TestIntegration_DocFixMissingBaseWithLiveWorktree(t *testing.T) {
 			linked := filepath.Join(root, "linked")
 			away := filepath.Join(root, "api-away")
 			other := filepath.Join(root, "other")
-			cmd := exec.Command("git", "init", "-b", "main", "--separate-git-dir", admin, base)
+			cmd := exec.CommandContext(context.Background(), "git", "init", "-b", "main", "--separate-git-dir", admin, base)
 			cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("init separate-admin repo: %v\n%s", err, out)
