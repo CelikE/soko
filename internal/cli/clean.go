@@ -19,14 +19,15 @@ import (
 )
 
 type cleanResult struct {
-	Name      string               `json:"name"`
-	Path      string               `json:"path"`
-	Branches  []string             `json:"branches"`
-	Deleted   []string             `json:"deleted,omitempty"`
-	Failed    []cleanBranchFailure `json:"failed,omitempty"`
-	Pruned    bool                 `json:"pruned,omitempty"`
-	Error     string               `json:"error,omitempty"`
-	ErrorCode string               `json:"error_code,omitempty"`
+	Name        string               `json:"name"`
+	Path        string               `json:"path"`
+	Branches    []string             `json:"branches"`
+	Deleted     []string             `json:"deleted,omitempty"`
+	Failed      []cleanBranchFailure `json:"failed,omitempty"`
+	Pruned      bool                 `json:"pruned,omitempty"`
+	Error       string               `json:"error,omitempty"`
+	ErrorCode   string               `json:"error_code,omitempty"`
+	pruneFailed bool
 }
 
 type cleanBranchFailure struct {
@@ -43,8 +44,10 @@ func newCleanCmd() *cobra.Command {
 (main/master). Skips the default branch and branches checked out in any worktree.
 
 Use --dry-run to preview what would be deleted. Branch deletion failures cause
-a non-zero exit status, including with --json. JSON keeps the planned branches
-and adds deleted and failed outcomes; failures include error and error_code.`,
+a non-zero exit status, including with --json. Failed remote pruning also causes
+a non-zero exit status, but does not prevent branch deletion. JSON keeps the
+planned branches and adds deleted, failed, and pruned outcomes; failures include
+error and error_code.`,
 		Example: `  soko clean --dry-run               # preview stale branches
   soko clean                         # delete with confirmation
   soko clean --force                 # delete without confirmation
@@ -86,12 +89,24 @@ and adds deleted and failed outcomes; failures include error and error_code.`,
 			}
 
 			results := findStaleBranches(ctx, repos, prune)
+			pruneFailures := 0
+			for i := range results {
+				if results[i].pruneFailed {
+					pruneFailures++
+				}
+			}
+			pruneError := func() error {
+				if pruneFailures > 0 {
+					return fmt.Errorf("failed to prune remote refs in %d %s", pruneFailures, output.Plural(pruneFailures, "repo"))
+				}
+				return nil
+			}
 
 			// Filter to repos that have stale branches.
 			var withBranches []cleanResult
 			for i := range results {
 				r := &results[i]
-				if len(r.Branches) > 0 || r.Error != "" {
+				if len(r.Branches) > 0 || r.Error != "" || (jsonFlag && r.Pruned) {
 					withBranches = append(withBranches, *r)
 				}
 			}
@@ -99,10 +114,10 @@ and adds deleted and failed outcomes; failures include error and error_code.`,
 			if len(withBranches) == 0 {
 				if jsonFlag {
 					_, _ = fmt.Fprintln(w, "[]")
-					return nil
+					return pruneError()
 				}
 				output.Info(w, "all clean — no merged branches to delete")
-				return nil
+				return pruneError()
 			}
 
 			// Optional interactive refinement: let the user deselect repos
@@ -116,13 +131,16 @@ and adds deleted and failed outcomes; failures include error and error_code.`,
 				chosen, ok := selectRepos(cmd, "Select repos to clean (space toggles, enter confirms):", entries)
 				if !ok {
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  aborted")
-					return nil
+					return pruneError()
 				}
 				withBranches = filterCleanResults(withBranches, chosen)
 			}
 
 			if jsonFlag && dryRun {
-				return output.RenderJSON(w, withBranches)
+				if err := output.RenderJSON(w, withBranches); err != nil {
+					return err
+				}
+				return pruneError()
 			}
 
 			if !jsonFlag {
@@ -130,7 +148,7 @@ and adds deleted and failed outcomes; failures include error and error_code.`,
 			}
 
 			if dryRun {
-				return nil
+				return pruneError()
 			}
 
 			// Confirm unless --force or --json (machine consumers pass --force explicitly).
@@ -146,12 +164,12 @@ and adds deleted and failed outcomes; failures include error and error_code.`,
 
 				scanner := bufio.NewScanner(cmd.InOrStdin())
 				if !scanner.Scan() {
-					return nil
+					return pruneError()
 				}
 				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
 				if answer != "y" && answer != "yes" {
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "  aborted")
-					return nil
+					return pruneError()
 				}
 			}
 
@@ -182,9 +200,16 @@ and adds deleted and failed outcomes; failures include error and error_code.`,
 			// A partial failure is a real failure: return an error so it stays
 			// visible (the error path is never gated by --quiet) and the exit
 			// code is non-zero, matching pull/fetch/stash.
+			if failed > 0 && pruneFailures > 0 {
+				return fmt.Errorf("deleted %d %s, %d failed to delete; %w",
+					deleted, output.Plural(deleted, "branch"), failed, pruneError())
+			}
 			if failed > 0 {
 				return fmt.Errorf("deleted %d %s, %d failed to delete",
 					deleted, output.Plural(deleted, "branch"), failed)
+			}
+			if pruneFailures > 0 {
+				return pruneError()
 			}
 			if jsonFlag {
 				return nil
@@ -266,14 +291,18 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			}
 
 			if prune {
-				_, _ = git.Run(ctx, repo.Path, "remote", "prune", "origin")
-				r.Pruned = true
+				if _, err := git.Run(ctx, repo.Path, "remote", "prune", "origin"); err != nil {
+					r.pruneFailed = true
+					r.Error = fmt.Sprintf("failed to prune remote refs: %v", err)
+					r.ErrorCode = gitErrorCode(err)
+				} else {
+					r.Pruned = true
+				}
 			}
 
 			defBranch := defaultBranch(ctx, repo.Path)
 			if defBranch == "" {
-				r.Error = "could not detect default branch"
-				r.ErrorCode = codeGitFailure
+				r.addError("could not detect default branch", codeGitFailure)
 				results[i] = r
 				return nil
 			}
@@ -284,8 +313,7 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 			merged, err := git.Run(ctx, repo.Path, "for-each-ref", "--merged="+defBranch,
 				"--format=%(refname)%00%(worktreepath)", "refs/heads/")
 			if err != nil {
-				r.Error = "failed to list merged branches"
-				r.ErrorCode = gitErrorCode(err)
+				r.addError("failed to list merged branches", gitErrorCode(err))
 				results[i] = r
 				return nil
 			}
@@ -315,6 +343,17 @@ func findStaleBranches(ctx context.Context, repos []config.RepoEntry, prune bool
 	return results
 }
 
+// addError retains a prior prune failure when later branch inspection or
+// deletion also fails. The first error code remains the primary JSON code.
+func (r *cleanResult) addError(message, code string) {
+	if r.Error != "" {
+		r.Error += "; " + message
+		return
+	}
+	r.Error = message
+	r.ErrorCode = code
+}
+
 // renderCleanTable prints the stale branches table.
 func renderCleanTable(w io.Writer, results []cleanResult) {
 	nameWidth := len("REPO")
@@ -333,7 +372,7 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 	totalBranches := 0
 	for i := range results {
 		r := &results[i]
-		if r.Error != "" {
+		if r.Error != "" && len(r.Branches) == 0 {
 			_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, output.Red(r.Error))
 			continue
 		}
@@ -347,6 +386,9 @@ func renderCleanTable(w io.Writer, results []cleanResult) {
 		line := strings.Join(shown, ", ")
 		if remaining > 0 {
 			line += fmt.Sprintf(" (+%d more)", remaining)
+		}
+		if r.Error != "" {
+			line += "  " + output.Red(r.Error)
 		}
 		_, _ = fmt.Fprintf(w, "  %-*s %s\n", nameWidth, r.Name, line)
 		totalBranches += len(r.Branches)
@@ -374,7 +416,7 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 
 	for i := range results {
 		r := &results[i]
-		if r.Error != "" {
+		if r.Error != "" && !r.pruneFailed {
 			continue
 		}
 		g.Go(func() error {
@@ -408,8 +450,7 @@ func deleteBranches(ctx context.Context, results []cleanResult) (refs []journal.
 				mu.Unlock()
 			}
 			if len(r.Failed) > 0 {
-				r.Error = fmt.Sprintf("%d %s failed to delete", len(r.Failed), output.Plural(len(r.Failed), "branch"))
-				r.ErrorCode = codeGitFailure
+				r.addError(fmt.Sprintf("%d %s failed to delete", len(r.Failed), output.Plural(len(r.Failed), "branch")), codeGitFailure)
 			}
 			return nil
 		})
