@@ -1,11 +1,58 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// A checkout can remain on disk after its Git directory is moved away. It is
+// neither missing nor a verified clean repository.
+func TestIntegration_StatsFailedReadAndUnborn(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	valid := filepath.Join(base, "valid")
+	broken := filepath.Join(base, "broken")
+	unborn := filepath.Join(base, "unborn")
+	for _, dir := range []string{valid, broken} {
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+	if err := os.Mkdir(unborn, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(context.Background(), "git", "init", "-b", "main", unborn)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init unborn: %v: %s", err, out)
+	}
+	runSokoInit(t, unborn)
+	if err := os.Rename(filepath.Join(broken, ".git"), filepath.Join(base, "moved-git")); err != nil {
+		t.Fatal(err)
+	}
+
+	var summary struct {
+		Repos        int `json:"repos"`
+		Clean        int `json:"clean"`
+		Dirty        int `json:"dirty"`
+		Errors       int `json:"errors"`
+		NoRemote     int `json:"no_remote"`
+		TotalCommits int `json:"total_commits"`
+	}
+	out := runSoko(t, "stats", "--json")
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		t.Fatalf("stats JSON: %v: %s", err, out)
+	}
+	if summary.Repos != 3 || summary.Clean != 2 || summary.Dirty != 0 || summary.Errors != 1 || summary.NoRemote != 2 || summary.TotalCommits != 1 {
+		t.Errorf("stats = %+v, want 2 clean (valid and unborn), 1 error, 2 without remotes and 1 commit", summary)
+	}
+	if text := runSoko(t, "stats"); !strings.Contains(text, "errors") || !strings.Contains(text, "1 repo") {
+		t.Errorf("stats text omits read error: %s", text)
+	}
+}
 
 func TestIntegration_StatsOverview(t *testing.T) {
 	testEnv(t)

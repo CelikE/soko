@@ -34,6 +34,7 @@ type repoStats struct {
 	path          string
 	tags          []string
 	missing       bool
+	readError     bool
 	hasRemote     bool
 	dirty         bool
 	behind        int
@@ -61,6 +62,7 @@ type statsSummary struct {
 	StaleRepos     int           `json:"stale_repos"`
 	NoRemote       int           `json:"no_remote"`
 	Missing        int           `json:"missing,omitempty"`
+	Errors         int           `json:"errors,omitempty"`
 	ActivityDays   int           `json:"activity_days"`
 	RecentCommits  int           `json:"recent_commits"`
 	ActiveRepos    int           `json:"active_repos"`
@@ -163,17 +165,23 @@ func collectStats(cmd *cobra.Command, repos []config.RepoEntry) []repoStats {
 }
 
 func collectRepoStats(ctx context.Context, path string, r *repoStats) {
-	if out, err := git.Run(ctx, path, "remote"); err == nil {
-		r.hasRemote = out != ""
+	status, err := git.ParseStatus(ctx, path)
+	if err != nil {
+		r.readError = true
+		return
 	}
+	r.changes = status.Modified + status.Untracked + status.Deleted
+	r.dirty = r.changes+status.Conflicts > 0
+	r.behind = status.Behind
+	r.conflicts = status.Conflicts
+	r.detached = status.Branch == detachedBranch
 
-	if status, err := git.ParseStatus(ctx, path); err == nil {
-		r.changes = status.Modified + status.Untracked + status.Deleted
-		r.dirty = r.changes+status.Conflicts > 0
-		r.behind = status.Behind
-		r.conflicts = status.Conflicts
-		r.detached = status.Branch == detachedBranch
+	remote, err := git.Run(ctx, path, "remote")
+	if err != nil {
+		r.readError = true
+		return
 	}
+	r.hasRemote = remote != ""
 
 	if out, err := git.Run(ctx, path, "rev-list", "--count", "HEAD"); err == nil {
 		if n, convErr := strconv.Atoi(out); convErr == nil {
@@ -181,7 +189,12 @@ func collectRepoStats(ctx context.Context, path string, r *repoStats) {
 		}
 	}
 
-	if out, err := git.Run(ctx, path, "for-each-ref", "--format=%(committerdate:unix)", "refs/heads"); err == nil && out != "" {
+	out, err := git.Run(ctx, path, "for-each-ref", "--format=%(committerdate:unix)", "refs/heads")
+	if err != nil {
+		r.readError = true
+		return
+	}
+	if out != "" {
 		cutoff := time.Now().Add(-staleBranchDays * 24 * time.Hour).Unix()
 		for line := range strings.SplitSeq(out, "\n") {
 			if line == "" {
@@ -259,6 +272,10 @@ func buildStatsSummary(repos []config.RepoEntry, stats []repoStats) statsSummary
 			s.Missing++
 			continue
 		}
+		if r.readError {
+			s.Errors++
+			continue
+		}
 		s.TotalCommits += r.commits
 		s.TotalBranches += r.branches
 		s.TotalSizeBytes += r.sizeBytes
@@ -323,6 +340,9 @@ func renderStats(w io.Writer, s *statsSummary) {
 	}
 	if s.Missing > 0 {
 		healthRows = append(healthRows, [2]string{"missing", fmt.Sprintf("%d %s", s.Missing, output.Plural(s.Missing, "repo"))})
+	}
+	if s.Errors > 0 {
+		healthRows = append(healthRows, [2]string{"errors", fmt.Sprintf("%d %s", s.Errors, output.Plural(s.Errors, "repo"))})
 	}
 	section(w, "HEALTH", healthRows)
 

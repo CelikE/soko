@@ -135,3 +135,31 @@ func TestIntegration_HealthNoRepos(t *testing.T) {
 		t.Errorf("health = %q, want 'no repos'", out)
 	}
 }
+
+func TestIntegration_HealthFailedRead(t *testing.T) {
+	testEnv(t)
+	base := t.TempDir()
+	for _, name := range []string{"valid", "broken"} {
+		dir := filepath.Join(base, name)
+		initRepo(t, dir)
+		runSokoInit(t, dir)
+	}
+	if err := os.Rename(filepath.Join(base, "broken", ".git"), filepath.Join(base, "moved-git")); err != nil {
+		t.Fatal(err)
+	}
+	var entries []struct {
+		Name     string   `json:"name"`
+		Severity string   `json:"severity"`
+		Reasons  []string `json:"reasons"`
+	}
+	out := runSoko(t, "health", "--json")
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("health JSON: %v: %s", err, out)
+	}
+	if len(entries) != 2 || entries[0].Name != "broken" || entries[0].Severity != "crit" || len(entries[0].Reasons) == 0 || entries[0].Reasons[0] != "read error" || entries[1].Name != "valid" {
+		t.Errorf("health = %+v, want broken read error ranked before valid", entries)
+	}
+	if text := runSoko(t, "health"); !strings.Contains(text, "read error") || !strings.Contains(text, "1 crit") {
+		t.Errorf("health text = %s, want visible read error", text)
+	}
+}

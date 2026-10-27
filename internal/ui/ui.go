@@ -44,6 +44,7 @@ type Row struct {
 	Reasons    []string // human-readable health reasons (from scoreRepo)
 	WorktreeOf string   // parent repo name when this row is a linked worktree
 	Missing    bool
+	ReadError  bool // status inspection failed, but checkout path still exists
 }
 
 // firstTag is the tag a row is grouped under in grouped view; "" means the row

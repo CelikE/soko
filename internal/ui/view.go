@@ -417,6 +417,9 @@ func (m *Model) healthBadge(r *Row) string {
 	if r.Missing {
 		return styleCrit.Render(output.SymConflict + " missing")
 	}
+	if r.ReadError {
+		return styleCrit.Render(output.SymConflict + " error")
+	}
 	switch r.Severity {
 	case SevCrit:
 		return styleCrit.Render(output.SymConflict + " crit")
