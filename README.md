@@ -1139,6 +1139,30 @@ make test
 Development linting uses **golangci-lint v2.14.0**, built with Go 1.27 or newer,
 matching CI. Run `make lint` to check the code before submitting changes.
 
+### Local checks and manual CI
+
+CI is opt-in: pushes, pull requests, and schedules do not start test workflows.
+Run checks locally before merging:
+
+```bash
+make lint
+make test                           # full suite with race detection
+make man-check
+python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+```
+
+When needed, use **Actions → Run workflow** or dispatch from the CLI:
+
+```bash
+gh workflow run ci.yml --ref master        # lint/config checks, Linux race/coverage, Windows smoke
+gh workflow run platform.yml --ref master  # full macOS and Windows suites
+gh workflow run race.yml --ref master      # macOS and Windows race suites
+```
+
+Use a branch name instead of `master` to verify pending changes. Local checks
+validate the host platform only; use manual workflows for other platforms.
+Tag-driven release publishing and the Winget release workflow remain automatic.
+
 ## Dependencies
 
 soko is a single binary with minimal dependencies. No CGo, no git libraries — it shells out to the `git` CLI directly.
@@ -1154,8 +1178,8 @@ soko is a single binary with minimal dependencies. No CGo, no git libraries — 
 ## Releasing
 
 Maintain user-facing changes in `CHANGELOG.md` and merge an audited PR into
-`master`. Run `make release-check` (requires GoReleaser and mandoc) and wait for
-Linux and Windows CI to pass before tagging the release:
+`master`. Run `make release-check` (requires GoReleaser and mandoc), dispatch
+`ci.yml` manually, and wait for Linux and Windows CI to pass before tagging:
 
 ```bash
 git tag -a v0.22.0 -m "Release v0.22.0"

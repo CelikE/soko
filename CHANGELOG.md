@@ -11,6 +11,7 @@
 
 ### Maintenance
 
+- Make CI, full-platform, and cross-platform race workflows manual-only; run checks locally by default and retain opt-in Actions runs without changing release publishing.
 - Document command-specific JSON capabilities, empty results, partial-error policies, interactive exceptions, and the intentional `--perf` `repos`/`timing` envelope; verify published examples against CLI execution (issue #353).
 - Document contents-only workspace context switches: saved tracked edits return unstaged, untracked files remain untracked, and failed-save rollback still attempts index recovery; cover staged, mixed, unstaged, and untracked round trips (issue #350).
 - Keep pull request CI to lint/config validation, Linux race coverage, and a native Windows build/PowerShell smoke check; move full macOS and Windows suites to nightly/manual runs so routine merges do not wait for sequential platform integration tests.
