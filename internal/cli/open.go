@@ -12,13 +12,17 @@ import (
 	"github.com/CelikE/soko/internal/output"
 )
 
+var openBrowser = browser.Open
+
 // newOpenCmd creates the cobra command for soko open.
 func newOpenCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "open [name]",
 		Short: "Open a repo in the browser",
 		Long: `Open a repo's remote URL in the default browser. If no name is given,
-opens the repo in the current directory. Use flags to jump to specific
+opens the registered checkout containing the current directory. Linked worktrees
+and submodules are selected only when their own checkout is registered.
+Use flags to jump to specific
 pages like pull requests, issues, or CI/CD.
 
 Use --tag to open every matching repo. It cannot be combined with a repo name.`,
@@ -72,16 +76,21 @@ Use --tag to open every matching repo. It cannot be combined with a repo name.`,
 				}
 				repos = matches
 			default:
-				// Current directory.
+				// Select the current checkout, not a parent checkout or another
+				// worktree sharing the same Git directory or remote.
 				dir, err := os.Getwd()
 				if err != nil {
 					return fmt.Errorf("getting working directory: %w", err)
+				}
+				root, err := git.Toplevel(ctx, dir)
+				if err != nil {
+					return fmt.Errorf("not inside a git repository")
 				}
 				cfg, err := config.Load()
 				if err != nil {
 					return fmt.Errorf("loading config: %w", err)
 				}
-				entry, err := config.FindRepoByPath(cfg, dir)
+				entry, err := config.FindRepoByPath(cfg, root)
 				if err != nil {
 					return fmt.Errorf("current directory is not a registered repo — run soko init first")
 				}
@@ -135,7 +144,7 @@ Use --tag to open every matching repo. It cannot be combined with a repo name.`,
 				baseURL := browser.RemoteToHTTPS(remote)
 				fullURL := baseURL + browser.SubPagePath(baseURL, page)
 
-				if err := browser.Open(fullURL); err != nil {
+				if err := openBrowser(fullURL); err != nil {
 					failed++
 					if jsonFlag {
 						jsonResults = append(jsonResults, openResultJSON{

@@ -622,7 +622,7 @@ clean up later (`soko remove`, `soko list --tag discovered`).
 ### Open in browser
 
 ```bash
-soko open                           # current repo homepage
+soko open                           # registered checkout containing cwd (also from nested dirs)
 soko open auth-service              # by name
 soko open --prs                     # pull/merge requests
 soko open --issues                  # issues
@@ -632,6 +632,10 @@ soko open --tag backend --prs       # PRs for all backend repos
 ```
 
 Supports GitHub, GitLab, and Bitbucket — auto-detects the platform from the remote URL.
+Without a name or tag, `open` selects the registered Git checkout containing the current directory.
+Linked worktrees and submodules use their own checkout roots: an unregistered one does not fall back
+to its parent, even if that parent is registered. Outside a Git checkout, shorthand is unavailable;
+explicit names and tags still work.
 Choose either one repo name or `--tag`; combining them returns an error before opening any browser tabs.
 
 ### Manage repos
