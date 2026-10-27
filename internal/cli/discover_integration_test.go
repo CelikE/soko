@@ -148,6 +148,41 @@ func TestIntegration_DiscoverHook_RespectsRoots(t *testing.T) {
 	}
 }
 
+func TestIntegration_DiscoverHook_FilesystemRoot(t *testing.T) {
+	testEnv(t)
+	root := t.TempDir()
+	filesystemRoot := filepath.VolumeName(root) + string(os.PathSeparator)
+	repo := filepath.Join(root, "eligible")
+	ignored := filepath.Join(root, "vendor", "ignored")
+	initRepo(t, repo)
+	initRepo(t, ignored)
+
+	runSoko(t, "discover", "on", "--root", filesystemRoot)
+	_, stderr := runSokoFull(t, "discover", "hook", repo)
+	if !strings.Contains(stderr, "discovered eligible") {
+		t.Errorf("hook stderr = %q, want registration", stderr)
+	}
+	_, stderr = runSokoFull(t, "discover", "hook", repo)
+	if stderr != "" {
+		t.Errorf("repeat hook stderr = %q, want silence", stderr)
+	}
+	_, stderr = runSokoFull(t, "discover", "hook", ignored)
+	if stderr != "" {
+		t.Errorf("ignored hook stderr = %q, want silence", stderr)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("loading config: %v", err)
+	}
+	if len(cfg.Discover.Roots) != 1 || cfg.Discover.Roots[0] != resolve(t, filesystemRoot) {
+		t.Fatalf("persisted roots = %v, want [%s]", cfg.Discover.Roots, resolve(t, filesystemRoot))
+	}
+	if len(cfg.Repos) != 1 || cfg.Repos[0].Path != resolve(t, repo) {
+		t.Fatalf("persisted repos = %+v, want only %q", cfg.Repos, resolve(t, repo))
+	}
+}
+
 func TestIntegration_DiscoverHook_SkipsBuiltinIgnore(t *testing.T) {
 	testEnv(t)
 	repo := filepath.Join(t.TempDir(), "node_modules", "dep")
