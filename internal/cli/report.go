@@ -23,8 +23,10 @@ type reportCommit struct {
 type reportResult struct {
 	Name    string         `json:"name"`
 	Path    string         `json:"path"`
-	Branch  string         `json:"branch"`
-	Commits []reportCommit `json:"commits"`
+	Branch  string         `json:"branch,omitempty"`
+	Commits []reportCommit `json:"commits,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Code    string         `json:"error_code,omitempty"`
 }
 
 func newReportCmd() *cobra.Command {
@@ -36,7 +38,13 @@ Built for standups, timesheets, and weekly updates.
 
 By default shows only your commits (based on git config user.name).
 If Git cannot resolve user.name from the current directory, use --author
-to choose a name or --all-authors to include everyone's commits.`,
+to choose a name or --all-authors to include everyone's commits.
+
+An unreadable or missing selected repository makes the report incomplete:
+successful activity is still shown, but the command exits non-zero. JSON is
+an array of active repositories plus failure entries (name, path, error,
+error_code); inactive repositories are omitted. An empty array means every
+selected repository was read successfully and none had matching activity.`,
 		Example: `  soko report                         # your commits, last 7 days
   soko report --days 1                # standup: your commits yesterday
   soko report --days 30               # monthly summary
@@ -87,19 +95,32 @@ to choose a name or --all-authors to include everyone's commits.`,
 			}
 
 			since := fmt.Sprintf("%d days ago", days)
-			active, inactive := collectReport(ctx, repos, since, author)
-
-			if jsonFlag {
-				return output.RenderJSON(w, active)
-			}
-
-			if len(active) == 0 {
-				output.Info(w, fmt.Sprintf("no activity in the last %d %s", days, output.Plural(days, "day")))
+			active, inactive, failed := collectReport(ctx, repos, since, author)
+			completionError := func() error {
+				if len(failed) > 0 {
+					return fmt.Errorf("report incomplete: failed to inspect %d of %d %s", len(failed), len(repos), output.Plural(len(repos), "repo"))
+				}
 				return nil
 			}
 
-			renderReport(w, active, inactive, days, maxCommits)
-			return nil
+			if jsonFlag {
+				if err := output.RenderJSON(w, append(active, failed...)); err != nil {
+					return err
+				}
+				return completionError()
+			}
+
+			if len(active) == 0 {
+				if len(failed) == 0 {
+					output.Info(w, fmt.Sprintf("no activity in the last %d %s", days, output.Plural(days, "day")))
+				}
+			} else {
+				renderReport(w, active, inactive, days, maxCommits)
+			}
+			for _, r := range failed {
+				output.Fail(cmd.ErrOrStderr(), fmt.Sprintf("%s (%s): %s", r.Name, r.Path, r.Error))
+			}
+			return completionError()
 		},
 	}
 
@@ -123,15 +144,25 @@ func gitUserName(ctx context.Context) (string, error) {
 	return name, nil
 }
 
-// collectReport gathers commit activity across repos.
-func collectReport(ctx context.Context, repos []config.RepoEntry, since, author string) (active []reportResult, inactive []string) {
+// collectReport separates read failures from successfully inspected inactive repos.
+func collectReport(ctx context.Context, repos []config.RepoEntry, since, author string) (active []reportResult, inactive []string, failed []reportResult) {
 	active = make([]reportResult, 0)
+	failed = make([]reportResult, 0)
 	for _, repo := range repos {
 		if !pathExists(repo.Path) {
+			failed = append(failed, reportResult{Name: repo.Name, Path: repo.Path, Error: "path not found", Code: codePathMissing})
 			continue
 		}
 
-		branch, _ := git.Run(ctx, repo.Path, "rev-parse", "--abbrev-ref", "HEAD")
+		branch, branchErr := git.Run(ctx, repo.Path, "rev-parse", "--abbrev-ref", "HEAD")
+		if branchErr != nil && !isUnbornReportRepo(ctx, repo.Path) {
+			failed = append(failed, reportResult{Name: repo.Name, Path: repo.Path, Error: branchErr.Error(), Code: gitErrorCode(branchErr)})
+			continue
+		}
+		if branchErr != nil {
+			inactive = append(inactive, repo.Name)
+			continue
+		}
 
 		gitArgs := []string{"log", "--format=%s\x1f%aI", "--since=" + since}
 		if author != "" {
@@ -139,7 +170,11 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 		}
 
 		out, err := git.Run(ctx, repo.Path, gitArgs...)
-		if err != nil || out == "" {
+		if err != nil {
+			failed = append(failed, reportResult{Name: repo.Name, Path: repo.Path, Error: err.Error(), Code: gitErrorCode(err)})
+			continue
+		}
+		if out == "" {
 			inactive = append(inactive, repo.Name)
 			continue
 		}
@@ -172,7 +207,26 @@ func collectReport(ctx context.Context, repos []config.RepoEntry, since, author 
 		return len(active[i].Commits) > len(active[j].Commits)
 	})
 
-	return active, inactive
+	return active, inactive, failed
+}
+
+// An unborn branch has no HEAD commit for git log to inspect, but is a valid
+// checkout with no activity. Do not mistake a broken Git directory for one.
+func isUnbornReportRepo(ctx context.Context, path string) bool {
+	inside, err := git.Run(ctx, path, "rev-parse", "--is-inside-work-tree")
+	if err != nil || inside != "true" {
+		return false
+	}
+	ref, err := git.Run(ctx, path, "symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return false
+	}
+	_, err = git.Run(ctx, path, "show-ref", "--verify", "--quiet", ref)
+	if err == nil {
+		return false
+	}
+	_, err = git.Run(ctx, path, "status", "--porcelain")
+	return err == nil
 }
 
 // renderReport prints the report to w.

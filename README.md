@@ -418,6 +418,27 @@ The default author comes from `git config user.name` in the current directory.
 If Git cannot resolve it (for example, outside a repo without a global name),
 specify `--author` or opt in to `--all-authors`.
 
+Reports are complete by default: a missing checkout or failed Git read causes
+exit status 1, even if other repos have activity. Successful activity remains
+on stdout; text errors identify each failed repo on stderr (also with `--quiet`).
+An inactive repo (including one with no commits yet) is not an error. When all
+selected repos are readable but none have matching commits, `--json` returns
+`[]` and exits 0. When any read fails, JSON remains an array of active results
+plus failure entries containing `name`, `path`, `error`, and `error_code`;
+inactive repos are omitted. For example, a partial report may contain:
+
+```json
+[
+  {"name":"api","path":"/repos/api","branch":"main","commits":[{"message":"Fix login","time":"2026-10-27T09:00:00Z"}]},
+  {"name":"missing","path":"/repos/missing","error":"path not found","error_code":"path_missing"}
+]
+```
+
+Git inspection errors use `git_failure` (or a more specific Git error code).
+Failure-only selections return only failure entries and exit 1. Repo names and
+tags narrow the selected set before inspection; `--author` remains a literal
+substring filter, and `--all-authors` is still opt-in.
+
 ### Triage repo health
 
 ```bash
