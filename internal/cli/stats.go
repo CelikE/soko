@@ -94,6 +94,9 @@ activity over the last 30 days.`,
 			}
 
 			if len(repos) == 0 {
+				if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+					return output.RenderJSON(w, buildStatsSummary(repos, nil))
+				}
 				output.Info(w, noReposMessage(len(cfg.Repos)))
 				return nil
 			}

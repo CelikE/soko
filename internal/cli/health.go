@@ -87,8 +87,7 @@ aggregating workspace totals. Read-only: it never fetches or mutates a repo.`,
 			}
 
 			if len(repos) == 0 {
-				output.Info(w, noReposMessage(len(cfg.Repos)))
-				return nil
+				return renderNoRepos(cmd, len(cfg.Repos))
 			}
 
 			collected := collectStats(cmd, repos)

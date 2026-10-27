@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,10 +37,33 @@ func noReposMessage(totalRepos int) string {
 func renderNoRepos(cmd *cobra.Command, totalRepos int) error {
 	w := cmd.OutOrStdout()
 	if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
-		return output.RenderJSON(w, []any{})
+		return renderEmptySelectionJSON(cmd)
 	}
 	output.Info(w, noReposMessage(totalRepos))
 	return nil
+}
+
+// renderNoMatchingRepos preserves the text hint while keeping JSON selections
+// machine-readable. A missing name is a successful empty selection.
+func renderNoMatchingRepos(cmd *cobra.Command, names []string) error {
+	if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+		return renderEmptySelectionJSON(cmd)
+	}
+	output.Info(cmd.OutOrStdout(), fmt.Sprintf("no repos found matching: %s", strings.Join(names, ", ")))
+	return nil
+}
+
+func renderEmptySelectionJSON(cmd *cobra.Command) error {
+	w := cmd.OutOrStdout()
+	// Parallel commands wrap their arrays in the same timing envelope used for
+	// nonempty results. No work was started, so timing and row counts are zero.
+	switch cmd.Name() {
+	case "status", "fetch", "pull", "sync":
+		if output.Perf() {
+			return output.RenderPerfJSON(w, []any{}, output.BuildTiming(nil, 0, maxConcurrency))
+		}
+	}
+	return output.RenderJSON(w, []any{})
 }
 
 // renderMissingHint prints a non-destructive warning nudging the user to run

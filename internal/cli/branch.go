@@ -97,13 +97,11 @@ func runBranchOverview(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		repos = findReposMatching(repos, args[1:])
 		if len(repos) == 0 {
-			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args[1:], ", ")))
-			return nil
+			return renderNoMatchingRepos(cmd, args[1:])
 		}
 	}
 	if len(repos) == 0 {
-		output.Info(w, noReposMessage(len(cfg.Repos)))
-		return nil
+		return renderNoRepos(cmd, len(cfg.Repos))
 	}
 
 	rows := collectBranchRows(ctx, repos, lookup)
@@ -339,8 +337,7 @@ func runBranchSwitch(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
 		repos = findReposMatching(repos, args[1:])
 		if len(repos) == 0 {
-			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args[1:], ", ")))
-			return nil
+			return renderNoMatchingRepos(cmd, args[1:])
 		}
 	}
 	// Linked checkouts share branch refs with their base repo. Switching them
@@ -588,13 +585,11 @@ func runBranchStale(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		repos = findReposMatching(repos, args)
 		if len(repos) == 0 {
-			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
-			return nil
+			return renderNoMatchingRepos(cmd, args)
 		}
 	}
 	if len(repos) == 0 {
-		output.Info(w, noReposMessage(len(cfg.Repos)))
-		return nil
+		return renderNoRepos(cmd, len(cfg.Repos))
 	}
 
 	results := make([]staleResult, len(repos))

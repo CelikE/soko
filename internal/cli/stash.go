@@ -80,14 +80,12 @@ func runStashPush(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		repos = findReposMatching(repos, args)
 		if len(repos) == 0 {
-			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
-			return nil
+			return renderNoMatchingRepos(cmd, args)
 		}
 	}
 
 	if len(repos) == 0 {
-		output.Info(w, noReposMessage(len(cfg.Repos)))
-		return nil
+		return renderNoRepos(cmd, len(cfg.Repos))
 	}
 
 	jsonFlag, _ := cmd.Flags().GetBool("json")
@@ -200,14 +198,12 @@ func runStashPop(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		repos = findReposMatching(repos, args)
 		if len(repos) == 0 {
-			output.Info(w, fmt.Sprintf("no repos found matching: %s", strings.Join(args, ", ")))
-			return nil
+			return renderNoMatchingRepos(cmd, args)
 		}
 	}
 
 	if len(repos) == 0 {
-		output.Info(w, noReposMessage(len(cfg.Repos)))
-		return nil
+		return renderNoRepos(cmd, len(cfg.Repos))
 	}
 
 	jsonFlag, _ := cmd.Flags().GetBool("json")
