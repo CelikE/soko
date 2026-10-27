@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+- Reject default activity reports when Git cannot resolve `user.name` from the invocation directory, instead of silently including every author; use `--author` or `--all-authors` to select scope explicitly (issue #344).
 - Distinguish failed Git reads from clean repositories in `soko stats`, rank them as read errors in `soko health`, and show error badges in the live dashboard without misclassifying unborn repositories (issue #343).
 - Return exact filesystem paths in `soko diff --json` for special-character filenames; report rename/copy destinations in `name` and sources in `original_name` (issue #342).
 - Emit valid empty JSON for successful zero-repository and filtered selections across list, status, remotes, diff, report, stats, health, branch, stash, clean, fetch, pull, and sync; preserve stats' object and parallel commands' perf envelope, even with `--quiet` (issue #341).

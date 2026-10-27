@@ -414,6 +414,10 @@ soko report --all-authors           # everyone's commits
 soko report --author "John"         # specific author
 ```
 
+The default author comes from `git config user.name` in the current directory.
+If Git cannot resolve it (for example, outside a repo without a global name),
+specify `--author` or opt in to `--all-authors`.
+
 ### Triage repo health
 
 ```bash

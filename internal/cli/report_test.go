@@ -71,6 +71,69 @@ func TestIntegration_ReportAuthorFilter(t *testing.T) {
 	}
 }
 
+func TestIntegration_ReportUnresolvedDefaultAuthor(t *testing.T) {
+	testEnv(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	base := t.TempDir()
+	first := filepath.Join(base, "first")
+	second := filepath.Join(base, "second")
+	initRepo(t, first)
+	initRepo(t, second)
+	runGit(t, first, "config", "user.name", "First Author")
+	runGit(t, second, "config", "user.name", "Second Author")
+	runGit(t, first, "commit", "--allow-empty", "-m", "first author commit")
+	runGit(t, first, "commit", "--allow-empty", "--author=Other Person <other@example.invalid>", "-m", "other author commit")
+	runGit(t, first, "commit", "--allow-empty", "--author=Global Author <global@example.invalid>", "-m", "global author commit")
+	runGit(t, second, "commit", "--allow-empty", "-m", "second author commit")
+	runSokoInit(t, first)
+	runSokoInit(t, second)
+
+	// No cwd-local or global identity: default must not silently become all authors.
+	t.Chdir(base)
+	for _, jsonOut := range []bool{false, true} {
+		args := []string{"report"}
+		if jsonOut {
+			args = append(args, "--json")
+		}
+		out, err := runSokoErr(t, args...)
+		if err == nil || !strings.Contains(err.Error(), "--author") || !strings.Contains(err.Error(), "--all-authors") {
+			t.Errorf("report (json=%v) error = %v, want author selection guidance", jsonOut, err)
+		}
+		if out != "" {
+			t.Errorf("report (json=%v) stdout = %q, want no unfiltered results", jsonOut, out)
+		}
+	}
+
+	// Explicit selections work outside Git; literal filter must exclude other authors.
+	out := runSoko(t, "report", "--author", "First Author", "--json")
+	if !strings.Contains(out, "first author commit") || strings.Contains(out, "other author commit") || strings.Contains(out, "global author commit") || strings.Contains(out, "second author commit") {
+		t.Errorf("explicit author report = %q, want only first author's commit", out)
+	}
+	out = runSoko(t, "report", "--all-authors", "--json")
+	for _, message := range []string{"first author commit", "other author commit", "global author commit", "second author commit"} {
+		if !strings.Contains(out, message) {
+			t.Errorf("all-authors report = %q, missing %q", out, message)
+		}
+	}
+
+	// Global identity remains usable when invoked outside a repository.
+	globalConfig := filepath.Join(base, "global.gitconfig")
+	runGit(t, base, "config", "--file", globalConfig, "user.name", "Global Author")
+	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+	out = runSoko(t, "report", "--json")
+	if !strings.Contains(out, "global author commit") || strings.Contains(out, "first author commit") || strings.Contains(out, "other author commit") || strings.Contains(out, "second author commit") {
+		t.Errorf("global default author report = %q, want only global author's commit", out)
+	}
+
+	// A cwd-local identity still filters results across registered repositories.
+	t.Chdir(first)
+	out = runSoko(t, "report", "--json")
+	if !strings.Contains(out, "first author commit") || strings.Contains(out, "other author commit") || strings.Contains(out, "global author commit") || strings.Contains(out, "second author commit") {
+		t.Errorf("default report inside repo = %q, want only cwd author's commit", out)
+	}
+}
+
 func TestIntegration_ReportLiteralAuthor(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
