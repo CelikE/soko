@@ -1201,24 +1201,6 @@ soko is a single binary with minimal dependencies. No CGo, no git libraries — 
 | [golang.org/x/sync](https://pkg.go.dev/golang.org/x/sync) | Parallel execution |
 | [golang.org/x/term](https://pkg.go.dev/golang.org/x/term) | Interactive picker (raw terminal) |
 
-## Releasing
-
-Maintain user-facing changes in `CHANGELOG.md` and merge an audited PR into
-`master`. Run `make release-check` (requires GoReleaser and mandoc), dispatch
-`ci.yml` manually, and wait for Linux and Windows CI to pass before tagging:
-
-```bash
-git tag -a v0.22.0 -m "Release v0.22.0"
-git push origin v0.22.0
-```
-
-Use the next appropriate semantic version for subsequent releases. The tag
-triggers GoReleaser to publish binaries, checksums, package updates, and
-GitHub-native release notes. Before publishing, the workflow synchronizes
-`CelikE/winget-pkgs` with Microsoft upstream using `WINGET_TOKEN`; the published
-release then triggers the Windows manifest submission workflow. The `.changes`
-directory is a historical archive; new releases use `CHANGELOG.md` directly.
-
 ## License
 
 [MIT](../LICENSE)
